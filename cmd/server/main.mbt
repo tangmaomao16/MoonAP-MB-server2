@@ -82,6 +82,24 @@ async fn moonap_server(
       read_text_or_default(runtime_log_path(), "MoonAP runtime log is empty.\n"),
       "text/plain; charset=utf-8",
     )
+  } else if request.meth == Get && path == "/api/codex-threads-dev/manifest" {
+    send_json(conn, 200, codex_threads_dev_manifest_json())
+  } else if request.meth == Post && path == "/api/human-sim/actions" {
+    let payload = body.read_all().text()
+    persist_human_sim_payload(
+      conn,
+      "actions",
+      payload,
+      "application/json; charset=utf-8",
+    )
+  } else if request.meth == Post && path == "/api/human-sim/feedback" {
+    let payload = body.read_all().text()
+    persist_human_sim_payload(
+      conn,
+      "feedback",
+      payload,
+      "text/markdown; charset=utf-8",
+    )
   } else if request.meth == Get && path.contains("/api/skills/run-plan") {
     let skill_hint = if path.contains("finance") || path.contains("excel") {
       "finance excel"
@@ -188,12 +206,22 @@ async fn initialize_runtime_session() -> String {
   let run_id = "run-" + @core.async_runtime_marker().to_string()
   let root = "logs/runs/" + run_id
   let codex_root = root + "/codex-demo"
+  let human_root = root + "/human-sim"
+  let runtime_exec_root = root + "/runtime-exec"
+  let skill_export_root = root + "/skill-export"
   ensure_directory("logs")
   ensure_directory("logs/runs")
   ensure_directory(root)
   ensure_directory(codex_root + "/inbox")
   ensure_directory(codex_root + "/outbox")
   ensure_directory(codex_root + "/state")
+  ensure_directory(human_root + "/actions")
+  ensure_directory(human_root + "/observations")
+  ensure_directory(human_root + "/feedback")
+  ensure_directory(human_root + "/state")
+  ensure_directory(runtime_exec_root)
+  ensure_directory(skill_export_root)
+  ensure_directory(skill_export_root + "/program")
   let runtime_log = root + "/moonap-runtime.log"
   let manifest = "{\n" +
     "  \"run_id\": " +
@@ -207,6 +235,15 @@ async fn initialize_runtime_session() -> String {
     ",\n" +
     "  \"codex_demo_root\": " +
     json_string(codex_root) +
+    ",\n" +
+    "  \"human_sim_root\": " +
+    json_string(human_root) +
+    ",\n" +
+    "  \"runtime_exec_root\": " +
+    json_string(runtime_exec_root) +
+    ",\n" +
+    "  \"skill_export_root\": " +
+    json_string(skill_export_root) +
     "\n" +
     "}\n"
   @fs.write_file("logs/current-run-dir.txt", root + "\n", create=0o644)
@@ -271,6 +308,41 @@ async fn codex_demo_state_dir() -> String {
 }
 
 ///|
+async fn human_sim_root() -> String {
+  current_runtime_dir() + "/human-sim"
+}
+
+///|
+async fn human_sim_actions_dir() -> String {
+  human_sim_root() + "/actions"
+}
+
+///|
+async fn human_sim_feedback_dir() -> String {
+  human_sim_root() + "/feedback"
+}
+
+///|
+async fn human_sim_observations_dir() -> String {
+  human_sim_root() + "/observations"
+}
+
+///|
+async fn human_sim_state_dir() -> String {
+  human_sim_root() + "/state"
+}
+
+///|
+async fn runtime_exec_root() -> String {
+  current_runtime_dir() + "/runtime-exec"
+}
+
+///|
+async fn skill_export_root() -> String {
+  current_runtime_dir() + "/skill-export"
+}
+
+///|
 async fn read_text_or_default(path : String, fallback : String) -> String {
   if @fs.exists(path) {
     @fs.read_file(path).text()
@@ -309,6 +381,114 @@ async fn append_runtime_log(
   let next = existing + payload
   @fs.write_file(path, next, create=0o644)
   send_text(conn, 200, payload, content_type)
+}
+
+///|
+async fn persist_human_sim_payload(
+  conn : @http.ServerConnection,
+  channel : String,
+  payload : String,
+  content_type : String,
+) -> Unit {
+  let directory = if channel == "actions" {
+    human_sim_actions_dir()
+  } else {
+    human_sim_feedback_dir()
+  }
+  let latest_suffix = if content_type.contains("json") {
+    ".json"
+  } else if channel == "actions" {
+    ".txt"
+  } else {
+    ".md"
+  }
+  let state_path = if channel == "actions" {
+    human_sim_state_dir() + "/latest-action" + latest_suffix
+  } else {
+    human_sim_state_dir() + "/latest-feedback" + latest_suffix
+  }
+  ensure_directory(directory)
+  ensure_directory(human_sim_state_dir())
+  let extension = if channel == "actions" { ".json" } else { latest_suffix }
+  let path = directory + "/" + channel + "-" +
+    @core.async_runtime_marker().to_string() + extension
+  @fs.write_file(path, payload, create=0o644)
+  @fs.write_file(state_path, payload, create=0o644)
+  append_text_file(
+    runtime_log_directory(),
+    runtime_log_path(),
+    "{\"ts\":" +
+    json_string(@core.async_runtime_marker().to_string()) +
+    ",\"kind\":\"human-sim\",\"label\":" +
+    json_string(channel + "-received") +
+    ",\"text\":" +
+    json_string(path) +
+    "}\n",
+  )
+  send_text(conn, 200, payload, content_type)
+}
+
+///|
+async fn codex_threads_dev_manifest_json() -> String {
+  let run_id = current_runtime_dir()
+  let codex_root = codex_demo_root()
+  let human_root = human_sim_root()
+  let human_actions = human_sim_actions_dir()
+  let human_feedback = human_sim_feedback_dir()
+  let human_observations = human_sim_observations_dir()
+  let human_state = human_sim_state_dir()
+  let runtime_root = runtime_exec_root()
+  let skill_root = skill_export_root()
+  "{\n" +
+  "  \"mode\": \"codex-threads-dev\",\n" +
+  "  \"developer_thread_required\": true,\n" +
+  "  \"enable_simulated_user_thread\": true,\n" +
+  "  \"enable_simulated_llm_thread\": true,\n" +
+  "  \"run_root\": " +
+  json_string(run_id) +
+  ",\n" +
+  "  \"codex_demo_root\": " +
+  json_string(codex_root) +
+  ",\n" +
+  "  \"human_sim_root\": " +
+  json_string(human_root) +
+  ",\n" +
+  "  \"human_sim_actions_dir\": " +
+  json_string(human_actions) +
+  ",\n" +
+  "  \"human_sim_feedback_dir\": " +
+  json_string(human_feedback) +
+  ",\n" +
+  "  \"human_sim_observations_dir\": " +
+  json_string(human_observations) +
+  ",\n" +
+  "  \"human_sim_state_dir\": " +
+  json_string(human_state) +
+  ",\n" +
+  "  \"runtime_exec_root\": " +
+  json_string(runtime_root) +
+  ",\n" +
+  "  \"skill_export_root\": " +
+  json_string(skill_root) +
+  ",\n" +
+  "  \"docs\": [\n" +
+  "    " +
+  json_string("docs/modes/codex-threads-dev-mode.md") +
+  ",\n" +
+  "    " +
+  json_string("docs/modes/codex-threads-dev/protocol-spec.md") +
+  ",\n" +
+  "    " +
+  json_string("docs/modes/codex-threads-dev/developer-thread.md") +
+  ",\n" +
+  "    " +
+  json_string("docs/modes/codex-threads-dev/simulated-user-thread.md") +
+  ",\n" +
+  "    " +
+  json_string("docs/modes/codex-threads-dev/simulated-llm-thread.md") +
+  "\n" +
+  "  ]\n" +
+  "}\n"
 }
 
 ///|

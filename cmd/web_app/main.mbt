@@ -116,9 +116,12 @@ extern "js" fn browser_render_artifact_card(
   #|   const runtimeCard = runtimeReady || runtimeDone;
   #|   if (runtimeCard) {
   #|     card.className += runtimeDone ? " action-card-runtime is-complete" : " action-card-runtime is-awaiting";
-  #|     const runtimeUi = runtimeRequest?.runtime_ui && typeof runtimeRequest.runtime_ui === "object" ? runtimeRequest.runtime_ui : {};
-  #|     const runtimeFields = Array.isArray(runtimeUi.fields) ? runtimeUi.fields : [];
+  #|     const runtimeSpec = runtimeRequest?.runtime_spec && typeof runtimeRequest.runtime_spec === "object"
+  #|       ? runtimeRequest.runtime_spec
+  #|       : (runtimeRequest?.runtime_ui && typeof runtimeRequest.runtime_ui === "object" ? runtimeRequest.runtime_ui : {});
+  #|     const runtimeFields = Array.isArray(runtimeSpec.fields) ? runtimeSpec.fields : [];
   #|     const taskKind = String(runtimeRequest?.task_kind || "");
+  #|     const runtimeMode = String(runtimeRequest?.runtime_mode || runtimeSpec?.mode || "");
   #|     const isFastqRuntime = taskKind === "fastq-generator";
   #|     const eyebrow = runtimeDone ? "Runtime result" : "Runtime ready";
   #|     const statusHtml = runtimeDone
@@ -144,7 +147,7 @@ extern "js" fn browser_render_artifact_card(
   #|       : "";
   #|     const primaryAction = runtimeDone
   #|       ? (allowSave ? '<button id="savePersonalSkill" class="primary" type="button">Save to Personal-SKILL-Set</button>' : '')
-  #|       : `<button id="recordDemoRuntimeResult" class="primary" type="button">${String(runtimeUi?.primary_action_label || "Run runtime step")}</button>`;
+  #|       : `<button id="recordDemoRuntimeResult" class="primary" type="button">${String(runtimeSpec?.action_label || runtimeSpec?.primary_action_label || (runtimeMode === "interactive" ? "Run game" : "Run runtime step"))}</button>`;
   #|     const secondaryActions = [
   #|       wasmUrl ? '<button id="downloadRuntimeWasm" class="secondary" type="button">Download wasm</button>' : '',
   #|       sourceUrl ? '<button id="downloadRuntimeSource" class="secondary" type="button">Download source</button>' : '',
@@ -242,8 +245,11 @@ extern "js" fn browser_record_demo_runtime_result(
   #|     const sourceUrl = String(runtimeRequest.source_url || "");
   #|     const wasmUrl = String(runtimeRequest.wasm_url || "");
   #|     const taskKind = String(runtimeRequest.task_kind || "");
-  #|     const runtimeUi = runtimeRequest?.runtime_ui && typeof runtimeRequest.runtime_ui === "object" ? runtimeRequest.runtime_ui : {};
-  #|     const runtimeFields = Array.isArray(runtimeUi.fields) ? runtimeUi.fields : [];
+  #|     const runtimeMode = String(runtimeRequest.runtime_mode || "");
+  #|     const runtimeSpec = runtimeRequest?.runtime_spec && typeof runtimeRequest.runtime_spec === "object"
+  #|       ? runtimeRequest.runtime_spec
+  #|       : (runtimeRequest?.runtime_ui && typeof runtimeRequest.runtime_ui === "object" ? runtimeRequest.runtime_ui : {});
+  #|     const runtimeFields = Array.isArray(runtimeSpec.fields) ? runtimeSpec.fields : [];
   #|     const runtimeInputs = {};
   #|     for (const field of runtimeFields) {
   #|       const name = String(field?.name || "");
@@ -258,9 +264,7 @@ extern "js" fn browser_record_demo_runtime_result(
   #|           ? Number.parseFloat(text)
   #|           : text;
   #|     }
-  #|     const isFastqRuntime = taskKind === "fastq-generator";
-  #|     let payload;
-  #|     if (isFastqRuntime) {
+  #|     const buildFastqPayload = () => {
   #|       const readCount = Math.max(1, Math.min(1000000, Number(runtimeInputs.read_count) || 10000));
   #|       const readLength = Math.max(1, Math.min(10000, Number(runtimeInputs.read_length) || 150));
   #|       const nRate = Math.max(0, Math.min(1, Number(runtimeInputs.n_rate) || 0.01));
@@ -296,7 +300,7 @@ extern "js" fn browser_record_demo_runtime_result(
   #|       link.click();
   #|       link.remove();
   #|       setTimeout(() => URL.revokeObjectURL(url), 1000);
-  #|       payload = {
+  #|       return {
   #|         run_id: String(runtimeRequest.run_id || ""),
   #|         request_id: requestId,
   #|         status: "runtime-succeeded",
@@ -309,20 +313,47 @@ extern "js" fn browser_record_demo_runtime_result(
   #|         download_content: "",
   #|         accepted_for_skill: false
   #|       };
-  #|     } else {
-  #|       payload = {
+  #|     };
+  #|     const buildGenericPayload = (summary, displayText, resultKind = "text") => {
+  #|       return {
   #|         run_id: String(runtimeRequest.run_id || ""),
   #|         request_id: requestId,
   #|         status: "runtime-succeeded",
-  #|         result_kind: "text",
+  #|         result_kind: resultKind,
   #|         runtime_inputs: runtimeInputs,
-  #|         summary: "MoonAP recorded a browser-side demo runtime result for the compiled wasm artifact.",
-  #|         display_text: `Demo runtime result recorded for ${requestId}. Source URL: ${sourceUrl || "n/a"}. wasm URL: ${wasmUrl || "n/a"}.`,
-  #|         stdout_text: "Demo runtime result recorded from the browser placeholder executor.",
+  #|         summary,
+  #|         display_text: displayText,
+  #|         stdout_text: `Browser-local runtime step completed for ${requestId}.`,
   #|         download_name: "runtime-preview.txt",
-  #|         download_content: `MoonAP demo runtime result\nrequest_id: ${requestId}\nsource_url: ${sourceUrl}\nwasm_url: ${wasmUrl}\n`,
+  #|         download_content: `MoonAP runtime result\nrequest_id: ${requestId}\ntask_kind: ${taskKind}\nsource_url: ${sourceUrl}\nwasm_url: ${wasmUrl}\n`,
   #|         accepted_for_skill: false
   #|       };
+  #|     };
+  #|     let payload;
+  #|     if (taskKind === "fastq-generator") {
+  #|       payload = buildFastqPayload();
+  #|     } else if (taskKind === "excel-generator") {
+  #|       payload = buildGenericPayload(
+  #|         "MoonAP prepared an Excel-like generator runtime step. Download-oriented browser generation is the next task-specific executor to implement.",
+  #|         `Task kind: ${taskKind}\nruntime_mode: ${runtimeMode}\nThe runtime form has been rendered from runtime_spec. A dedicated Excel generator executor is still pending.`
+  #|       );
+  #|     } else if (taskKind === "fastq-analysis" || taskKind === "finance-report-analysis") {
+  #|       payload = buildGenericPayload(
+  #|         "MoonAP prepared an analysis runtime step. File-input analysis executor is still pending.",
+  #|         `Task kind: ${taskKind}\nruntime_mode: ${runtimeMode}\nThe browser can now distinguish file-analysis tasks, but the task-specific analysis executor is still pending.`,
+  #|         "report"
+  #|       );
+  #|     } else if (taskKind === "browser-game") {
+  #|       payload = buildGenericPayload(
+  #|         "MoonAP prepared an interactive game runtime step. Interactive host execution is still pending.",
+  #|         `Task kind: ${taskKind}\nruntime_mode: ${runtimeMode}\nThe browser can now distinguish interactive tasks, but the task-specific game host is still pending.`,
+  #|         "interactive-view"
+  #|       );
+  #|     } else {
+  #|       payload = buildGenericPayload(
+  #|         "MoonAP recorded a browser-side runtime result for the compiled wasm artifact.",
+  #|         `Demo runtime result recorded for ${requestId}. Source URL: ${sourceUrl || "n/a"}. wasm URL: ${wasmUrl || "n/a"}.`
+  #|       );
   #|     }
   #|     const response = await fetch("/api/task/execute", {
   #|       method: "POST",

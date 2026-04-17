@@ -23,6 +23,7 @@ MoonAP documentation is organized by purpose.
 
 - [Codex Demo Mode](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/modes/codex-demo-mode.md)
 - [Codex Threads Dev Mode](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/modes/codex-threads-dev-mode.md)
+- [Lightweight Task Runtime Abstraction](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/architecture/lightweight-task-runtime-abstraction.md)
 - [Codex-threads-dev FastQ Milestone](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/experiments/codex-threads-dev/2026-04-17-gpt54-fastq-codegen-milestone.md)
 - [Project Summary Handoff](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/architecture/project-summary-codex-handoff.md)
 - [Three-Thread Simulation Notes](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/notes/three-thread-codex-simulation-notes.md)

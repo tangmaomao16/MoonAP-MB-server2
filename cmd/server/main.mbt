@@ -1043,7 +1043,9 @@ fn runtime_exec_request_json_from_fields(
   let task_kind = runtime_task_kind_from_context(
     task_title, original_prompt, source_text,
   )
-  let runtime_ui_json = runtime_ui_json_for_task_kind(task_kind)
+  let runtime_mode = runtime_mode_for_task_kind(task_kind)
+  let result_mode = result_mode_for_task_kind(task_kind)
+  let runtime_spec_json = runtime_spec_json_for_task_kind(task_kind)
   "{\n" +
   "  \"run_id\": " +
   json_string(run_id) +
@@ -1056,6 +1058,12 @@ fn runtime_exec_request_json_from_fields(
   ",\n" +
   "  \"task_kind\": " +
   json_string(task_kind) +
+  ",\n" +
+  "  \"runtime_mode\": " +
+  json_string(runtime_mode) +
+  ",\n" +
+  "  \"result_mode\": " +
+  json_string(result_mode) +
   ",\n" +
   "  \"status\": \"ready-for-runtime\",\n" +
   "  \"wasm_path\": " +
@@ -1076,8 +1084,11 @@ fn runtime_exec_request_json_from_fields(
   "  \"raw_response_url\": " +
   json_string(base_url + "&kind=raw-response") +
   ",\n" +
+  "  \"runtime_spec\": " +
+  runtime_spec_json +
+  ",\n" +
   "  \"runtime_ui\": " +
-  runtime_ui_json +
+  runtime_spec_json +
   ",\n" +
   "  \"result_delivery\": {\n" +
   "    \"show_in_browser\": true,\n" +
@@ -1085,6 +1096,32 @@ fn runtime_exec_request_json_from_fields(
   "    \"save_skill_after_user_accepts\": true\n" +
   "  }\n" +
   "}\n"
+}
+
+///|
+fn runtime_mode_for_task_kind(task_kind : String) -> String {
+  if task_kind == "fastq-generator" || task_kind == "excel-generator" {
+    "form"
+  } else if task_kind == "fastq-analysis" || task_kind == "finance-report-analysis" {
+    "file"
+  } else if task_kind == "browser-game" {
+    "interactive"
+  } else {
+    "form"
+  }
+}
+
+///|
+fn result_mode_for_task_kind(task_kind : String) -> String {
+  if task_kind == "fastq-generator" || task_kind == "excel-generator" {
+    "download"
+  } else if task_kind == "fastq-analysis" || task_kind == "finance-report-analysis" {
+    "report"
+  } else if task_kind == "browser-game" {
+    "interactive"
+  } else {
+    "text"
+  }
 }
 
 ///|
@@ -1098,10 +1135,17 @@ fn runtime_task_kind_from_context(
     haystack.contains("FastQ") ||
     haystack.contains("FASTQ") {
     "fastq-generator"
+  } else if haystack.contains("financial") ||
+    haystack.contains("Financial") ||
+    haystack.contains("finance") ||
+    haystack.contains("Finance") ||
+    haystack.contains("report") ||
+    haystack.contains("Report") {
+    "finance-report-analysis"
   } else if haystack.contains("excel") ||
     haystack.contains("Excel") ||
     haystack.contains("EXCEL") {
-    "excel-analysis"
+    "excel-generator"
   } else if haystack.contains("game") ||
     haystack.contains("Game") ||
     haystack.contains("GAME") {
@@ -1112,7 +1156,7 @@ fn runtime_task_kind_from_context(
 }
 
 ///|
-fn runtime_ui_json_for_task_kind(task_kind : String) -> String {
+fn runtime_spec_json_for_task_kind(task_kind : String) -> String {
   if task_kind == "fastq-generator" {
     "{\n" +
     "    \"mode\": \"form\",\n" +
@@ -1155,11 +1199,68 @@ fn runtime_ui_json_for_task_kind(task_kind : String) -> String {
     "      }\n" +
     "    ]\n" +
     "  }"
+  } else if task_kind == "excel-generator" {
+    "{\n" +
+    "    \"mode\": \"form\",\n" +
+    "    \"title\": \"Generate financial spreadsheet\",\n" +
+    "    \"action_label\": \"Run generator\",\n" +
+    "    \"fields\": [\n" +
+    "      {\n" +
+    "        \"name\": \"row_count\",\n" +
+    "        \"label\": \"Row count\",\n" +
+    "        \"type\": \"int\",\n" +
+    "        \"default\": 120,\n" +
+    "        \"min\": 1,\n" +
+    "        \"max\": 100000,\n" +
+    "        \"step\": 1\n" +
+    "      },\n" +
+    "      {\n" +
+    "        \"name\": \"company_name\",\n" +
+    "        \"label\": \"Company name\",\n" +
+    "        \"type\": \"text\",\n" +
+    "        \"default\": \"MoonAP Finance\"\n" +
+    "      },\n" +
+    "      {\n" +
+    "        \"name\": \"currency\",\n" +
+    "        \"label\": \"Currency\",\n" +
+    "        \"type\": \"text\",\n" +
+    "        \"default\": \"USD\"\n" +
+    "      },\n" +
+    "      {\n" +
+    "        \"name\": \"random_seed\",\n" +
+    "        \"label\": \"Random seed\",\n" +
+    "        \"type\": \"int\",\n" +
+    "        \"default\": 42,\n" +
+    "        \"step\": 1\n" +
+    "      }\n" +
+    "    ]\n" +
+    "  }"
+  } else if task_kind == "fastq-analysis" {
+    "{\n" +
+    "    \"mode\": \"file\",\n" +
+    "    \"title\": \"Analyze FastQ file\",\n" +
+    "    \"action_label\": \"Run analysis\",\n" +
+    "    \"fields\": []\n" +
+    "  }"
+  } else if task_kind == "finance-report-analysis" {
+    "{\n" +
+    "    \"mode\": \"file\",\n" +
+    "    \"title\": \"Analyze financial report\",\n" +
+    "    \"action_label\": \"Run analysis\",\n" +
+    "    \"fields\": []\n" +
+    "  }"
+  } else if task_kind == "browser-game" {
+    "{\n" +
+    "    \"mode\": \"interactive\",\n" +
+    "    \"title\": \"Launch browser game\",\n" +
+    "    \"action_label\": \"Run game\",\n" +
+    "    \"fields\": []\n" +
+    "  }"
   } else {
     "{\n" +
     "    \"mode\": \"action\",\n" +
     "    \"title\": \"Run browser-local step\",\n" +
-    "    \"primary_action_label\": \"Run runtime step\",\n" +
+    "    \"action_label\": \"Run runtime step\",\n" +
     "    \"fields\": []\n" +
     "  }"
   }

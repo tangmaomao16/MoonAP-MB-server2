@@ -1,0 +1,1888 @@
+{
+  "experiment_name": "Free LLM models ability of generating MoonBit code",
+  "status": "completed",
+  "generated_at": "2026-04-16T15:34:02.677Z",
+  "prompt_protocol": {
+    "system_prompt": "You write MoonBit code.\nReturn only cmd/main/main.mbt.\nNo markdown fences.\nNo explanations.",
+    "user_prompt_mode": "task-only"
+  },
+  "benchmarks": [
+    {
+      "id": "L1",
+      "title": "Smallest valid MoonBit program",
+      "goal": "Write cmd/main/main.mbt only. main must return the string \"hello moonbit\". No imports. No helper functions."
+    },
+    {
+      "id": "L2",
+      "title": "One helper plus main",
+      "goal": "Write cmd/main/main.mbt only. Define exactly one helper that returns \"hello moonbit\". main must call the helper and return its result. No imports."
+    },
+    {
+      "id": "L3",
+      "title": "Simple control flow",
+      "goal": "Write cmd/main/main.mbt only. main must return exactly \"ABC\" using compact deterministic control flow. No imports. No randomness."
+    }
+  ],
+  "models": [
+    {
+      "provider": "gemini",
+      "model": "gemini-3-flash-preview",
+      "base_url": "https://generativelanguage.googleapis.com",
+      "api_test": {
+        "status": "failed",
+        "message": "Timed out after 8s",
+        "latency_ms": null,
+        "http_status": null,
+        "timeout": true,
+        "non_json_response": false
+      },
+      "benchmarks": {
+        "L1": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L2": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L3": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        }
+      },
+      "notes": {
+        "stalled_or_long_no_response": true,
+        "parser_drift_notes": "",
+        "language_drift_notes": "",
+        "final_recommendation_note": ""
+      }
+    },
+    {
+      "provider": "gemini",
+      "model": "gemini-3.1-flash-lite-preview",
+      "base_url": "https://generativelanguage.googleapis.com",
+      "api_test": {
+        "status": "failed",
+        "message": "Timed out after 8s",
+        "latency_ms": null,
+        "http_status": null,
+        "timeout": true,
+        "non_json_response": false
+      },
+      "benchmarks": {
+        "L1": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L2": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L3": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        }
+      },
+      "notes": {
+        "stalled_or_long_no_response": true,
+        "parser_drift_notes": "",
+        "language_drift_notes": "",
+        "final_recommendation_note": ""
+      }
+    },
+    {
+      "provider": "gemini",
+      "model": "gemini-2.5-flash",
+      "base_url": "https://generativelanguage.googleapis.com",
+      "api_test": {
+        "status": "failed",
+        "message": "Timed out after 8s",
+        "latency_ms": null,
+        "http_status": null,
+        "timeout": true,
+        "non_json_response": false
+      },
+      "benchmarks": {
+        "L1": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L2": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L3": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        }
+      },
+      "notes": {
+        "stalled_or_long_no_response": true,
+        "parser_drift_notes": "",
+        "language_drift_notes": "",
+        "final_recommendation_note": ""
+      }
+    },
+    {
+      "provider": "gemini",
+      "model": "gemini-2.5-flash-lite",
+      "base_url": "https://generativelanguage.googleapis.com",
+      "api_test": {
+        "status": "failed",
+        "message": "Timed out after 8s",
+        "latency_ms": null,
+        "http_status": null,
+        "timeout": true,
+        "non_json_response": false
+      },
+      "benchmarks": {
+        "L1": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L2": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L3": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        }
+      },
+      "notes": {
+        "stalled_or_long_no_response": true,
+        "parser_drift_notes": "",
+        "language_drift_notes": "",
+        "final_recommendation_note": ""
+      }
+    },
+    {
+      "provider": "gemini",
+      "model": "gemini-2-flash-lite",
+      "base_url": "https://generativelanguage.googleapis.com",
+      "api_test": {
+        "status": "failed",
+        "message": "Timed out after 8s",
+        "latency_ms": null,
+        "http_status": null,
+        "timeout": true,
+        "non_json_response": false
+      },
+      "benchmarks": {
+        "L1": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L2": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L3": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        }
+      },
+      "notes": {
+        "stalled_or_long_no_response": true,
+        "parser_drift_notes": "",
+        "language_drift_notes": "",
+        "final_recommendation_note": ""
+      }
+    },
+    {
+      "provider": "gemini",
+      "model": "gemini-2-flash",
+      "base_url": "https://generativelanguage.googleapis.com",
+      "api_test": {
+        "status": "failed",
+        "message": "Timed out after 8s",
+        "latency_ms": null,
+        "http_status": null,
+        "timeout": true,
+        "non_json_response": false
+      },
+      "benchmarks": {
+        "L1": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L2": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L3": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        }
+      },
+      "notes": {
+        "stalled_or_long_no_response": true,
+        "parser_drift_notes": "",
+        "language_drift_notes": "",
+        "final_recommendation_note": ""
+      }
+    },
+    {
+      "provider": "zai",
+      "model": "glm-5.1",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "api_test": {
+        "status": "ok",
+        "message": "OK",
+        "latency_ms": 3524,
+        "http_status": null,
+        "timeout": false,
+        "non_json_response": false
+      },
+      "benchmarks": {
+        "L1": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "compile-input",
+          "repair_attempts_used": 2,
+          "assisted_pass": true,
+          "final_compile_exit_code": 0,
+          "final_compile_summary_kind": "none",
+          "final_source_bytes": 38,
+          "first_codegen_response_latency_ms": 13667,
+          "total_time_to_first_compile_success_ms": 25503
+        },
+        "L2": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "syntax-error",
+          "repair_attempts_used": 1,
+          "assisted_pass": true,
+          "final_compile_exit_code": 0,
+          "final_compile_summary_kind": "none",
+          "final_source_bytes": 76,
+          "first_codegen_response_latency_ms": 9533,
+          "total_time_to_first_compile_success_ms": 16679
+        },
+        "L3": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "compile-input",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "name-resolution-error",
+          "final_source_bytes": 26,
+          "first_codegen_response_latency_ms": 16051,
+          "total_time_to_first_compile_success_ms": null
+        }
+      },
+      "notes": {
+        "stalled_or_long_no_response": false,
+        "parser_drift_notes": "",
+        "language_drift_notes": "",
+        "final_recommendation_note": "Not yet reliable for MoonBit benchmark L3."
+      }
+    },
+    {
+      "provider": "zai",
+      "model": "glm-5-turbo",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "api_test": {
+        "status": "ok",
+        "message": "OK",
+        "latency_ms": 926,
+        "http_status": null,
+        "timeout": false,
+        "non_json_response": false
+      },
+      "benchmarks": {
+        "L1": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "syntax-error",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "syntax-error",
+          "final_source_bytes": 41,
+          "first_codegen_response_latency_ms": 7374,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L2": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "compile-input",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "syntax-error",
+          "final_source_bytes": 91,
+          "first_codegen_response_latency_ms": 21551,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L3": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "compile-input",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "compile-input",
+          "final_source_bytes": 0,
+          "first_codegen_response_latency_ms": 16532,
+          "total_time_to_first_compile_success_ms": null
+        }
+      },
+      "notes": {
+        "stalled_or_long_no_response": false,
+        "parser_drift_notes": "",
+        "language_drift_notes": "",
+        "final_recommendation_note": "Not yet reliable for MoonBit benchmark L3."
+      }
+    },
+    {
+      "provider": "zai",
+      "model": "glm-5",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "api_test": {
+        "status": "ok",
+        "message": "OK",
+        "latency_ms": 1163,
+        "http_status": null,
+        "timeout": false,
+        "non_json_response": false
+      },
+      "benchmarks": {
+        "L1": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "compile-input",
+          "repair_attempts_used": 1,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "request-error",
+          "final_source_bytes": 0,
+          "first_codegen_response_latency_ms": 12137,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L2": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "compile-input",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "compile-input",
+          "final_source_bytes": 0,
+          "first_codegen_response_latency_ms": 11575,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L3": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "compile-input",
+          "repair_attempts_used": 2,
+          "assisted_pass": true,
+          "final_compile_exit_code": 0,
+          "final_compile_summary_kind": "none",
+          "final_source_bytes": 28,
+          "first_codegen_response_latency_ms": 11143,
+          "total_time_to_first_compile_success_ms": 30300
+        }
+      },
+      "notes": {
+        "stalled_or_long_no_response": false,
+        "parser_drift_notes": "",
+        "language_drift_notes": "网络错误，错误id 202604162338040a25e5359333454c ，请联系客服。",
+        "final_recommendation_note": "Usable with compiler-guided repair."
+      }
+    },
+    {
+      "provider": "zai",
+      "model": "glm-4.7",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "api_test": {
+        "status": "ok",
+        "message": "OK",
+        "latency_ms": 687,
+        "http_status": null,
+        "timeout": false,
+        "non_json_response": false
+      },
+      "benchmarks": {
+        "L1": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "syntax-error",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "compile-input",
+          "final_source_bytes": 0,
+          "first_codegen_response_latency_ms": 4320,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L2": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "syntax-error",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "compile-input",
+          "final_source_bytes": 0,
+          "first_codegen_response_latency_ms": 5248,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L3": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "compile-input",
+          "repair_attempts_used": 1,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "request-error",
+          "final_source_bytes": 0,
+          "first_codegen_response_latency_ms": 8229,
+          "total_time_to_first_compile_success_ms": null
+        }
+      },
+      "notes": {
+        "stalled_or_long_no_response": true,
+        "parser_drift_notes": "",
+        "language_drift_notes": "Timed out after 30s",
+        "final_recommendation_note": "Not yet reliable for MoonBit benchmark L3."
+      }
+    },
+    {
+      "provider": "zai",
+      "model": "glm-4.7-flash",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "api_test": {
+        "status": "failed",
+        "message": "Timed out after 8s",
+        "latency_ms": null,
+        "http_status": null,
+        "timeout": true,
+        "non_json_response": false
+      },
+      "benchmarks": {
+        "L1": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L2": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L3": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        }
+      },
+      "notes": {
+        "stalled_or_long_no_response": true,
+        "parser_drift_notes": "",
+        "language_drift_notes": "",
+        "final_recommendation_note": ""
+      }
+    },
+    {
+      "provider": "zai",
+      "model": "glm-4.7-flashx",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "api_test": {
+        "status": "ok",
+        "message": "OK",
+        "latency_ms": 1956,
+        "http_status": null,
+        "timeout": false,
+        "non_json_response": false
+      },
+      "benchmarks": {
+        "L1": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "request-error",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L2": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "request-error",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L3": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "request-error",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        }
+      },
+      "notes": {
+        "stalled_or_long_no_response": true,
+        "parser_drift_notes": "",
+        "language_drift_notes": "Timed out after 30s",
+        "final_recommendation_note": "Not yet reliable for MoonBit benchmark L3."
+      }
+    },
+    {
+      "provider": "zai",
+      "model": "glm-4-flashx-250414",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "api_test": {
+        "status": "ok",
+        "message": "OK.",
+        "latency_ms": 392,
+        "http_status": null,
+        "timeout": false,
+        "non_json_response": false
+      },
+      "benchmarks": {
+        "L1": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "project-config-error",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "syntax-error",
+          "final_source_bytes": 37,
+          "first_codegen_response_latency_ms": 1334,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L2": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "syntax-error",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "syntax-error",
+          "final_source_bytes": 70,
+          "first_codegen_response_latency_ms": 899,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L3": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "syntax-error",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "syntax-error",
+          "final_source_bytes": 32,
+          "first_codegen_response_latency_ms": 747,
+          "total_time_to_first_compile_success_ms": null
+        }
+      },
+      "notes": {
+        "stalled_or_long_no_response": false,
+        "parser_drift_notes": "",
+        "language_drift_notes": "",
+        "final_recommendation_note": "Not yet reliable for MoonBit benchmark L3."
+      }
+    },
+    {
+      "provider": "zai",
+      "model": "glm-4-long",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "api_test": {
+        "status": "ok",
+        "message": "OK",
+        "latency_ms": 502,
+        "http_status": null,
+        "timeout": false,
+        "non_json_response": false
+      },
+      "benchmarks": {
+        "L1": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "target-runtime-error",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "compile-input",
+          "final_source_bytes": 0,
+          "first_codegen_response_latency_ms": 4848,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L2": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "syntax-error",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "syntax-error",
+          "final_source_bytes": 79,
+          "first_codegen_response_latency_ms": 2450,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L3": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "target-runtime-error",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "compile-input",
+          "final_source_bytes": 0,
+          "first_codegen_response_latency_ms": 5876,
+          "total_time_to_first_compile_success_ms": null
+        }
+      },
+      "notes": {
+        "stalled_or_long_no_response": false,
+        "parser_drift_notes": "",
+        "language_drift_notes": "",
+        "final_recommendation_note": "Not yet reliable for MoonBit benchmark L3."
+      }
+    },
+    {
+      "provider": "zai",
+      "model": "glm-4.6",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "api_test": {
+        "status": "ok",
+        "message": "OK",
+        "latency_ms": 655,
+        "http_status": null,
+        "timeout": false,
+        "non_json_response": false
+      },
+      "benchmarks": {
+        "L1": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "compile-input",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "compile-input",
+          "final_source_bytes": 0,
+          "first_codegen_response_latency_ms": 6557,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L2": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "syntax-error",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "compile-input",
+          "final_source_bytes": 0,
+          "first_codegen_response_latency_ms": 4369,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L3": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "compile-input",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "compile-input",
+          "final_source_bytes": 0,
+          "first_codegen_response_latency_ms": 27486,
+          "total_time_to_first_compile_success_ms": null
+        }
+      },
+      "notes": {
+        "stalled_or_long_no_response": false,
+        "parser_drift_notes": "",
+        "language_drift_notes": "",
+        "final_recommendation_note": "Not yet reliable for MoonBit benchmark L3."
+      }
+    },
+    {
+      "provider": "zai",
+      "model": "glm-4.5-airx",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "api_test": {
+        "status": "ok",
+        "message": "OK",
+        "latency_ms": 485,
+        "http_status": null,
+        "timeout": false,
+        "non_json_response": false
+      },
+      "benchmarks": {
+        "L1": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "target-runtime-error",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "compile-input",
+          "final_source_bytes": 0,
+          "first_codegen_response_latency_ms": 2343,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L2": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "syntax-error",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "syntax-error",
+          "final_source_bytes": 79,
+          "first_codegen_response_latency_ms": 2482,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L3": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "compile-input",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "compile-input",
+          "final_source_bytes": 0,
+          "first_codegen_response_latency_ms": 6027,
+          "total_time_to_first_compile_success_ms": null
+        }
+      },
+      "notes": {
+        "stalled_or_long_no_response": false,
+        "parser_drift_notes": "",
+        "language_drift_notes": "",
+        "final_recommendation_note": "Not yet reliable for MoonBit benchmark L3."
+      }
+    },
+    {
+      "provider": "zai",
+      "model": "glm-4.5-air",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "api_test": {
+        "status": "ok",
+        "message": "OK",
+        "latency_ms": 587,
+        "http_status": null,
+        "timeout": false,
+        "non_json_response": false
+      },
+      "benchmarks": {
+        "L1": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "target-runtime-error",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "compile-input",
+          "final_source_bytes": 0,
+          "first_codegen_response_latency_ms": 3042,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L2": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "syntax-error",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "syntax-error",
+          "final_source_bytes": 79,
+          "first_codegen_response_latency_ms": 1937,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L3": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "compile-input",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "compile-input",
+          "final_source_bytes": 0,
+          "first_codegen_response_latency_ms": 26435,
+          "total_time_to_first_compile_success_ms": null
+        }
+      },
+      "notes": {
+        "stalled_or_long_no_response": false,
+        "parser_drift_notes": "",
+        "language_drift_notes": "",
+        "final_recommendation_note": "Not yet reliable for MoonBit benchmark L3."
+      }
+    },
+    {
+      "provider": "nvidia",
+      "model": "qwen/qwen2.5-coder-32b-instruct",
+      "base_url": "https://integrate.api.nvidia.com/v1",
+      "api_test": {
+        "status": "ok",
+        "message": "OK.",
+        "latency_ms": 414,
+        "http_status": null,
+        "timeout": false,
+        "non_json_response": false
+      },
+      "benchmarks": {
+        "L1": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "project-config-error",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "target-runtime-error",
+          "final_source_bytes": 29,
+          "first_codegen_response_latency_ms": 475,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L2": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "project-config-error",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "syntax-error",
+          "final_source_bytes": 80,
+          "first_codegen_response_latency_ms": 659,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L3": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "syntax-error",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "type-error",
+          "final_source_bytes": 28,
+          "first_codegen_response_latency_ms": 564,
+          "total_time_to_first_compile_success_ms": null
+        }
+      },
+      "notes": {
+        "stalled_or_long_no_response": false,
+        "parser_drift_notes": "",
+        "language_drift_notes": "",
+        "final_recommendation_note": "Not yet reliable for MoonBit benchmark L3."
+      }
+    },
+    {
+      "provider": "nvidia",
+      "model": "meta/llama-4-maverick-17b-128e-instruct",
+      "base_url": "https://integrate.api.nvidia.com/v1",
+      "api_test": {
+        "status": "ok",
+        "message": "OK.",
+        "latency_ms": 517,
+        "http_status": null,
+        "timeout": false,
+        "non_json_response": false
+      },
+      "benchmarks": {
+        "L1": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "syntax-error",
+          "repair_attempts_used": 1,
+          "assisted_pass": true,
+          "final_compile_exit_code": 0,
+          "final_compile_summary_kind": "none",
+          "final_source_bytes": 38,
+          "first_codegen_response_latency_ms": 618,
+          "total_time_to_first_compile_success_ms": 1987
+        },
+        "L2": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "syntax-error",
+          "repair_attempts_used": 1,
+          "assisted_pass": true,
+          "final_compile_exit_code": 0,
+          "final_compile_summary_kind": "none",
+          "final_source_bytes": 76,
+          "first_codegen_response_latency_ms": 760,
+          "total_time_to_first_compile_success_ms": 2257
+        },
+        "L3": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "syntax-error",
+          "repair_attempts_used": 1,
+          "assisted_pass": true,
+          "final_compile_exit_code": 0,
+          "final_compile_summary_kind": "none",
+          "final_source_bytes": 37,
+          "first_codegen_response_latency_ms": 816,
+          "total_time_to_first_compile_success_ms": 2128
+        }
+      },
+      "notes": {
+        "stalled_or_long_no_response": false,
+        "parser_drift_notes": "",
+        "language_drift_notes": "",
+        "final_recommendation_note": "Usable with compiler-guided repair."
+      }
+    },
+    {
+      "provider": "nvidia",
+      "model": "meta/llama-4-scout-17b-16e-instruct",
+      "base_url": "https://integrate.api.nvidia.com/v1",
+      "api_test": {
+        "status": "failed",
+        "message": "LLM request failed (410)",
+        "latency_ms": null,
+        "http_status": 410,
+        "timeout": false,
+        "non_json_response": false
+      },
+      "benchmarks": {
+        "L1": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L2": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L3": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        }
+      },
+      "notes": {
+        "stalled_or_long_no_response": false,
+        "parser_drift_notes": "",
+        "language_drift_notes": "",
+        "final_recommendation_note": ""
+      }
+    },
+    {
+      "provider": "nvidia",
+      "model": "meta/llama-3.3-70b-instruct",
+      "base_url": "https://integrate.api.nvidia.com/v1",
+      "api_test": {
+        "status": "ok",
+        "message": "OK",
+        "latency_ms": 3178,
+        "http_status": null,
+        "timeout": false,
+        "non_json_response": false
+      },
+      "benchmarks": {
+        "L1": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "project-config-error",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "project-config-error",
+          "final_source_bytes": 48,
+          "first_codegen_response_latency_ms": 918,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L2": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "project-config-error",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "syntax-error",
+          "final_source_bytes": 64,
+          "first_codegen_response_latency_ms": 661,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L3": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "project-config-error",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "syntax-error",
+          "final_source_bytes": 40,
+          "first_codegen_response_latency_ms": 663,
+          "total_time_to_first_compile_success_ms": null
+        }
+      },
+      "notes": {
+        "stalled_or_long_no_response": false,
+        "parser_drift_notes": "",
+        "language_drift_notes": "",
+        "final_recommendation_note": "Not yet reliable for MoonBit benchmark L3."
+      }
+    },
+    {
+      "provider": "siliconflow",
+      "model": "Qwen/Qwen2-7B-Instruct",
+      "base_url": "https://api.siliconflow.cn/v1",
+      "api_test": {
+        "status": "failed",
+        "message": "LLM request failed (403)",
+        "latency_ms": null,
+        "http_status": 403,
+        "timeout": false,
+        "non_json_response": false
+      },
+      "benchmarks": {
+        "L1": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L2": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L3": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        }
+      },
+      "notes": {
+        "stalled_or_long_no_response": false,
+        "parser_drift_notes": "",
+        "language_drift_notes": "",
+        "final_recommendation_note": ""
+      }
+    },
+    {
+      "provider": "siliconflow",
+      "model": "THUDM/glm-4-9b-chat",
+      "base_url": "https://api.siliconflow.cn/v1",
+      "api_test": {
+        "status": "failed",
+        "message": "LLM request failed (403)",
+        "latency_ms": null,
+        "http_status": 403,
+        "timeout": false,
+        "non_json_response": false
+      },
+      "benchmarks": {
+        "L1": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L2": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L3": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        }
+      },
+      "notes": {
+        "stalled_or_long_no_response": false,
+        "parser_drift_notes": "",
+        "language_drift_notes": "",
+        "final_recommendation_note": ""
+      }
+    },
+    {
+      "provider": "siliconflow",
+      "model": "internlm/internlm2_5-7b-chat",
+      "base_url": "https://api.siliconflow.cn/v1",
+      "api_test": {
+        "status": "ok",
+        "message": "OK",
+        "latency_ms": 332,
+        "http_status": null,
+        "timeout": false,
+        "non_json_response": false
+      },
+      "benchmarks": {
+        "L1": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "project-config-error",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "project-config-error",
+          "final_source_bytes": 38,
+          "first_codegen_response_latency_ms": 466,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L2": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "project-config-error",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "project-config-error",
+          "final_source_bytes": 71,
+          "first_codegen_response_latency_ms": 584,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L3": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "syntax-error",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "project-config-error",
+          "final_source_bytes": 27,
+          "first_codegen_response_latency_ms": 629,
+          "total_time_to_first_compile_success_ms": null
+        }
+      },
+      "notes": {
+        "stalled_or_long_no_response": false,
+        "parser_drift_notes": "",
+        "language_drift_notes": "",
+        "final_recommendation_note": "Not yet reliable for MoonBit benchmark L3."
+      }
+    },
+    {
+      "provider": "siliconflow",
+      "model": "mistralai/Mistral-7B-Instruct-v0.2",
+      "base_url": "https://api.siliconflow.cn/v1",
+      "api_test": {
+        "status": "failed",
+        "message": "LLM request failed (403)",
+        "latency_ms": null,
+        "http_status": 403,
+        "timeout": false,
+        "non_json_response": false
+      },
+      "benchmarks": {
+        "L1": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L2": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L3": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        }
+      },
+      "notes": {
+        "stalled_or_long_no_response": false,
+        "parser_drift_notes": "",
+        "language_drift_notes": "",
+        "final_recommendation_note": ""
+      }
+    },
+    {
+      "provider": "siliconflow",
+      "model": "THUDM/chatglm3-6b",
+      "base_url": "https://api.siliconflow.cn/v1",
+      "api_test": {
+        "status": "failed",
+        "message": "LLM request failed (403)",
+        "latency_ms": null,
+        "http_status": 403,
+        "timeout": false,
+        "non_json_response": false
+      },
+      "benchmarks": {
+        "L1": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L2": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L3": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        }
+      },
+      "notes": {
+        "stalled_or_long_no_response": false,
+        "parser_drift_notes": "",
+        "language_drift_notes": "",
+        "final_recommendation_note": ""
+      }
+    },
+    {
+      "provider": "siliconflow",
+      "model": "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B",
+      "base_url": "https://api.siliconflow.cn/v1",
+      "api_test": {
+        "status": "ok",
+        "message": "Okay, so I need to figure out",
+        "latency_ms": 903,
+        "http_status": null,
+        "timeout": false,
+        "non_json_response": false
+      },
+      "benchmarks": {
+        "L1": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "syntax-error",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "syntax-error",
+          "final_source_bytes": 1651,
+          "first_codegen_response_latency_ms": 15427,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L2": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "syntax-error",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "syntax-error",
+          "final_source_bytes": 1691,
+          "first_codegen_response_latency_ms": 14118,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L3": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "syntax-error",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "syntax-error",
+          "final_source_bytes": 1447,
+          "first_codegen_response_latency_ms": 11422,
+          "total_time_to_first_compile_success_ms": null
+        }
+      },
+      "notes": {
+        "stalled_or_long_no_response": false,
+        "parser_drift_notes": "",
+        "language_drift_notes": "",
+        "final_recommendation_note": "Not yet reliable for MoonBit benchmark L3."
+      }
+    },
+    {
+      "provider": "openrouter",
+      "model": "qwen/qwen3-coder:free",
+      "base_url": "https://openrouter.ai/api/v1",
+      "api_test": {
+        "status": "failed",
+        "message": "Provider returned error",
+        "latency_ms": null,
+        "http_status": 429,
+        "timeout": false,
+        "non_json_response": false
+      },
+      "benchmarks": {
+        "L1": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L2": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L3": {
+          "attempted": false,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        }
+      },
+      "notes": {
+        "stalled_or_long_no_response": false,
+        "parser_drift_notes": "",
+        "language_drift_notes": "",
+        "final_recommendation_note": ""
+      }
+    },
+    {
+      "provider": "openrouter",
+      "model": "nvidia/nemotron-3-super-120b-a12b:free",
+      "base_url": "https://openrouter.ai/api/v1",
+      "api_test": {
+        "status": "ok",
+        "message": "We need to respond with \"OK\".",
+        "latency_ms": 1881,
+        "http_status": null,
+        "timeout": false,
+        "non_json_response": false
+      },
+      "benchmarks": {
+        "L1": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "syntax-error",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "syntax-error",
+          "final_source_bytes": 2167,
+          "first_codegen_response_latency_ms": 12807,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L2": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "syntax-error",
+          "repair_attempts_used": 1,
+          "assisted_pass": true,
+          "final_compile_exit_code": 0,
+          "final_compile_summary_kind": "none",
+          "final_source_bytes": 79,
+          "first_codegen_response_latency_ms": 5823,
+          "total_time_to_first_compile_success_ms": 9414
+        },
+        "L3": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "syntax-error",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "syntax-error",
+          "final_source_bytes": 2231,
+          "first_codegen_response_latency_ms": 3557,
+          "total_time_to_first_compile_success_ms": null
+        }
+      },
+      "notes": {
+        "stalled_or_long_no_response": false,
+        "parser_drift_notes": "",
+        "language_drift_notes": "",
+        "final_recommendation_note": "Not yet reliable for MoonBit benchmark L3."
+      }
+    },
+    {
+      "provider": "openrouter",
+      "model": "openrouter/free",
+      "base_url": "https://openrouter.ai/api/v1",
+      "api_test": {
+        "status": "ok",
+        "message": "OK",
+        "latency_ms": 6268,
+        "http_status": null,
+        "timeout": false,
+        "non_json_response": false
+      },
+      "benchmarks": {
+        "L1": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "syntax-error",
+          "repair_attempts_used": 1,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "request-error",
+          "final_source_bytes": 43,
+          "first_codegen_response_latency_ms": 7679,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L2": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "syntax-error",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "syntax-error",
+          "final_source_bytes": 82,
+          "first_codegen_response_latency_ms": 6707,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L3": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": null,
+          "raw_codegen_compile_summary_kind": "",
+          "repair_attempts_used": 0,
+          "assisted_pass": false,
+          "final_compile_exit_code": null,
+          "final_compile_summary_kind": "request-error",
+          "final_source_bytes": null,
+          "first_codegen_response_latency_ms": null,
+          "total_time_to_first_compile_success_ms": null
+        }
+      },
+      "notes": {
+        "stalled_or_long_no_response": true,
+        "parser_drift_notes": "",
+        "language_drift_notes": "Timed out after 30s",
+        "final_recommendation_note": "Not yet reliable for MoonBit benchmark L3."
+      }
+    },
+    {
+      "provider": "openrouter",
+      "model": "openrouter/auto",
+      "base_url": "https://openrouter.ai/api/v1",
+      "api_test": {
+        "status": "ok",
+        "message": "OK",
+        "latency_ms": 3804,
+        "http_status": null,
+        "timeout": false,
+        "non_json_response": false
+      },
+      "benchmarks": {
+        "L1": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "target-runtime-error",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "syntax-error",
+          "final_source_bytes": 54,
+          "first_codegen_response_latency_ms": 3804,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L2": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "target-runtime-error",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "project-config-error",
+          "final_source_bytes": 62,
+          "first_codegen_response_latency_ms": 5248,
+          "total_time_to_first_compile_success_ms": null
+        },
+        "L3": {
+          "attempted": true,
+          "raw_codegen_pass": false,
+          "raw_codegen_compile_exit_code": -1,
+          "raw_codegen_compile_summary_kind": "syntax-error",
+          "repair_attempts_used": 2,
+          "assisted_pass": false,
+          "final_compile_exit_code": -1,
+          "final_compile_summary_kind": "syntax-error",
+          "final_source_bytes": 39,
+          "first_codegen_response_latency_ms": 4443,
+          "total_time_to_first_compile_success_ms": null
+        }
+      },
+      "notes": {
+        "stalled_or_long_no_response": false,
+        "parser_drift_notes": "",
+        "language_drift_notes": "",
+        "final_recommendation_note": "Not yet reliable for MoonBit benchmark L3."
+      }
+    }
+  ]
+}

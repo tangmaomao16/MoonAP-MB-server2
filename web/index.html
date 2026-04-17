@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MoonAP</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <main class="workspace">
+      <section class="chat">
+        <header>
+          <p class="eyebrow">MoonBit Agent Playground</p>
+          <h1>MoonAP</h1>
+          <p>Turn natural language into MoonBit task kernels, compile them to WebAssembly, and run them against local browser files.</p>
+        </header>
+
+        <div id="messages" class="messages" aria-live="polite"></div>
+
+        <form id="chatForm" class="composer">
+          <label>
+            <span>Message</span>
+            <textarea id="message" rows="4">Count N bases in this FastQ file without uploading its contents.</textarea>
+          </label>
+          <div class="controls">
+            <input id="fileInput" type="file" />
+            <button type="submit">Send</button>
+          </div>
+        </form>
+      </section>
+
+      <aside class="panel">
+        <h2>MoonBit-owned State</h2>
+        <pre id="state">{}</pre>
+      </aside>
+    </main>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

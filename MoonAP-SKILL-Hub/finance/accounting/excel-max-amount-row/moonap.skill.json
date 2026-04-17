@@ -1,0 +1,35 @@
+{
+  "schema_version": "moonap.skill.v1",
+  "id": "finance.accounting.excel-max-amount-row",
+  "name": "Excel Max Amount Row",
+  "domain": "finance",
+  "category_path": "finance/accounting/excel-max-amount-row",
+  "description_file": "SKILL.md",
+  "program_dir": "program",
+  "input_types": ["xlsx", "xls", "csv"],
+  "parameters": [
+    {
+      "name": "amount_column",
+      "label": "Amount column",
+      "value_kind": "column-name",
+      "default_value": "amount",
+      "required": true,
+      "allowed_values": []
+    },
+    {
+      "name": "operation",
+      "label": "Operation",
+      "value_kind": "select",
+      "default_value": "max_row",
+      "required": true,
+      "allowed_values": ["max_row"]
+    }
+  ],
+  "runtime": {
+    "kind": "moonbit",
+    "compile_target": "wasm-gc",
+    "protocol": "structured-rows",
+    "program_dir": "program",
+    "browser_local": true
+  }
+}

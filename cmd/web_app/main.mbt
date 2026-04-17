@@ -86,6 +86,14 @@ extern "js" fn browser_render_artifact_card(
   #| (title, summary, metaJson, allowCompile, allowRepair, allowSave) => {
   #|   const root = document.querySelector("#artifactActions");
   #|   if (!root) return;
+  #|   const runtimeRequest = globalThis.__moonapLastRuntimeRequest || {};
+  #|   const runtimeResult = globalThis.__moonapLastRuntimeResult || {};
+  #|   const showTransient = globalThis.__moonapAllowTransientArtifactCard === true;
+  #|   if (globalThis.__moonapMinimalShell !== false && !showTransient) {
+  #|     root.innerHTML = "";
+  #|     root.style.display = "none";
+  #|     return;
+  #|   }
   #|   let meta = [];
   #|   try {
   #|     const parsed = JSON.parse(String(metaJson || "[]"));
@@ -94,9 +102,17 @@ extern "js" fn browser_render_artifact_card(
   #|     meta = [];
   #|   }
   #|   root.innerHTML = "";
+  #|   root.style.display = "";
   #|   const card = document.createElement("section");
   #|   card.className = "action-card is-open";
   #|   const metaHtml = meta.map((item) => `<span>${String(item)}</span>`).join("");
+  #|   const wasmUrl = String(runtimeRequest?.wasm_url || "");
+  #|   const sourceUrl = String(runtimeRequest?.source_url || "");
+  #|   const compileReportUrl = String(runtimeRequest?.compile_report_url || "");
+  #|   const resultUrl = String(runtimeResult?.download_url || "");
+  #|   const requestId = String(runtimeRequest?.request_id || "");
+  #|   const runtimeReady = String(runtimeRequest?.status || "") === "ready-for-runtime";
+  #|   const runtimeDone = String(runtimeResult?.request_id || "") === requestId && String(runtimeResult?.status || "").includes("succeeded");
   #|   card.innerHTML = `
   #|     <strong>${String(title)}</strong>
   #|     <small>${String(summary)}</small>
@@ -105,6 +121,11 @@ extern "js" fn browser_render_artifact_card(
   #|       ${allowCompile ? '<button id="compileArtifact" type="button">Run Compile Probe</button>' : ''}
   #|       ${allowRepair ? '<button id="repairArtifact" type="button">Repair with Error Summary</button>' : ''}
   #|       ${allowSave ? '<button id="savePersonalSkill" type="button">Save to Personal-SKILL-Set</button>' : ''}
+  #|       ${runtimeReady && !runtimeDone ? '<button id="recordDemoRuntimeResult" type="button">Record Demo Result</button>' : ''}
+  #|       ${wasmUrl ? '<button id="downloadRuntimeWasm" class="secondary" type="button">Download wasm</button>' : ''}
+  #|       ${sourceUrl ? '<button id="downloadRuntimeSource" class="secondary" type="button">Download source</button>' : ''}
+  #|       ${compileReportUrl ? '<button id="downloadCompileReport" class="secondary" type="button">Download compile report</button>' : ''}
+  #|       ${resultUrl ? '<button id="downloadRuntimeResult" class="secondary" type="button">Download result</button>' : ''}
   #|       <button id="exportSkillBundle" class="secondary" type="button">Export Source Bundle</button>
   #|     </div>`;
   #|   root.append(card);
@@ -115,7 +136,86 @@ extern "js" fn browser_render_artifact_card(
 extern "js" fn browser_clear_artifact_card() -> Unit =
   #| () => {
   #|   const root = document.querySelector("#artifactActions");
-  #|   if (root) root.innerHTML = "";
+  #|   if (root) {
+  #|     root.innerHTML = "";
+  #|     if (globalThis.__moonapMinimalShell !== false) root.style.display = "none";
+  #|   }
+  #| }
+
+///|
+#cfg(target="js")
+extern "js" fn browser_set_transient_artifact_card(open : Bool) -> Unit =
+  #| (open) => {
+  #|   globalThis.__moonapAllowTransientArtifactCard = Boolean(open);
+  #|   const root = document.querySelector("#artifactActions");
+  #|   if (!root) return;
+  #|   if (!open && globalThis.__moonapMinimalShell !== false) {
+  #|     root.style.display = "none";
+  #|   }
+  #| }
+
+///|
+#cfg(target="js")
+extern "js" fn browser_download_runtime_artifact(kind : String) -> Unit =
+  #| (kind) => {
+  #|   const runtimeRequest = globalThis.__moonapLastRuntimeRequest || {};
+  #|   const runtimeResult = globalThis.__moonapLastRuntimeResult || {};
+  #|   const url = kind === "wasm"
+  #|     ? String(runtimeRequest?.wasm_url || "")
+  #|     : kind === "source"
+  #|       ? String(runtimeRequest?.source_url || "")
+  #|       : kind === "compile-report"
+  #|         ? String(runtimeRequest?.compile_report_url || "")
+  #|         : String(runtimeResult?.download_url || "");
+  #|   if (!url) {
+  #|     throw new Error(`No runtime artifact URL is available for ${String(kind)}.`);
+  #|   }
+  #|   const link = document.createElement("a");
+  #|   link.href = url;
+  #|   link.download = "";
+  #|   document.body.append(link);
+  #|   link.click();
+  #|   link.remove();
+  #| }
+
+///|
+#cfg(target="js")
+extern "js" fn browser_record_demo_runtime_result(
+  on_done : (String) -> Unit,
+  on_error : (String) -> Unit,
+) -> Unit =
+  #| async (onDone, onError) => {
+  #|   try {
+  #|     const runtimeRequest = globalThis.__moonapLastRuntimeRequest;
+  #|     if (!runtimeRequest || typeof runtimeRequest !== "object") {
+  #|       throw new Error("No runtime request is available yet.");
+  #|     }
+  #|     const requestId = String(runtimeRequest.request_id || "");
+  #|     if (!requestId) throw new Error("MoonAP runtime request_id is missing.");
+  #|     const sourceUrl = String(runtimeRequest.source_url || "");
+  #|     const wasmUrl = String(runtimeRequest.wasm_url || "");
+  #|     const response = await fetch("/api/task/execute", {
+  #|       method: "POST",
+  #|       headers: { "Content-Type": "application/json; charset=utf-8" },
+  #|       body: JSON.stringify({
+  #|         run_id: String(runtimeRequest.run_id || ""),
+  #|         request_id: requestId,
+  #|         status: "runtime-succeeded",
+  #|         result_kind: "text",
+  #|         summary: "MoonAP recorded a browser-side demo runtime result for the compiled wasm artifact.",
+  #|         display_text: `Demo runtime result recorded for ${requestId}. Source URL: ${sourceUrl || "n/a"}. wasm URL: ${wasmUrl || "n/a"}.`,
+  #|         stdout_text: "Demo runtime result recorded from the browser placeholder executor.",
+  #|         download_name: "runtime-preview.txt",
+  #|         download_content: `MoonAP demo runtime result\nrequest_id: ${requestId}\nsource_url: ${sourceUrl}\nwasm_url: ${wasmUrl}\n`,
+  #|         accepted_for_skill: false
+  #|       })
+  #|     });
+  #|     const text = await response.text();
+  #|     if (!response.ok) throw new Error(text || `Runtime execute failed (${response.status})`);
+  #|     onDone(String(text));
+  #|   } catch (error) {
+  #|     onError(error instanceof Error ? error.message : String(error));
+  #|   }
   #| }
 
 ///|
@@ -334,41 +434,87 @@ extern "js" fn browser_repair_last_artifact_with_system_assessment(
   #|     try { missingSignals = JSON.parse(String(assessment?.missing_signals_json || "[]")); } catch {}
   #|     try { preserveConstraints = JSON.parse(String(assessment?.preserve_constraints_json || "[]")); } catch {}
   #|     const originalTask = String(artifact?.prompt || "Generate MoonBit code for the requested task.");
-  #|     const systemPrompt = [
-  #|       "You are improving MoonBit code for MoonAP after the native compile probe already succeeded.",
-  #|       "Target language: MoonBit 0.9.",
-  #|       "Return ONLY the revised contents of cmd/main/main.mbt.",
-  #|       "Do NOT return markdown fences, explanations, bullet lists, moon.pkg, or moon.mod.json.",
-  #|       "Any non-code text is a failed repair.",
-  #|       "Preserve compilability under wasm-gc while improving the task-specific quality signals.",
-  #|       "Preserve the original task goal."
-  #|     ].join("\\n");
-  #|     const userPrompt = [
-  #|       "Read this MoonBit 0.9 primer first and follow it strictly:",
-  #|       String(knowledgePack || ""),
-  #|       "",
-  #|       `Original task: ${originalTask}`,
-  #|       "",
-  #|       "System assessment after a successful compile:",
-  #|       `- task_kind: ${String(assessment?.task_kind || "general-moonbit")}`,
-  #|       `- title: ${String(assessment?.title || "System assessment failed")}`,
-  #|       `- summary: ${String(assessment?.summary || "")}`,
-  #|       `- repair_hint: ${String(assessment?.repair_hint || "")}`,
-  #|       "",
-  #|       "Machine-detected missing signals:",
-  #|       ...(Array.isArray(missingSignals) && missingSignals.length > 0 ? missingSignals.map((item) => `- ${String(item)}`) : ["- none listed; improve task structure conservatively"]),
-  #|       "",
-  #|       "Constraints to preserve:",
-  #|       ...(Array.isArray(preserveConstraints) && preserveConstraints.length > 0 ? preserveConstraints.map((item) => `- ${String(item)}`) : ["- preserve the original task goal", "- keep wasm-gc compatibility"]),
-  #|       "",
-  #|       "Current source:",
-  #|       source,
-  #|       "",
-  #|       "Please revise the source so it still compiles and better satisfies the system assessment.",
-  #|       "Return the full corrected cmd/main/main.mbt file and nothing else."
-  #|     ].join("\\n");
-  #|     updatePrompts("quality-repair / full", systemPrompt, userPrompt);
+  #|     const buildQualityRepairPrompts = (llm) => {
+  #|       const modelName = String(llm?.model || "");
+  #|       const isGpt54 = modelName.toLowerCase().includes("gpt-5.4");
+  #|       if (isGpt54) {
+  #|         const systemPrompt = [
+  #|           "You are an AI coder.",
+  #|           "You only write MoonBit code.",
+  #|           "Your job is to improve MoonBit code for the user's task after compile already succeeded.",
+  #|           "Return only the full contents of cmd/main/main.mbt."
+  #|         ].join("\\n");
+  #|         const userPrompt = [
+  #|           `Original task: ${originalTask}`,
+  #|           "",
+  #|           "System assessment:",
+  #|           `- task_kind: ${String(assessment?.task_kind || "general-moonbit")}`,
+  #|           `- title: ${String(assessment?.title || "System assessment failed")}`,
+  #|           `- summary: ${String(assessment?.summary || "")}`,
+  #|           `- repair_hint: ${String(assessment?.repair_hint || "")}`,
+  #|           "",
+  #|           "Missing signals:",
+  #|           ...(Array.isArray(missingSignals) && missingSignals.length > 0 ? missingSignals.map((item) => `- ${String(item)}`) : ["- none listed; improve conservatively"]),
+  #|           "",
+  #|           "Constraints to preserve:",
+  #|           ...(Array.isArray(preserveConstraints) && preserveConstraints.length > 0 ? preserveConstraints.map((item) => `- ${String(item)}`) : ["- preserve the original task goal", "- keep wasm-gc compatibility"]),
+  #|           "",
+  #|           "Current source:",
+  #|           source,
+  #|           "",
+  #|           "Revise the source so it still compiles and better satisfies the system assessment.",
+  #|           "Return the full corrected cmd/main/main.mbt file and nothing else."
+  #|         ].join("\\n");
+  #|         return {
+  #|           modeText: "quality-repair / frontier-direct",
+  #|           systemPrompt,
+  #|           userPrompt
+  #|         };
+  #|       }
+  #|       const systemPrompt = [
+  #|         "You are improving MoonBit code for MoonAP after the native compile probe already succeeded.",
+  #|         "Target language: MoonBit 0.9.",
+  #|         "Return ONLY the revised contents of cmd/main/main.mbt.",
+  #|         "Do NOT return markdown fences, explanations, bullet lists, moon.pkg, or moon.mod.json.",
+  #|         "Any non-code text is a failed repair.",
+  #|         "Preserve compilability under wasm-gc while improving the task-specific quality signals.",
+  #|         "Preserve the original task goal."
+  #|       ].join("\\n");
+  #|       const userPrompt = [
+  #|         "Read this MoonBit 0.9 primer first and follow it strictly:",
+  #|         String(knowledgePack || ""),
+  #|         "",
+  #|         `Original task: ${originalTask}`,
+  #|         "",
+  #|         "System assessment after a successful compile:",
+  #|         `- task_kind: ${String(assessment?.task_kind || "general-moonbit")}`,
+  #|         `- title: ${String(assessment?.title || "System assessment failed")}`,
+  #|         `- summary: ${String(assessment?.summary || "")}`,
+  #|         `- repair_hint: ${String(assessment?.repair_hint || "")}`,
+  #|         "",
+  #|         "Machine-detected missing signals:",
+  #|         ...(Array.isArray(missingSignals) && missingSignals.length > 0 ? missingSignals.map((item) => `- ${String(item)}`) : ["- none listed; improve task structure conservatively"]),
+  #|         "",
+  #|         "Constraints to preserve:",
+  #|         ...(Array.isArray(preserveConstraints) && preserveConstraints.length > 0 ? preserveConstraints.map((item) => `- ${String(item)}`) : ["- preserve the original task goal", "- keep wasm-gc compatibility"]),
+  #|         "",
+  #|         "Current source:",
+  #|         source,
+  #|         "",
+  #|         "Please revise the source so it still compiles and better satisfies the system assessment.",
+  #|         "Return the full corrected cmd/main/main.mbt file and nothing else."
+  #|       ].join("\\n");
+  #|       return {
+  #|         modeText: "quality-repair / full",
+  #|         systemPrompt,
+  #|         userPrompt
+  #|       };
+  #|     };
   #|     const requestJson = async (llm) => {
+  #|       const promptPack = buildQualityRepairPrompts(llm);
+  #|       const systemPrompt = promptPack.systemPrompt;
+  #|       const userPrompt = promptPack.userPrompt;
+  #|       updatePrompts(promptPack.modeText, systemPrompt, userPrompt);
   #|       if (llm.provider === "gemini") {
   #|         const url = `${llm.baseUrl}/v1beta/models/${encodeURIComponent(llm.model)}:generateContent`;
   #|         const json = await proxyPost(url, {
@@ -586,62 +732,99 @@ extern "js" fn browser_repair_last_artifact_with_compile_summary(
   #|       setText("#promptUser", userPromptText || "No LLM prompt captured yet.");
   #|     };
   #|     const originalTask = String(artifact?.prompt || "Generate a Personal FastQ Generator in MoonBit.");
-  #|     const lowerTask = originalTask.toLowerCase();
-  #|     const isFastqTask = lowerTask.includes("fastq") && lowerTask.includes("moonbit");
-  #|     const systemPrompt = [
-  #|       "You are repairing MoonBit code for MoonAP.",
-  #|       "Target language: MoonBit 0.9.",
-  #|       "Return ONLY the repaired contents of cmd/main/main.mbt.",
-  #|       "Do NOT return markdown fences, explanations, bullet lists, quoted compiler messages, moon.pkg, or moon.mod.json.",
-  #|       "Do NOT describe the errors before writing code.",
-  #|       "Do NOT think aloud. Do NOT say 'Okay', 'I need to', 'Let me', or similar phrases.",
-  #|       "Any non-code text is a failed repair.",
-  #|       "Keep the task behavior and default parameters unchanged.",
-  #|       "Preserve the original task goal, not just compilability.",
-  #|       "",
-  #|       "Follow the MoonBit primer in the user prompt before using any stale prior memory."
-  #|     ].join("\\n");
-  #|     const fastqConstraints = isFastqTask ? [
-  #|       "",
-  #|       "FastQ-specific repair constraints:",
-  #|       "- main must return the generated FastQ String.",
-  #|       "- Do NOT replace the final generated String with ignore(...) or let _ = ....",
-  #|       "- Keep the header, sequence, plus line, and quality-line generation logic.",
-  #|       "- Prefer the smallest repair that preserves the FastQ task semantics."
-  #|     ] : [];
-  #|     const userPrompt = [
-  #|       "Read this MoonBit 0.9 primer first and follow it strictly:",
-  #|       String(knowledgePack || ""),
-  #|       "",
-  #|       `Original task: ${originalTask}`,
-  #|       "",
-  #|       "Current compile summary:",
-  #|       `- error_kind: ${String(report.summary_kind || report.stage || "compiler-error")}`,
-  #|       `- primary_file: ${String(report.primary_file || "cmd/main/main.mbt")}`,
-  #|       `- primary_line: ${String(report.primary_line || 0)}`,
-  #|       `- likely_cause: ${String(report.likely_cause || "")}`,
-  #|       `- repair_hint: ${String(report.repair_hint || "")}`,
-  #|       "",
-  #|       repairMode === "raw" ? "Raw compiler output:" : "Trimmed compiler output:",
-  #|       String(repairMode === "raw" ? (report.output || report.trimmed_output || "") : (report.trimmed_output || report.output || "")),
-  #|       "",
-  #|       "Current source:",
-  #|       source,
-  #|       ...fastqConstraints,
-  #|       "",
-  #|       "Please repair only what is needed to make this compile under wasm-gc.",
-  #|       "Return the full corrected cmd/main/main.mbt file and nothing else."
-  #|     ].join("\\n");
-  #|     updatePrompts("repair / full", systemPrompt, userPrompt);
+  #|     const compilerExcerpt = String(repairMode === "raw" ? (report.output || report.trimmed_output || "") : (report.trimmed_output || report.output || "")).trim();
+  #|     const priorConversation = Array.isArray(artifact?.conversation_history)
+  #|       ? artifact.conversation_history
+  #|           .filter((item) => item && (item.role === "user" || item.role === "assistant") && String(item.content || "").trim() !== "")
+  #|           .map((item) => ({ role: String(item.role), content: String(item.content) }))
+  #|       : [{ role: "user", content: originalTask }, { role: "assistant", content: source }];
+  #|     const buildRepairPrompts = (llm) => {
+  #|       const modelName = String(llm?.model || "");
+  #|       const isGpt54 = modelName.toLowerCase().includes("gpt-5.4");
+  #|       if (isGpt54) {
+  #|         const systemPrompt = [
+  #|           "You are an AI coder.",
+  #|           "You only write MoonBit code.",
+  #|           "Your job is to repair MoonBit code for the user's task.",
+  #|           "Return only the full contents of cmd/main/main.mbt."
+  #|         ].join("\\n");
+  #|         const repairUserPrompt = [
+  #|           "The previous MoonBit file failed to compile under wasm-gc.",
+  #|           "",
+  #|           "Compiler error:",
+  #|           compilerExcerpt,
+  #|           "",
+  #|           "Fix the file and return the full corrected cmd/main/main.mbt only."
+  #|         ].join("\\n");
+  #|         return {
+  #|           modeText: "repair / frontier-conversation",
+  #|           systemPrompt,
+  #|           userPrompt: `${priorConversation.map((item) => `${String(item.role).toUpperCase()}:\n${String(item.content)}`).join("\\n\\n---\\n\\n")}\\n\\n---\\n\\nUSER:\\n${repairUserPrompt}`,
+  #|           openaiMessages: [
+  #|             { role: "system", content: systemPrompt },
+  #|             ...priorConversation,
+  #|             { role: "user", content: repairUserPrompt }
+  #|           ],
+  #|           geminiUserPrompt: `${priorConversation.map((item) => `${String(item.role).toUpperCase()}:\n${String(item.content)}`).join("\\n\\n---\\n\\n")}\\n\\n---\\n\\nUSER:\\n${repairUserPrompt}`
+  #|         };
+  #|       }
+  #|       const systemPrompt = [
+  #|         "You are repairing MoonBit code for MoonAP.",
+  #|         "Target language: MoonBit 0.9.",
+  #|         "Return ONLY the repaired contents of cmd/main/main.mbt.",
+  #|         "Do NOT return markdown fences, explanations, bullet lists, quoted compiler messages, moon.pkg, or moon.mod.json.",
+  #|         "Do NOT describe the errors before writing code.",
+  #|         "Do NOT think aloud. Do NOT say 'Okay', 'I need to', 'Let me', or similar phrases.",
+  #|         "Any non-code text is a failed repair.",
+  #|         "Keep the task behavior and default parameters unchanged.",
+  #|         "Preserve the original task goal, not just compilability.",
+  #|         "",
+  #|         "Follow the MoonBit primer in the user prompt before using any stale prior memory."
+  #|       ].join("\\n");
+  #|       const userPrompt = [
+  #|         "Read this MoonBit 0.9 primer first and follow it strictly:",
+  #|         String(knowledgePack || ""),
+  #|         "",
+  #|         `Original task: ${originalTask}`,
+  #|         "",
+  #|         "Current compile summary:",
+  #|         `- error_kind: ${String(report.summary_kind || report.stage || "compiler-error")}`,
+  #|         `- primary_file: ${String(report.primary_file || "cmd/main/main.mbt")}`,
+  #|         `- primary_line: ${String(report.primary_line || 0)}`,
+  #|         `- likely_cause: ${String(report.likely_cause || "")}`,
+  #|         `- repair_hint: ${String(report.repair_hint || "")}`,
+  #|         "",
+  #|         repairMode === "raw" ? "Raw compiler output:" : "Trimmed compiler output:",
+  #|         compilerExcerpt,
+  #|         "",
+  #|         "Current source:",
+  #|         source,
+  #|         "",
+  #|         "Please repair only what is needed to make this compile under wasm-gc.",
+  #|         "Return the full corrected cmd/main/main.mbt file and nothing else."
+  #|       ].join("\\n");
+  #|       return {
+  #|         modeText: "repair / guided-summary",
+  #|         systemPrompt,
+  #|         userPrompt,
+  #|         openaiMessages: [
+  #|           { role: "system", content: systemPrompt },
+  #|           { role: "user", content: userPrompt }
+  #|         ],
+  #|         geminiUserPrompt: userPrompt
+  #|       };
+  #|     };
   #|     const requestJson = async (llm) => {
+  #|       const promptPack = buildRepairPrompts(llm);
+  #|       updatePrompts(promptPack.modeText, promptPack.systemPrompt, promptPack.userPrompt);
   #|       if (llm.provider === "gemini") {
   #|         const url = `${llm.baseUrl}/v1beta/models/${encodeURIComponent(llm.model)}:generateContent`;
   #|         const json = await proxyPost(url, {
   #|           "Content-Type": "application/json",
   #|           "x-goog-api-key": String(llm.apiKey || "")
   #|         }, JSON.stringify({
-  #|           system_instruction: { parts: [{ text: systemPrompt }] },
-  #|           contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+  #|           system_instruction: { parts: [{ text: promptPack.systemPrompt }] },
+  #|           contents: [{ role: "user", parts: [{ text: promptPack.geminiUserPrompt }] }],
   #|           generationConfig: { temperature: 0.1 }
   #|         }));
   #|         const text = (json?.candidates?.[0]?.content?.parts || []).map((part) => String(part?.text || "")).join("\\n").trim();
@@ -670,10 +853,7 @@ extern "js" fn browser_repair_last_artifact_with_compile_summary(
   #|       }
   #|       const json = await proxyPost(url, headers, JSON.stringify({
   #|         model: llm.model,
-  #|         messages: [
-  #|           { role: "system", content: systemPrompt },
-  #|           { role: "user", content: userPrompt }
-  #|         ],
+  #|         messages: promptPack.openaiMessages,
   #|         temperature: 0.1
   #|       }));
   #|       const text = String(json?.choices?.[0]?.message?.content || "").trim();
@@ -742,6 +922,11 @@ extern "js" fn browser_repair_last_artifact_with_compile_summary(
   #|     const nextArtifact = {
   #|       ...(artifact || {}),
   #|       moonbit_source: cleaned,
+  #|       conversation_history: [
+  #|         ...priorConversation,
+  #|         { role: "user", content: `Compiler error:\n${compilerExcerpt}` },
+  #|         { role: "assistant", content: cleaned }
+  #|       ],
   #|       llm_provider: selected.provider || "unknown",
   #|       llm_model: selected.model || "unknown",
   #|       llm_rotated: Boolean(selected.rotated),
@@ -806,6 +991,11 @@ extern "js" fn browser_update_result_panel(raw : String) -> Unit =
   #|   let data = {};
   #|   try { data = JSON.parse(String(raw)); } catch { data = { status: "error" }; }
   #|   const panel = document.querySelector("#resultPanel");
+  #|   if (globalThis.__moonapMinimalShell !== false) {
+  #|     if (panel) panel.style.display = "none";
+  #|     globalThis.__moonapLastVisibleResult = data;
+  #|     return;
+  #|   }
   #|   panel?.classList.add("is-open");
   #|   const setText = (selector, value) => {
   #|     const node = document.querySelector(selector);
@@ -822,13 +1012,91 @@ extern "js" fn browser_update_result_panel(raw : String) -> Unit =
   #|   const fill = document.querySelector("#progressFill");
   #|   if (fill) fill.style.width = `${pct}%`;
   #|   setText("#resultStatus", data.status || "ready");
-  #|   setText("#resultTitle", data.status === "generated" ? "Synthetic FastQ generated locally" : "Browser-local FastQ analysis");
-  #|   setText("#metricFile", data.file_name || "-");
+  #|   const isRuntime = String(data.status || "").startsWith("runtime") || String(data.status || "").includes("ready-for-runtime");
+  #|   setText("#resultTitle", isRuntime
+  #|     ? (data.status === "ready-for-runtime" ? "MoonAP runtime request is ready" : "MoonAP runtime result")
+  #|     : (data.status === "generated" ? "Synthetic FastQ generated locally" : "Browser-local FastQ analysis"));
+  #|   setText("#metricFile", data.file_name || data.download_name || "-");
   #|   setText("#metricProcessed", bytes(data.bytes_processed ?? data.file_size_bytes ?? 0));
   #|   setText("#metricReads", data.reads_seen ?? data.read_count ?? "0");
   #|   setText("#metricTarget", data.target_base_count ?? data.expected_n_count ?? "0");
-  #|   setText("#metricBases", data.total_bases ?? "0");
+  #|   setText("#metricBases", data.total_bases ?? data.summary ?? "0");
   #|   setText("#metricUploaded", bytes(data.uploaded_bytes ?? 0));
+  #| }
+
+///|
+#cfg(target="js")
+extern "js" fn browser_watch_runtime_protocol(
+  on_request : (String) -> Unit,
+  on_result : (String) -> Unit,
+  on_save_decision : (String) -> Unit,
+) -> Unit =
+  #| (onRequest, onResult, onSaveDecision) => {
+  #|   const poll = async () => {
+  #|     try {
+  #|       const requestText = await fetch("/api/runtime-exec/latest-request").then((response) => response.text());
+  #|       if (requestText && requestText !== globalThis.__moonapLastRuntimeRequestText) {
+  #|         globalThis.__moonapLastRuntimeRequestText = requestText;
+  #|         try { globalThis.__moonapLastRuntimeRequest = JSON.parse(requestText); } catch {}
+  #|         onRequest(String(requestText));
+  #|       }
+  #|     } catch {}
+  #|     try {
+  #|       const resultText = await fetch("/api/runtime-exec/latest-result").then((response) => response.text());
+  #|       if (resultText && resultText !== globalThis.__moonapLastRuntimeResultText) {
+  #|         globalThis.__moonapLastRuntimeResultText = resultText;
+  #|         try { globalThis.__moonapLastRuntimeResult = JSON.parse(resultText); } catch {}
+  #|         onResult(String(resultText));
+  #|       }
+  #|     } catch {}
+  #|     try {
+  #|       const decisionText = await fetch("/api/skill-export/save-decision").then((response) => response.text());
+  #|       if (decisionText && decisionText !== globalThis.__moonapLastSkillSaveDecisionText) {
+  #|         globalThis.__moonapLastSkillSaveDecisionText = decisionText;
+  #|         try { globalThis.__moonapLastSkillSaveDecision = JSON.parse(decisionText); } catch {}
+  #|         onSaveDecision(String(decisionText));
+  #|       }
+  #|     } catch {}
+  #|   };
+  #|   if (!globalThis.__moonapRuntimeWatcherStarted) {
+  #|     globalThis.__moonapRuntimeWatcherStarted = true;
+  #|     poll();
+  #|     setInterval(poll, 2000);
+  #|   }
+  #| }
+
+///|
+#cfg(target="js")
+extern "js" fn browser_request_skill_save(
+  on_done : (String) -> Unit,
+  on_error : (String) -> Unit,
+) -> Unit =
+  #| async (onDone, onError) => {
+  #|   try {
+  #|     const runtimeResult = globalThis.__moonapLastRuntimeResult;
+  #|     if (!runtimeResult || typeof runtimeResult !== "object") {
+  #|       throw new Error("No runtime result is available yet.");
+  #|     }
+  #|     const requestId = String(runtimeResult.request_id || "");
+  #|     const status = String(runtimeResult.status || "");
+  #|     if (!requestId || !status.includes("succeeded")) {
+  #|       throw new Error("MoonAP requires a successful runtime result before saving as a SKILL.");
+  #|     }
+  #|     const response = await fetch("/api/skill-export/save-decision", {
+  #|       method: "POST",
+  #|       headers: { "Content-Type": "application/json; charset=utf-8" },
+  #|       body: JSON.stringify({
+  #|         request_id: requestId,
+  #|         decision: "accepted-save-skill",
+  #|         reason: "User accepted the runtime result and wants to reuse this workflow as a SKILL."
+  #|       })
+  #|     });
+  #|     const text = await response.text();
+  #|     if (!response.ok) throw new Error(text || `Skill save decision failed (${response.status})`);
+  #|     onDone(String(text));
+  #|   } catch (error) {
+  #|     onError(error instanceof Error ? error.message : String(error));
+  #|   }
   #| }
 
 ///|
@@ -853,6 +1121,28 @@ extern "js" fn browser_prepare_message_input(default_text : String) -> Unit =
   #|     textarea.addEventListener("input", applyTone);
   #|     textarea.dataset.moonapPrepared = "true";
   #|   }
+  #| }
+
+///|
+#cfg(target="js")
+extern "js" fn browser_enable_minimal_shell() -> Unit =
+  #| () => {
+  #|   globalThis.__moonapMinimalShell = true;
+  #|   const hide = (selector) => {
+  #|     const node = document.querySelector(selector);
+  #|     if (node) node.style.display = "none";
+  #|   };
+  #|   hide("#onboardingCard");
+  #|   hide("#resultPanel");
+  #|   hide("#artifactActions");
+  #|   hide("#modePanel");
+  #|   hide("#privacyStrip");
+  #|   const shell = document.querySelector(".app-shell");
+  #|   shell?.classList.remove("details-open");
+  #|   const drawer = document.querySelector("#detailsDrawer");
+  #|   if (drawer) drawer.style.display = "";
+  #|   const detailsButton = document.querySelector("#detailsToggle");
+  #|   if (detailsButton) detailsButton.style.display = "";
   #| }
 
 ///|
@@ -1300,7 +1590,7 @@ extern "js" fn browser_open_llm_dialog() -> Unit =
   #|     } else if (key === "siliconflow") {
   #|       baseUrl = "https://api.siliconflow.cn/v1";
   #|     } else if (key === "openai") {
-  #|       baseUrl = "moonap://codex-demo";
+  #|       baseUrl = "moonap://llm-sim";
   #|     } else if (key === "nvidia") {
   #|       baseUrl = "https://integrate.api.nvidia.com/v1";
   #|     }
@@ -1374,73 +1664,9 @@ extern "js" fn browser_open_llm_dialog() -> Unit =
   #|     {
   #|       key: "openai",
   #|       enabled: true,
-  #|       baseUrl: "moonap://codex-demo",
+  #|       baseUrl: "moonap://llm-sim",
   #|       models: [
   #|         { id: "gpt-5.4", enabled: true }
-  #|       ]
-  #|     },
-  #|     {
-  #|       key: "nvidia",
-  #|       enabled: true,
-  #|       baseUrl: "https://integrate.api.nvidia.com/v1",
-  #|       models: [
-  #|         { id: "meta/llama-4-maverick-17b-128e-instruct", enabled: true },
-  #|         { id: "qwen/qwen2.5-coder-32b-instruct", enabled: false },
-  #|         { id: "meta/llama-4-scout-17b-16e-instruct", enabled: false },
-  #|         { id: "meta/llama-3.3-70b-instruct", enabled: false }
-  #|       ]
-  #|     },
-  #|     {
-  #|       key: "zai",
-  #|       enabled: true,
-  #|       baseUrl: "https://open.bigmodel.cn/api/paas/v4",
-  #|       models: [
-  #|         { id: "glm-5.1", enabled: true },
-  #|         { id: "glm-5-turbo", enabled: false },
-  #|         { id: "glm-5", enabled: false },
-  #|         { id: "glm-4.7", enabled: false },
-  #|         { id: "glm-4.7-flash", enabled: false },
-  #|         { id: "glm-4.7-flashx", enabled: false },
-  #|         { id: "glm-4.6", enabled: false },
-  #|         { id: "glm-4.5-air", enabled: false },
-  #|         { id: "glm-4.5-airx", enabled: false },
-  #|         { id: "glm-4-long", enabled: false },
-  #|         { id: "glm-4-flashx-250414", enabled: false }
-  #|       ]
-  #|     },
-  #|     {
-  #|       key: "gemini",
-  #|       enabled: false,
-  #|       baseUrl: "https://generativelanguage.googleapis.com",
-  #|       models: [
-  #|         { id: "gemini-3-flash-preview", enabled: false },
-  #|         { id: "gemini-3.1-flash-lite-preview", enabled: false },
-  #|         { id: "gemini-2.5-flash", enabled: false },
-  #|         { id: "gemini-2.5-flash-lite", enabled: false },
-  #|         { id: "gemini-2-flash", enabled: false },
-  #|         { id: "gemini-2-flash-lite", enabled: false }
-  #|       ]
-  #|     },
-  #|     {
-  #|       key: "siliconflow",
-  #|       enabled: false,
-  #|       baseUrl: "https://api.siliconflow.cn/v1",
-  #|       models: [
-  #|         { id: "THUDM/glm-4-9b-chat", enabled: false },
-  #|         { id: "Qwen/Qwen2-7B-Instruct", enabled: false },
-  #|         { id: "internlm/internlm2_5-7b-chat", enabled: false },
-  #|         { id: "mistralai/Mistral-7B-Instruct-v0.2", enabled: false },
-  #|         { id: "THUDM/chatglm3-6b", enabled: false }
-  #|       ]
-  #|     },
-  #|     {
-  #|       key: "openrouter",
-  #|       enabled: false,
-  #|       baseUrl: "https://openrouter.ai/api/v1",
-  #|       models: [
-  #|         { id: "qwen/qwen3-coder:free", enabled: false },
-  #|         { id: "nvidia/nemotron-3-super-120b-a12b:free", enabled: false },
-  #|         { id: "openrouter/free", enabled: false }
   #|       ]
   #|     }
   #|   ];
@@ -1450,7 +1676,7 @@ extern "js" fn browser_open_llm_dialog() -> Unit =
   #|       enabled: Boolean(spec.enabled && model.enabled),
   #|       model: model.id,
   #|       baseUrl: spec.baseUrl,
-  #|       apiKey: spec.key === "openai" ? "codex-demo-mode" : ""
+  #|       apiKey: spec.key === "openai" ? "llm-sim-mode" : ""
   #|     }))
   #|   );
   #|   const saved = readRouter();
@@ -1522,11 +1748,9 @@ extern "js" fn browser_open_llm_dialog() -> Unit =
   #|     syncDisabled();
   #|   };
   #|   bind("openai", { enable: "routerEnableOpenAI", model: "routerModelsOpenAI", base: "routerBaseOpenAI", key: "routerKeyOpenAI" });
-  #|   bind("gemini", { enable: "routerEnableGemini", model: "routerModelsGemini", base: "routerBaseGemini", key: "routerKeyGemini" });
-  #|   bind("siliconflow", { enable: "routerEnableSiliconFlow", model: "routerModelsSiliconFlow", base: "routerBaseSiliconFlow", key: "routerKeySiliconFlow" });
-  #|   bind("nvidia", { enable: "routerEnableNVIDIA", model: "routerModelsNVIDIA", base: "routerBaseNVIDIA", key: "routerKeyNVIDIA" });
-  #|   bind("zai", { enable: "routerEnableZAI", model: "routerModelsZAI", base: "routerBaseZAI", key: "routerKeyZAI" });
-  #|   bind("openrouter", { enable: "routerEnableOpenRouter", model: "routerModelsOpenRouter", base: "routerBaseOpenRouter", key: "routerKeyOpenRouter" });
+  #|   document.querySelectorAll(".router-row").forEach((node, index) => {
+  #|     node.style.display = index === 0 ? "" : "none";
+  #|   });
   #|   const verification = localStorage.getItem("moonap.formalVerification") === "true";
   #|   const toggle = document.querySelector("#routerFormalVerification");
   #|   if (toggle) toggle.checked = verification;
@@ -1576,6 +1800,12 @@ extern "js" fn browser_render_onboarding() -> Unit =
   #| () => {
   #|   const root = document.querySelector("#onboardingCard");
   #|   if (!root) return;
+  #|   if (globalThis.__moonapMinimalShell !== false) {
+  #|     root.innerHTML = "";
+  #|     root.classList.remove("is-open");
+  #|     root.style.display = "none";
+  #|     return;
+  #|   }
   #|   const benchmarkPrompt = "Write the smallest valid cmd/main/main.mbt that compiles under wasm-gc and returns the string hello moonbit. Return only the file contents.";
   #|   const textarea = document.querySelector("#message");
   #|   const currentValue = String(textarea?.value || "").trim();
@@ -1595,7 +1825,7 @@ extern "js" fn browser_render_onboarding() -> Unit =
   #|   const providers = Array.isArray(saved.providers) ? saved.providers : [];
   #|   const usable = providers.filter((item) => Boolean(item?.enabled) && String(item?.apiKey || "").trim() !== "" && String(item?.test_status || "") !== "failed");
   #|   const primary = usable[0];
-  #|   const primaryLabel = primary ? `${String(primary.key || "")}/${String(primary.model || "")}` : "OpenAI/GPT-5.4 (Codex-demo mode)";
+  #|   const primaryLabel = primary ? `${String(primary.key || "")}/${String(primary.model || "")}` : "OpenAI/GPT-5.4 (LLM-sim)";
   #|   let benchmark = {};
   #|   try { benchmark = JSON.parse(globalThis.__moonapBenchmarkAssessment || "{}"); } catch { benchmark = {}; }
   #|   const passedLevel = Number(benchmark?.pass ? benchmark.level || 0 : 0);
@@ -1619,7 +1849,7 @@ extern "js" fn browser_render_onboarding() -> Unit =
   #|       </div>`
   #|     : `
   #|       <strong>Connect an LLM to begin</strong>
-  #|       <small>Use OpenAI / GPT-5.4 Codex-demo mode for the local demo path, or switch to real providers later. After Save, MoonAP will test the checked models and show the usable order in Details.</small>
+  #|       <small>Use OpenAI / GPT-5.4 LLM-sim for the local multi-thread dev path, or switch to real providers later. After Save, MoonAP will test the checked models and show the usable order in Details.</small>
   #|       <div class="onboarding-actions">
   #|         <button id="onboardingEditLLM" type="button">Open LLM Router</button>
   #|         <button id="onboardingOpenSkill" class="secondary" type="button">Browse SKILL</button>
@@ -1773,7 +2003,7 @@ extern "js" fn browser_on_llm_save(handler : () -> Unit) -> Unit =
   #|     } else if (key === "siliconflow") {
   #|       baseUrl = "https://api.siliconflow.cn/v1";
   #|     } else if (key === "openai") {
-  #|       baseUrl = "moonap://codex-demo";
+  #|       baseUrl = "moonap://llm-sim";
   #|     } else if (key === "nvidia") {
   #|       baseUrl = "https://integrate.api.nvidia.com/v1";
   #|     }
@@ -2077,50 +2307,33 @@ extern "js" fn browser_generate_moonbit_artifact(
   #|     const ordered = providers.slice(start).concat(providers.slice(0, start));
   #|     const lowerTaskTitle = String(taskTitle || "").toLowerCase();
   #|     const lowerPrompt = String(prompt || "").toLowerCase();
-  #|     const isFastqTask = (lowerTaskTitle.includes("fastq") || lowerPrompt.includes("fastq")) && lowerPrompt.includes("moonbit");
-  #|     const systemPrompt = (simpleMode || isFastqTask)
-  #|       ? [
-  #|           "You write MoonBit code.",
-  #|           "Return ONLY cmd/main/main.mbt.",
-  #|           "No markdown fences.",
-  #|           "No explanations.",
-  #|           "Use valid MoonBit syntax only."
-  #|         ].join("\\n")
-  #|       : [
-  #|           "You are generating MoonBit code for MoonAP.",
-  #|           "Target language: MoonBit 0.9.",
-  #|           "Output contract:",
-  #|           "- Return ONLY the contents of cmd/main/main.mbt.",
-  #|           "- Do NOT return markdown fences.",
-  #|           "- Do NOT return explanations.",
-  #|           "- Do NOT return moon.pkg or moon.mod.json.",
-  #|           "- Use valid MoonBit syntax only.",
-  #|           "- The MoonBit primer in the user prompt overrides stale prior memory."
-  #|         ].join("\\n");
-  #|     const userPrompt = isFastqTask
-  #|       ? [
-  #|           `MoonAP task title: ${String(taskTitle || "MoonBit task")}`,
-  #|           "",
-  #|           String(prompt),
-  #|           "",
-  #|           "FastQ-specific constraints:",
-  #|           "- main must return the generated FastQ String.",
-  #|           "- Use MoonBit basics only; avoid imports and unknown library APIs.",
-  #|           "- Do not use var, mut, Rust imports, or type suffixes.",
-  #|           "- Prefer small pure helper functions over imperative loops if unsure.",
-  #|           "",
-  #|           "Again: return ONLY cmd/main/main.mbt source."
-  #|         ].join("\\n")
-  #|       : [
-  #|           "Read this MoonBit 0.9 primer first and follow it strictly:",
-  #|           String(knowledgePack || ""),
-  #|           "",
-  #|           `MoonAP task title: ${String(taskTitle || "MoonBit task")}`,
-  #|           "",
-  #|           String(prompt),
-  #|           "",
-  #|           "Again: return ONLY cmd/main/main.mbt source."
-  #|         ].join("\\n");
+  #|     const inferTaskKind = () => {
+  #|       if (lowerPrompt.includes("fastq") || lowerTaskTitle.includes("fastq")) return "fastq-generator";
+  #|       if (lowerPrompt.includes("excel") || lowerPrompt.includes("xlsx") || lowerPrompt.includes("spreadsheet")) return "excel-analysis";
+  #|       if ((lowerPrompt.includes("browser") && lowerPrompt.includes("game")) || lowerTaskTitle.includes("game")) return "browser-game";
+  #|       return "generic-moonbit";
+  #|     };
+  #|     const taskAdapterLines = (taskKind) => {
+  #|       if (taskKind === "fastq-generator") {
+  #|         return [
+  #|           "- generate one or more valid FastQ records",
+  #|           "- each record should include header, sequence, plus line, and quality line"
+  #|         ];
+  #|       }
+  #|       if (taskKind === "excel-analysis") {
+  #|         return [
+  #|           "- assume the task logic should work on spreadsheet-like tabular input",
+  #|           "- keep the result representation simple and easy for MoonAP to inspect or display"
+  #|         ];
+  #|       }
+  #|       if (taskKind === "browser-game") {
+  #|         return [
+  #|           "- keep the gameplay loop simple and direct",
+  #|           "- keep the program structure easy to compile and run inside MoonAP"
+  #|         ];
+  #|       }
+  #|       return [];
+  #|     };
   #|     const updatePrompts = (modeText, systemPromptText, userPromptText) => {
   #|       const setText = (selector, value) => {
   #|         const node = document.querySelector(selector);
@@ -2130,7 +2343,59 @@ extern "js" fn browser_generate_moonbit_artifact(
   #|       setText("#promptSystem", systemPromptText || "No LLM prompt captured yet.");
   #|       setText("#promptUser", userPromptText || "No LLM prompt captured yet.");
   #|     };
-  #|     updatePrompts(isFastqTask ? "codegen / minimal-fastq" : (simpleMode ? "codegen / simple" : "codegen / full"), systemPrompt, userPrompt);
+    #|     const buildCodegenPrompts = (llm) => {
+    #|       const modelName = String(llm?.model || "");
+    #|       const isGpt54 = modelName.toLowerCase().includes("gpt-5.4");
+    #|       const taskKind = inferTaskKind();
+    #|       const adapter = taskAdapterLines(taskKind);
+    #|       if (isGpt54) {
+    #|         const systemPrompt = [
+    #|           "You are an AI coder.",
+    #|           "You only write MoonBit code.",
+    #|           "Your job is to write MoonBit code for the user's task.",
+    #|           "Return only the full contents of cmd/main/main.mbt."
+    #|         ].join("\\n");
+    #|         return {
+    #|           modeText: "codegen / frontier-direct",
+    #|           systemPrompt,
+    #|           userPrompt: String(prompt || "")
+    #|         };
+    #|       }
+  #|       const systemPrompt = simpleMode
+  #|         ? [
+  #|             "You write MoonBit code.",
+  #|             "Return ONLY cmd/main/main.mbt.",
+  #|             "No markdown fences.",
+  #|             "No explanations.",
+  #|             "Use valid MoonBit syntax only."
+  #|           ].join("\\n")
+  #|         : [
+  #|             "You are generating MoonBit code for MoonAP.",
+  #|             "Target language: MoonBit 0.9.",
+  #|             "Output contract:",
+  #|             "- Return ONLY the contents of cmd/main/main.mbt.",
+  #|             "- Do NOT return markdown fences.",
+  #|             "- Do NOT return explanations.",
+  #|             "- Do NOT return moon.pkg or moon.mod.json.",
+  #|             "- Use valid MoonBit syntax only.",
+  #|             "- The MoonBit primer in the user prompt overrides stale prior memory."
+  #|           ].join("\\n");
+  #|       const userPrompt = [
+  #|         "Read this MoonBit 0.9 primer first and follow it strictly:",
+  #|         String(knowledgePack || ""),
+  #|         "",
+  #|         `MoonAP task title: ${String(taskTitle || "MoonBit task")}`,
+  #|         "",
+  #|         String(prompt),
+  #|         "",
+  #|         "Again: return ONLY cmd/main/main.mbt source."
+  #|       ].join("\\n");
+  #|       return {
+  #|         modeText: simpleMode ? "codegen / simple" : "codegen / guided",
+  #|         systemPrompt,
+  #|         userPrompt
+  #|       };
+  #|     };
   #|     const proxyPost = async (url, headers, body) => {
   #|       const envelope = [
   #|         `URL\t${String(url)}`,
@@ -2164,20 +2429,25 @@ extern "js" fn browser_generate_moonbit_artifact(
   #|       return json;
   #|     };
   #|     const requestJson = async (llm) => {
+  #|       const promptPack = buildCodegenPrompts(llm);
+  #|       updatePrompts(promptPack.modeText, promptPack.systemPrompt, promptPack.userPrompt);
+  #|       const codegenConversationHistory = [
+  #|         { role: "user", content: String(prompt || "") }
+  #|       ];
   #|       if (llm.provider === "gemini") {
   #|         const url = `${llm.baseUrl}/v1beta/models/${encodeURIComponent(llm.model)}:generateContent`;
   #|         const json = await proxyPost(
   #|           url,
   #|           { "Content-Type": "application/json", "x-goog-api-key": String(llm.apiKey || "") },
   #|           JSON.stringify({
-  #|             system_instruction: { parts: [{ text: systemPrompt }] },
-  #|             contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+  #|             system_instruction: { parts: [{ text: promptPack.systemPrompt }] },
+  #|             contents: [{ role: "user", parts: [{ text: promptPack.userPrompt }] }],
   #|             generationConfig: { temperature: 0.2 }
   #|           })
   #|         );
   #|         const text = (json?.candidates?.[0]?.content?.parts || []).map((part) => String(part?.text || "")).join("\\n").trim();
   #|         if (!text) throw new Error("Gemini returned no MoonBit source.");
-  #|         return { source: text, raw: json };
+  #|         return { source: text, raw: json, conversation_history: codegenConversationHistory };
   #|       }
   #|       const rawBaseUrl = String(llm.baseUrl || "").trim();
   #|       const baseUrl = rawBaseUrl.endsWith("/") ? rawBaseUrl.slice(0, -1) : rawBaseUrl;
@@ -2205,15 +2475,15 @@ extern "js" fn browser_generate_moonbit_artifact(
   #|         JSON.stringify({
   #|           model: llm.model,
   #|           messages: [
-  #|             { role: "system", content: systemPrompt },
-  #|             { role: "user", content: userPrompt }
+  #|             { role: "system", content: promptPack.systemPrompt },
+  #|             { role: "user", content: promptPack.userPrompt }
   #|           ],
   #|           temperature: 0.2
   #|         })
   #|       );
   #|       const text = String(json?.choices?.[0]?.message?.content || "").trim();
   #|       if (!text) throw new Error(`${llm.provider} returned no MoonBit source.`);
-  #|       return { source: text, raw: json };
+  #|       return { source: text, raw: json, conversation_history: codegenConversationHistory };
   #|     };
   #|     let generated = null;
   #|     let llm = null;
@@ -2299,6 +2569,10 @@ extern "js" fn browser_generate_moonbit_artifact(
   #|         parameters: {}
   #|       },
   #|       moonbit_source: source,
+  #|       conversation_history: [
+  #|         ...(Array.isArray(generated?.conversation_history) ? generated.conversation_history : [{ role: "user", content: String(prompt || "") }]),
+  #|         { role: "assistant", content: source }
+  #|       ],
   #|       knowledge_pack_version: "moonbit-primer-v1",
   #|       llm_response_preview: JSON.stringify(generated.raw).slice(0, 1200),
   #|       wasm_runtime: {
@@ -2381,7 +2655,7 @@ extern "js" fn browser_run_free_llm_moonbit_eval(
   #|       else if (key === "openrouter") baseUrl = "https://openrouter.ai/api/v1";
   #|       else if (key === "zai") baseUrl = "https://open.bigmodel.cn/api/paas/v4";
   #|       else if (key === "siliconflow") baseUrl = "https://api.siliconflow.cn/v1";
-  #|       else if (key === "openai") baseUrl = "moonap://codex-demo";
+  #|       else if (key === "openai") baseUrl = "moonap://llm-sim";
   #|       else if (key === "nvidia") baseUrl = "https://integrate.api.nvidia.com/v1";
   #|       return {
   #|         key,
@@ -2749,29 +3023,51 @@ extern "js" fn browser_on_save_personal_skill(handler : () -> Unit) -> Unit =
   #|   if (event.target?.id !== "savePersonalSkill") return;
   #|   event.preventDefault();
   #|   event.stopPropagation();
-  #|   const artifact = globalThis.__moonapLastArtifact;
-  #|   if (!artifact) {
-  #|     alert("No generated artifact is ready to save.");
-  #|     return;
-  #|   }
-  #|   alert("Save to Personal-SKILL-Set is disabled until real MoonBit compile and runtime execution are implemented.");
-  #|   return;
-  #|   let skills = [];
-  #|   try {
-  #|     const parsed = JSON.parse(localStorage.getItem("moonap.personal.skills") || "[]");
-  #|     skills = Array.isArray(parsed) ? parsed : [];
-  #|   } catch (error) {
-  #|     console.warn("MoonAP reset invalid personal skill storage:", error);
-  #|     try { localStorage.removeItem("moonap.personal.skills"); } catch {}
-  #|   }
-  #|   const next = skills.filter((skill) => skill.id !== artifact.id);
-  #|   next.unshift(artifact);
-  #|   localStorage.setItem("moonap.personal.skills", JSON.stringify(next));
   #|   try {
   #|     handler();
   #|   } catch (error) {
   #|     console.error("MoonAP save personal skill handler failed:", error);
   #|     alert(`MoonAP save failed: ${error instanceof Error ? error.message : String(error)}`);
+  #|   }
+  #| })
+
+///|
+#cfg(target="js")
+extern "js" fn browser_on_download_runtime_artifact(
+  kind : String,
+  handler : () -> Unit,
+) -> Unit =
+  #| (kind, handler) => document.addEventListener("click", (event) => {
+  #|   const targetId = kind === "wasm"
+  #|     ? "downloadRuntimeWasm"
+  #|     : kind === "source"
+  #|       ? "downloadRuntimeSource"
+  #|       : kind === "compile-report"
+  #|         ? "downloadCompileReport"
+  #|         : "downloadRuntimeResult";
+  #|   if (event.target?.id !== targetId) return;
+  #|   event.preventDefault();
+  #|   event.stopPropagation();
+  #|   try {
+  #|     handler();
+  #|   } catch (error) {
+  #|     alert(`MoonAP runtime download failed: ${error instanceof Error ? error.message : String(error)}`);
+  #|   }
+  #| })
+
+///|
+#cfg(target="js")
+extern "js" fn browser_on_record_demo_runtime_result(
+  handler : () -> Unit,
+) -> Unit =
+  #| (handler) => document.addEventListener("click", (event) => {
+  #|   if (event.target?.id !== "recordDemoRuntimeResult") return;
+  #|   event.preventDefault();
+  #|   event.stopPropagation();
+  #|   try {
+  #|     handler();
+  #|   } catch (error) {
+  #|     alert(`MoonAP demo runtime execution failed: ${error instanceof Error ? error.message : String(error)}`);
   #|   }
   #| })
 
@@ -3620,7 +3916,7 @@ fn run_repair_from_system_assessment() -> Unit {
     browser_llm_summary(),
     "quality-repair",
     "running",
-    "Submitting the captured system assessment back to the next enabled provider together with the MoonBit primer.",
+    "Submitting the captured system assessment back to the next enabled provider.",
     "",
   )
   browser_repair_last_artifact_with_system_assessment(
@@ -3697,6 +3993,124 @@ fn run_fastq_counter() -> Unit {
 
 ///|
 #cfg(target="js")
+fn on_runtime_request_ready(raw : String) -> Unit {
+  let request_id = browser_artifact_field(raw, "request_id")
+  let status = browser_artifact_field(raw, "status")
+  let wasm_path = browser_artifact_field(raw, "wasm_path")
+  if request_id == "" || status == "" || status == "empty" {
+    return
+  }
+  browser_set_transient_artifact_card(true)
+  browser_set_state(browser_pretty_json(raw))
+  browser_update_result_panel(raw)
+  browser_update_process(
+    browser_llm_summary(),
+    "runtime-exec",
+    if status == "" {
+      "ready"
+    } else {
+      status
+    },
+    "MoonAP compiled a wasm artifact and prepared the next runtime-execution request. Browser display or downloadable output is the next step.",
+    if wasm_path == "" {
+      "No wasm path recorded yet."
+    } else {
+      "Wasm artifact: " + wasm_path
+    },
+  )
+  browser_render_artifact_card(
+    "Runtime execution is ready", "MoonAP has a compiled wasm artifact and is now waiting for browser-local execution or a simulated runtime result.",
+    "[\"runtime ready\",\"browser display pending\",\"download allowed\"]", false,
+    false, false,
+  )
+}
+
+///|
+#cfg(target="js")
+fn on_runtime_result_ready(raw : String) -> Unit {
+  let request_id = browser_artifact_field(raw, "request_id")
+  let status = browser_artifact_field(raw, "status")
+  let summary = browser_artifact_field(raw, "summary")
+  let display_text = browser_artifact_field(raw, "display_text")
+  let download_name = browser_artifact_field(raw, "download_name")
+  if request_id == "" || status == "" || status == "empty" {
+    return
+  }
+  browser_set_transient_artifact_card(true)
+  browser_set_state(browser_pretty_json(raw))
+  browser_update_result_panel(raw)
+  browser_update_process(
+    browser_llm_summary(),
+    "runtime-exec",
+    if status == "" {
+      "runtime-succeeded"
+    } else {
+      status
+    },
+    if summary == "" {
+      "MoonAP received a runtime result."
+    } else {
+      summary
+    },
+    if display_text == "" {
+      if download_name == "" {
+        "No browser-visible runtime preview was recorded."
+      } else {
+        "Downloadable result: " + download_name
+      }
+    } else {
+      display_text
+    },
+  )
+  browser_render_artifact_card(
+    "Runtime result is ready", "Review the runtime output. If it looks good, you can now save this workflow as a reusable Personal SKILL.",
+    "[\"runtime succeeded\",\"result visible\",\"user review pending\"]", false,
+    false, true,
+  )
+}
+
+///|
+#cfg(target="js")
+fn on_skill_save_decision(raw : String) -> Unit {
+  let request_id = browser_artifact_field(raw, "request_id")
+  let decision = browser_artifact_field(raw, "decision")
+  let reason = browser_artifact_field(raw, "reason")
+  if request_id == "" ||
+    decision == "" ||
+    decision == "pending" ||
+    decision == "unset" {
+    ()
+  } else {
+    browser_set_transient_artifact_card(true)
+    browser_set_state(browser_pretty_json(raw))
+    browser_update_process(
+      browser_llm_summary(),
+      "skill-export",
+      decision,
+      if reason == "" {
+        "MoonAP recorded the user's save decision."
+      } else {
+        reason
+      },
+      "",
+    )
+    browser_render_artifact_card(
+      "SKILL save decision recorded",
+      if reason == "" {
+        "MoonAP recorded the current save-to-SKILL decision."
+      } else {
+        reason
+      },
+      "[\"skill decision\",\"recorded\"]",
+      false,
+      false,
+      false,
+    )
+  }
+}
+
+///|
+#cfg(target="js")
 fn submit_message() -> Unit {
   let message = browser_message_value()
   let file_name = browser_file_name()
@@ -3766,6 +4180,7 @@ fn submit_message() -> Unit {
 #cfg(target="js")
 fn main {
   ignore(browser_extract_moonbit_source(""))
+  browser_enable_minimal_shell()
   browser_prepare_message_input(
     "Write the smallest valid cmd/main/main.mbt that compiles under wasm-gc and returns the string hello moonbit. Return only the file contents.",
   )
@@ -3787,6 +4202,24 @@ fn main {
   browser_on_llm_cancel(fn() {  })
   browser_on_compile_artifact(fn() { run_compile_probe() })
   browser_on_repair_artifact(fn() { run_repair_from_compile_summary() })
+  browser_on_download_runtime_artifact("wasm", fn() {
+    browser_download_runtime_artifact("wasm")
+  })
+  browser_on_download_runtime_artifact("source", fn() {
+    browser_download_runtime_artifact("source")
+  })
+  browser_on_download_runtime_artifact("compile-report", fn() {
+    browser_download_runtime_artifact("compile-report")
+  })
+  browser_on_download_runtime_artifact("result", fn() {
+    browser_download_runtime_artifact("result")
+  })
+  browser_on_record_demo_runtime_result(fn() {
+    browser_record_demo_runtime_result(
+      fn(result) { on_runtime_result_ready(result) },
+      fn(error) { show_error("demo-runtime failed", error) },
+    )
+  })
   browser_export_last_artifact_bundle(fn(folder) {
     browser_render_artifact_card(
       "Source bundle exported",
@@ -3800,13 +4233,20 @@ fn main {
     )
   })
   browser_on_save_personal_skill(fn() {
-    ignore(browser_render_personal_skills())
-    browser_set_skill_panel_open(true)
-    browser_render_artifact_card(
-      "Personal save is not active yet", "MoonAP will enable Personal-SKILL-Set saving after real compile and browser-local runtime execution are implemented.",
-      "[\"pending implementation\"]", false, false, false,
+    browser_request_skill_save(
+      fn(result) {
+        ignore(browser_render_personal_skills())
+        browser_set_skill_panel_open(true)
+        on_skill_save_decision(result)
+      },
+      fn(error) { show_error("save-to-skill failed", error) },
     )
   })
+  browser_watch_runtime_protocol(
+    fn(raw) { on_runtime_request_ready(raw) },
+    fn(raw) { on_runtime_result_ready(raw) },
+    fn(raw) { on_skill_save_decision(raw) },
+  )
   ignore(browser_render_personal_skills())
   browser_restore_formal_verification()
   refresh_policies()

@@ -134,9 +134,9 @@ become mixed together.
 
 This is already available and should be reused:
 
-- `logs/runs/<run-id>/codex-demo/inbox/`
-- `logs/runs/<run-id>/codex-demo/outbox/`
-- `logs/runs/<run-id>/codex-demo/state/`
+- `logs/runs/<run-id>/llm-sim/inbox/`
+- `logs/runs/<run-id>/llm-sim/outbox/`
+- `logs/runs/<run-id>/llm-sim/state/`
 
 This becomes the protocol surface for the simulated LLM thread.
 
@@ -204,10 +204,26 @@ Suggested artifacts:
 10. `quality-repair-running`
 11. `runtime-running`
 12. `runtime-succeeded`
-13. `user-review-running`
-14. `user-repair-running`
-15. `skill-save-pending`
-16. `skill-saved`
+13. `result-delivery-running`
+14. `user-review-running`
+15. `user-repair-running`
+16. `skill-save-pending`
+17. `skill-saved`
+
+## Result Before SKILL
+
+MoonAP should not export a SKILL immediately after compile succeeds.
+
+The correct product order is:
+
+1. compile MoonBit to wasm
+2. execute the wasm program
+3. show the result in the browser or provide a downloadable result file
+4. let the user inspect the result
+5. ask whether the user wants to save this workflow as a reusable SKILL
+6. export the SKILL only after an explicit yes
+
+This keeps SKILL export tied to accepted outcomes instead of merely compilable artifacts.
 
 ## Repair Classes
 
@@ -239,7 +255,7 @@ To reduce conflicts in one shared workspace:
 
 ### Thread 3 writes
 
-- `codex-demo/outbox/`
+- `llm-sim/outbox/`
 
 ## Immediate Next Step
 

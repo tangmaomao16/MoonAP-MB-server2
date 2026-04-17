@@ -23,6 +23,7 @@ MoonAP documentation is organized by purpose.
 
 - [Codex Demo Mode](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/modes/codex-demo-mode.md)
 - [Codex Threads Dev Mode](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/modes/codex-threads-dev-mode.md)
+- [Codex-threads-dev FastQ Milestone](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/experiments/codex-threads-dev/2026-04-17-gpt54-fastq-codegen-milestone.md)
 - [Project Summary Handoff](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/architecture/project-summary-codex-handoff.md)
 - [Three-Thread Simulation Notes](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/notes/three-thread-codex-simulation-notes.md)
 
@@ -41,6 +42,7 @@ Canonical locations going forward:
 | Free LLM eval results | [docs/notes/free-llm-moonbit-results.md](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/free-llm-moonbit-results.md) |
 | Three-thread notes | [docs/notes/three-thread-codex-simulation-notes.md](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/three-thread-codex-simulation-notes.md) |
 | Experiment archive | [docs/experiments/free-llm-moonbit/](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/experiments/free-llm-moonbit) |
+| Codex-threads-dev FastQ milestone | [docs/experiments/codex-threads-dev/2026-04-17-gpt54-fastq-codegen-milestone.md](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/experiments/codex-threads-dev/2026-04-17-gpt54-fastq-codegen-milestone.md) |
 
 ## Current Convention
 

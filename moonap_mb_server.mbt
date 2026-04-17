@@ -538,6 +538,9 @@ fn classify_compile_output(output : String) -> String {
   let lowered = output.to_lower()
   if contains_non_code_reasoning(lowered) {
     "non-code-response"
+  } else if lowered.contains("cannot be implicitly ignored") ||
+    lowered.contains("explicitly ignore it") {
+    "ignored-value-error"
   } else if lowered.contains("moon.pkg") ||
     lowered.contains("moon.mod.json") ||
     (lowered.contains("package") && lowered.contains("invalid")) {
@@ -584,6 +587,8 @@ fn likely_cause_for_error_kind(kind : String) -> String {
   match kind {
     "non-code-response" =>
       "The model returned reasoning or explanation text instead of pure MoonBit source code."
+    "ignored-value-error" =>
+      "The program leaves a non-Unit value as a bare expression in fn main, so MoonBit rejects it unless you return it intentionally or wrap it with ignore(...)."
     "project-config-error" =>
       "The generated MoonBit file or package layout does not match the current MoonBit 0.9 project conventions."
     "syntax-error" =>
@@ -606,6 +611,8 @@ fn repair_hint_for_error_kind(kind : String) -> String {
   match kind {
     "non-code-response" =>
       "Strip all reasoning text and return only valid cmd/main/main.mbt code with no markdown fences or explanations."
+    "ignored-value-error" =>
+      "If fn main contains a bare expression that returns String or another non-Unit value, wrap it with ignore(...) or bind it to let _ = ... without changing the task behavior."
     "project-config-error" =>
       "Keep the output to cmd/main/main.mbt only and avoid inventing extra project files or package declarations."
     "syntax-error" =>
@@ -893,7 +900,7 @@ pub fn llm_router_policy() -> LlmRouterPolicy {
     rate_limit_cooldown_ms: 900000,
     network_cooldown_ms: 120000,
     models: [
-      model("openai", "gpt-5.4", "OpenAI GPT-5.4 (Codex-demo mode)", 5, true),
+      model("openai", "gpt-5.4", "OpenAI GPT-5.4 (LLM-sim)", 5, true),
       model(
         "nvidia", "meta/llama-4-maverick-17b-128e-instruct", "NVIDIA Llama 4 Maverick 17B 128E Instruct",
         10, true,

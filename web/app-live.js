@@ -1132,7 +1132,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app26browser__open__llm_
      } else if (key === "siliconflow") {
        baseUrl = "https://api.siliconflow.cn/v1";
      } else if (key === "openai") {
-       baseUrl = "moonap://codex-demo";
+       baseUrl = "moonap://llm-sim";
      } else if (key === "nvidia") {
        baseUrl = "https://integrate.api.nvidia.com/v1";
      }
@@ -1206,7 +1206,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app26browser__open__llm_
      {
        key: "openai",
        enabled: true,
-       baseUrl: "moonap://codex-demo",
+       baseUrl: "moonap://llm-sim",
        models: [
          { id: "gpt-5.4", enabled: true }
        ]
@@ -1282,7 +1282,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app26browser__open__llm_
        enabled: Boolean(spec.enabled && model.enabled),
        model: model.id,
        baseUrl: spec.baseUrl,
-       apiKey: spec.key === "openai" ? "codex-demo-mode" : ""
+       apiKey: spec.key === "openai" ? "llm-sim-mode" : ""
      }))
    );
    const saved = readRouter();
@@ -1415,7 +1415,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app27browser__render__on
    const providers = Array.isArray(saved.providers) ? saved.providers : [];
    const usable = providers.filter((item) => Boolean(item?.enabled) && String(item?.apiKey || "").trim() !== "" && String(item?.test_status || "") !== "failed");
    const primary = usable[0];
-   const primaryLabel = primary ? `${String(primary.key || "")}/${String(primary.model || "")}` : "OpenAI/GPT-5.4 (Codex-demo mode)";
+   const primaryLabel = primary ? `${String(primary.key || "")}/${String(primary.model || "")}` : "OpenAI/GPT-5.4 (LLM-sim)";
    let benchmark = {};
    try { benchmark = JSON.parse(globalThis.__moonapBenchmarkAssessment || "{}"); } catch { benchmark = {}; }
    const passedLevel = Number(benchmark?.pass ? benchmark.level || 0 : 0);
@@ -1439,7 +1439,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app27browser__render__on
        </div>`
      : `
        <strong>Connect an LLM to begin</strong>
-       <small>Use OpenAI / GPT-5.4 Codex-demo mode for the local demo path, or switch to real providers later. After Save, MoonAP will test the checked models and show the usable order in Details.</small>
+       <small>Use OpenAI / GPT-5.4 LLM-sim for the local multi-thread dev path, or switch to real providers later. After Save, MoonAP will test the checked models and show the usable order in Details.</small>
        <div class="onboarding-actions">
          <button id="onboardingEditLLM" type="button">Open LLM Router</button>
          <button id="onboardingOpenSkill" class="secondary" type="button">Browse SKILL</button>
@@ -1571,7 +1571,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app22browser__on__llm__s
      } else if (key === "siliconflow") {
        baseUrl = "https://api.siliconflow.cn/v1";
      } else if (key === "openai") {
-       baseUrl = "moonap://codex-demo";
+       baseUrl = "moonap://llm-sim";
      } else if (key === "nvidia") {
        baseUrl = "https://integrate.api.nvidia.com/v1";
      }
@@ -2156,7 +2156,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__run__free_
        else if (key === "openrouter") baseUrl = "https://openrouter.ai/api/v1";
        else if (key === "zai") baseUrl = "https://open.bigmodel.cn/api/paas/v4";
        else if (key === "siliconflow") baseUrl = "https://api.siliconflow.cn/v1";
-       else if (key === "openai") baseUrl = "moonap://codex-demo";
+       else if (key === "openai") baseUrl = "moonap://llm-sim";
        else if (key === "nvidia") baseUrl = "https://integrate.api.nvidia.com/v1";
        return {
          key,

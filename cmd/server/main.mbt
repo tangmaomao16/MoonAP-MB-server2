@@ -21,22 +21,14 @@ async fn moonap_server(
     !path.contains(".map") {
     serve_static_file(
       conn,
-      if path.contains("/app-live.js") {
-        "web/app-live.js"
-      } else {
-        "web/app.js"
-      },
+      built_web_js_path(),
       "application/javascript; charset=utf-8",
     )
   } else if request.meth == Get &&
     (path.contains("/app.js.map") || path.contains("/app-live.js.map")) {
     serve_static_file(
       conn,
-      if path.contains("/app-live.js.map") {
-        "web/app-live.js.map"
-      } else {
-        "web/app.js.map"
-      },
+      built_web_js_map_path(),
       "application/json; charset=utf-8",
     )
   } else if request.meth == Get && path == "/style.css" {
@@ -84,22 +76,107 @@ async fn moonap_server(
     )
   } else if request.meth == Get && path == "/api/codex-threads-dev/manifest" {
     send_json(conn, 200, codex_threads_dev_manifest_json())
+  } else if request.meth == Get && path == "/api/codex-threads-dev/coordination" {
+    send_json(conn, 200, codex_threads_dev_coordination_json())
+  } else if request.meth == Get && path == "/api/llm-sim/latest-request" {
+    send_text(
+      conn,
+      200,
+      latest_llm_sim_request_json_or_default(),
+      "application/json; charset=utf-8",
+    )
+  } else if request.meth == Get && path == "/api/llm-sim/latest-response" {
+    send_json(conn, 200, latest_llm_sim_response_status_json())
+  } else if request.meth == Get && path == "/api/runtime-exec/latest-request" {
+    send_text(
+      conn,
+      200,
+      read_text_or_default(
+        runtime_exec_root() + "/latest-request.json",
+        "{\n  \"status\": \"empty\"\n}\n",
+      ),
+      "application/json; charset=utf-8",
+    )
+  } else if request.meth == Get && path == "/api/runtime-exec/latest-result" {
+    send_text(
+      conn,
+      200,
+      read_text_or_default(
+        runtime_exec_root() + "/latest-result.json",
+        "{\n  \"status\": \"empty\"\n}\n",
+      ),
+      "application/json; charset=utf-8",
+    )
+  } else if request.meth == Get &&
+    path.has_prefix("/api/runtime-exec/request-artifact") {
+    serve_runtime_exec_request_artifact(conn, path)
+  } else if request.meth == Get && path == "/api/skill-export/save-decision" {
+    send_text(
+      conn,
+      200,
+      read_text_or_default(
+        skill_export_root() + "/save-decision.json",
+        "{\n  \"status\": \"unset\"\n}\n",
+      ),
+      "application/json; charset=utf-8",
+    )
+  } else if request.meth == Get && path == "/api/human-sim/latest-action" {
+    send_text(
+      conn,
+      200,
+      read_text_or_default(
+        human_sim_state_dir() + "/latest-action.json",
+        "{}\n",
+      ),
+      "application/json; charset=utf-8",
+    )
+  } else if request.meth == Get && path == "/api/human-sim/latest-feedback" {
+    send_text(
+      conn,
+      200,
+      read_text_or_default(
+        human_sim_state_dir() + "/latest-feedback.md",
+        "# latest-feedback\n\nNo human-sim feedback has been recorded yet.\n",
+      ),
+      "text/markdown; charset=utf-8",
+    )
+  } else if request.meth == Get && path == "/api/human-sim/latest-intent" {
+    send_text(
+      conn,
+      200,
+      read_text_or_default(
+        human_sim_state_dir() + "/latest-intent.json",
+        "{\n  \"status\": \"empty\"\n}\n",
+      ),
+      "application/json; charset=utf-8",
+    )
   } else if request.meth == Post && path == "/api/human-sim/actions" {
     let payload = body.read_all().text()
     persist_human_sim_payload(
-      conn,
-      "actions",
-      payload,
-      "application/json; charset=utf-8",
+      conn, "actions", payload, "application/json; charset=utf-8",
     )
   } else if request.meth == Post && path == "/api/human-sim/feedback" {
     let payload = body.read_all().text()
     persist_human_sim_payload(
-      conn,
-      "feedback",
-      payload,
-      "text/markdown; charset=utf-8",
+      conn, "feedback", payload, "text/markdown; charset=utf-8",
     )
+  } else if request.meth == Post && path == "/api/human-sim/intent-status" {
+    let payload = body.read_all().text()
+    persist_human_sim_intent_status(
+      conn, payload, "application/json; charset=utf-8",
+    )
+  } else if request.meth == Post &&
+    path == "/api/human-sim/dispatch-latest-intent" {
+    dispatch_latest_human_sim_intent(conn)
+  } else if request.meth == Post &&
+    path == "/api/llm-sim/process-latest-response" {
+    process_latest_llm_sim_response(conn)
+  } else if request.meth == Post && path == "/api/task/execute" {
+    let payload = body.read_all().text()
+    persist_runtime_execution_result(conn, payload)
+  } else if request.meth == Post && path == "/api/skill-export/save-decision" {
+    let payload = body.read_all().text()
+    persist_skill_save_decision(conn, payload)
   } else if request.meth == Get && path.contains("/api/skills/run-plan") {
     let skill_hint = if path.contains("finance") || path.contains("excel") {
       "finance excel"
@@ -205,16 +282,16 @@ async fn moonap_server(
 async fn initialize_runtime_session() -> String {
   let run_id = "run-" + @core.async_runtime_marker().to_string()
   let root = "logs/runs/" + run_id
-  let codex_root = root + "/codex-demo"
+  let llm_root = root + "/llm-sim"
   let human_root = root + "/human-sim"
   let runtime_exec_root = root + "/runtime-exec"
   let skill_export_root = root + "/skill-export"
   ensure_directory("logs")
   ensure_directory("logs/runs")
   ensure_directory(root)
-  ensure_directory(codex_root + "/inbox")
-  ensure_directory(codex_root + "/outbox")
-  ensure_directory(codex_root + "/state")
+  ensure_directory(llm_root + "/inbox")
+  ensure_directory(llm_root + "/outbox")
+  ensure_directory(llm_root + "/state")
   ensure_directory(human_root + "/actions")
   ensure_directory(human_root + "/observations")
   ensure_directory(human_root + "/feedback")
@@ -233,8 +310,8 @@ async fn initialize_runtime_session() -> String {
     "  \"runtime_log\": " +
     json_string(runtime_log) +
     ",\n" +
-    "  \"codex_demo_root\": " +
-    json_string(codex_root) +
+    "  \"llm_sim_root\": " +
+    json_string(llm_root) +
     ",\n" +
     "  \"human_sim_root\": " +
     json_string(human_root) +
@@ -288,23 +365,23 @@ async fn runtime_log_path() -> String {
 }
 
 ///|
-async fn codex_demo_root() -> String {
-  current_runtime_dir() + "/codex-demo"
+async fn llm_sim_root() -> String {
+  current_runtime_dir() + "/llm-sim"
 }
 
 ///|
-async fn codex_demo_inbox_dir() -> String {
-  codex_demo_root() + "/inbox"
+async fn llm_sim_inbox_dir() -> String {
+  llm_sim_root() + "/inbox"
 }
 
 ///|
-async fn codex_demo_outbox_dir() -> String {
-  codex_demo_root() + "/outbox"
+async fn llm_sim_outbox_dir() -> String {
+  llm_sim_root() + "/outbox"
 }
 
 ///|
-async fn codex_demo_state_dir() -> String {
-  codex_demo_root() + "/state"
+async fn llm_sim_state_dir() -> String {
+  llm_sim_root() + "/state"
 }
 
 ///|
@@ -338,6 +415,21 @@ async fn runtime_exec_root() -> String {
 }
 
 ///|
+fn built_web_js_path() -> String {
+  "_build/js/debug/build/cmd/web_app/web_app.js"
+}
+
+///|
+fn built_web_js_map_path() -> String {
+  "_build/js/debug/build/cmd/web_app/web_app.js.map"
+}
+
+///|
+async fn runtime_exec_requests_dir() -> String {
+  runtime_exec_root() + "/requests"
+}
+
+///|
 async fn skill_export_root() -> String {
   current_runtime_dir() + "/skill-export"
 }
@@ -348,6 +440,123 @@ async fn read_text_or_default(path : String, fallback : String) -> String {
     @fs.read_file(path).text()
   } else {
     fallback
+  }
+}
+
+///|
+async fn latest_llm_sim_request_text_path() -> String {
+  read_text_or_default(llm_sim_state_dir() + "/latest-request.txt", "")
+  .trim()
+  .to_string()
+}
+
+///|
+fn llm_sim_request_json_path_from_text_path(
+  request_text_path : String,
+) -> String {
+  if request_text_path == "" {
+    ""
+  } else {
+    request_text_path.replace_all(old=".txt", new=".json")
+  }
+}
+
+///|
+async fn latest_llm_sim_request_json_or_default() -> String {
+  let request_text_path = latest_llm_sim_request_text_path()
+  if request_text_path == "" {
+    "{\n  \"status\": \"empty\"\n}\n"
+  } else {
+    let request_json_path = llm_sim_request_json_path_from_text_path(
+      request_text_path,
+    )
+    read_text_or_default(
+      request_json_path,
+      "{\n  \"status\": \"missing-request-json\",\n  \"request_text_path\": " +
+      json_string(request_text_path) +
+      "\n}\n",
+    )
+  }
+}
+
+///|
+async fn latest_llm_sim_response_status_json() -> String {
+  let request_json = latest_llm_sim_request_json_or_default()
+  let request_id = extract_json_string_field(request_json, "request_id")
+  let response_path = extract_json_string_field(request_json, "reply_path")
+  let error_path = extract_json_string_field(request_json, "error_path")
+  if request_id == "" {
+    return "{\n  \"ok\": false,\n  \"status\": \"empty\"\n}\n"
+  }
+  let response_exists = response_path != "" && @fs.exists(response_path)
+  let error_exists = error_path != "" && @fs.exists(error_path)
+  "{\n" +
+  "  \"ok\": " +
+  bool_json(response_exists) +
+  ",\n" +
+  "  \"request_id\": " +
+  json_string(request_id) +
+  ",\n" +
+  "  \"status\": " +
+  json_string(
+    if response_exists {
+      "response-ready"
+    } else if error_exists {
+      "error-ready"
+    } else {
+      "pending"
+    },
+  ) +
+  ",\n" +
+  "  \"response_path\": " +
+  json_string(response_path) +
+  ",\n" +
+  "  \"error_path\": " +
+  json_string(error_path) +
+  "\n" +
+  "}\n"
+}
+
+///|
+fn bool_json(value : Bool) -> String {
+  if value {
+    "true"
+  } else {
+    "false"
+  }
+}
+
+///|
+fn json_message(role : String, content : String) -> String {
+  "{\n" +
+  "  \"role\": " +
+  json_string(role) +
+  ",\n" +
+  "  \"content\": " +
+  json_string(content) +
+  "\n" +
+  "}"
+}
+
+///|
+fn append_json_message_array(
+  history_json : String,
+  role : String,
+  content : String,
+) -> String {
+  let trimmed = history_json.trim().to_string()
+  let message = json_message(role, content)
+  if trimmed == "" || trimmed == "[]" {
+    "[\n" + message + "\n]"
+  } else if trimmed.has_prefix("[") && trimmed.has_suffix("]") {
+    let inner = trimmed[1:trimmed.length() - 1].trim().to_string()
+    if inner == "" {
+      "[\n" + message + "\n]"
+    } else {
+      "[\n" + inner + ",\n" + message + "\n]"
+    }
+  } else {
+    "[\n" + json_message("user", trimmed) + ",\n" + message + "\n]"
   }
 }
 
@@ -410,10 +619,29 @@ async fn persist_human_sim_payload(
   ensure_directory(directory)
   ensure_directory(human_sim_state_dir())
   let extension = if channel == "actions" { ".json" } else { latest_suffix }
-  let path = directory + "/" + channel + "-" +
-    @core.async_runtime_marker().to_string() + extension
-  @fs.write_file(path, payload, create=0o644)
-  @fs.write_file(state_path, payload, create=0o644)
+  let normalized_payload = if channel == "actions" {
+    normalize_human_sim_action_payload(payload)
+  } else {
+    payload
+  }
+  let path = directory +
+    "/" +
+    channel +
+    "-" +
+    @core.async_runtime_marker().to_string() +
+    extension
+  @fs.write_file(path, normalized_payload, create=0o644)
+  @fs.write_file(state_path, normalized_payload, create=0o644)
+  if channel == "actions" {
+    let action_kind = extract_json_string_field(normalized_payload, "action")
+    if action_kind == "submit-prompt" {
+      @fs.write_file(
+        human_sim_state_dir() + "/latest-intent.json",
+        human_sim_intent_json(normalized_payload),
+        create=0o644,
+      )
+    }
+  }
   append_text_file(
     runtime_log_directory(),
     runtime_log_path(),
@@ -425,13 +653,908 @@ async fn persist_human_sim_payload(
     json_string(path) +
     "}\n",
   )
-  send_text(conn, 200, payload, content_type)
+  send_text(conn, 200, normalized_payload, content_type)
+}
+
+///|
+async fn persist_human_sim_intent_status(
+  conn : @http.ServerConnection,
+  payload : String,
+  content_type : String,
+) -> Unit {
+  let normalized = normalize_human_sim_intent_status_payload(payload)
+  ensure_directory(human_sim_state_dir())
+  @fs.write_file(
+    human_sim_state_dir() + "/latest-intent-status.json",
+    normalized,
+    create=0o644,
+  )
+  append_text_file(
+    runtime_log_directory(),
+    runtime_log_path(),
+    "{\"ts\":" +
+    json_string(@core.async_runtime_marker().to_string()) +
+    ",\"kind\":\"human-sim\",\"label\":\"intent-status-updated\",\"text\":" +
+    json_string(human_sim_state_dir() + "/latest-intent-status.json") +
+    "}\n",
+  )
+  send_text(conn, 200, normalized, content_type)
+}
+
+///|
+async fn dispatch_latest_human_sim_intent(
+  conn : @http.ServerConnection,
+) -> Unit {
+  let intent_path = human_sim_state_dir() + "/latest-intent.json"
+  let intent_raw = read_text_or_default(
+    intent_path, "{\n  \"status\": \"empty\"\n}\n",
+  )
+  let prompt = extract_json_string_field(intent_raw, "prompt")
+  let task_kind = extract_json_string_field(intent_raw, "task_kind")
+  if prompt == "" {
+    send_json(
+      conn, 400, "{\n  \"ok\": false,\n  \"error\": \"No captured human-sim intent is available yet.\"\n}\n",
+    )
+    return
+  }
+  let request_body = llm_sim_request_body_from_intent(prompt)
+  let conversation_history_json = llm_sim_initial_conversation_history_json(
+    prompt,
+  )
+  let (request_id, request_text_path, response_path, error_path) = create_llm_sim_request(
+    "openai", "gpt-5.4", "codegen", "moonap://llm-sim", request_body, prompt, task_kind,
+    conversation_history_json,
+  )
+  @fs.write_file(
+    human_sim_state_dir() + "/latest-intent-status.json",
+    "{\n" +
+    "  \"status\": \"dispatched\",\n" +
+    "  \"assignee\": \"llm-sim-thread\",\n" +
+    "  \"notes\": " +
+    json_string(request_id) +
+    "\n" +
+    "}\n",
+    create=0o644,
+  )
+  send_json(
+    conn,
+    200,
+    "{\n" +
+    "  \"ok\": true,\n" +
+    "  \"request_id\": " +
+    json_string(request_id) +
+    ",\n" +
+    "  \"request_path\": " +
+    json_string(request_text_path) +
+    ",\n" +
+    "  \"reply_path\": " +
+    json_string(response_path) +
+    ",\n" +
+    "  \"error_path\": " +
+    json_string(error_path) +
+    "\n" +
+    "}\n",
+  )
+}
+
+///|
+async fn process_latest_llm_sim_response(conn : @http.ServerConnection) -> Unit {
+  let request_json = latest_llm_sim_request_json_or_default()
+  let request_id = extract_json_string_field(request_json, "request_id")
+  let response_path = extract_json_string_field(request_json, "reply_path")
+  let error_path = extract_json_string_field(request_json, "error_path")
+  let original_prompt = extract_json_string_field(
+    request_json, "original_prompt",
+  )
+  let task_kind = extract_json_string_field(request_json, "task_kind")
+  let conversation_history_json = extract_json_string_field(
+    request_json, "conversation_history_json",
+  )
+  if request_id == "" {
+    send_json(
+      conn, 400, "{\n  \"ok\": false,\n  \"error\": \"No llm-sim request is available yet.\"\n}\n",
+    )
+    return
+  }
+  if error_path != "" && @fs.exists(error_path) {
+    let detail = @fs.read_file(error_path).text()
+    append_text_file(
+      runtime_log_directory(),
+      runtime_log_path(),
+      "{\"ts\":" +
+      json_string(request_id) +
+      ",\"kind\":\"llm-sim\",\"label\":\"response-error-consumed\",\"text\":" +
+      json_string(error_path) +
+      "}\n",
+    )
+    send_json(
+      conn,
+      502,
+      "{\n" +
+      "  \"ok\": false,\n" +
+      "  \"request_id\": " +
+      json_string(request_id) +
+      ",\n" +
+      "  \"status\": \"error-ready\",\n" +
+      "  \"error_path\": " +
+      json_string(error_path) +
+      ",\n" +
+      "  \"detail\": " +
+      json_string(detail) +
+      "\n" +
+      "}\n",
+    )
+    return
+  }
+  if response_path == "" || !@fs.exists(response_path) {
+    send_json(
+      conn,
+      202,
+      "{\n" +
+      "  \"ok\": false,\n" +
+      "  \"request_id\": " +
+      json_string(request_id) +
+      ",\n" +
+      "  \"status\": \"pending-response\",\n" +
+      "  \"response_path\": " +
+      json_string(response_path) +
+      "\n" +
+      "}\n",
+    )
+    return
+  }
+  let raw_response = @fs.read_file(response_path).text()
+  let source = @core.extract_moonbit_source(raw_response)
+  let report = @core.artifact_compile_probe(source)
+  let report_json = report.to_json().stringify(indent=2)
+  let stage = extract_json_string_field(request_json, "stage")
+  let requests_dir = runtime_exec_requests_dir()
+  let request_dir = requests_dir + "/" + request_id
+  let latest_response_path = runtime_exec_root() + "/latest-raw-response.txt"
+  let latest_source_path = runtime_exec_root() + "/latest-source.mbt"
+  let latest_report_path = runtime_exec_root() + "/latest-compile-report.json"
+  let latest_runtime_request_path = runtime_exec_root() + "/latest-request.json"
+  let request_response_path = request_dir + "/raw-response.txt"
+  let request_source_path = request_dir + "/main.mbt"
+  let request_report_path = request_dir + "/compile-report.json"
+  let request_runtime_request_path = request_dir + "/runtime-request.json"
+  let observation_path = human_sim_observations_dir() +
+    "/" +
+    request_id +
+    "-compile-observation.md"
+  let latest_observation_path = human_sim_observations_dir() +
+    "/latest-compile-observation.md"
+  ensure_directory(runtime_exec_root())
+  ensure_directory(requests_dir)
+  ensure_directory(request_dir)
+  ensure_directory(human_sim_observations_dir())
+  @fs.write_file(request_response_path, raw_response, create=0o644)
+  @fs.write_file(request_source_path, source + "\n", create=0o644)
+  @fs.write_file(request_report_path, report_json + "\n", create=0o644)
+  @fs.write_file(latest_response_path, raw_response, create=0o644)
+  @fs.write_file(latest_source_path, source + "\n", create=0o644)
+  @fs.write_file(latest_report_path, report_json + "\n", create=0o644)
+  let runtime_request_json = runtime_exec_request_json(
+    request_id,
+    stage,
+    request_source_path,
+    report,
+    run_id_from_dir(current_runtime_dir()),
+  )
+  if report.ok {
+    @fs.write_file(
+      request_runtime_request_path,
+      runtime_request_json,
+      create=0o644,
+    )
+    @fs.write_file(
+      latest_runtime_request_path,
+      runtime_request_json,
+      create=0o644,
+    )
+  }
+  let observation = llm_sim_compile_observation_markdown(request_id, report)
+  let next_repair_request = if report.ok {
+    None
+  } else {
+    let compiler_excerpt = if report.trimmed_output != "" {
+      report.trimmed_output
+    } else if report.summary_excerpt != "" {
+      report.summary_excerpt
+    } else {
+      report.output
+    }
+    let repair_body = llm_sim_repair_request_body_from_report(
+      source, report, task_kind, conversation_history_json,
+    )
+    let next_conversation_history_json = append_json_message_array(
+      append_json_message_array(conversation_history_json, "assistant", source),
+      "user",
+      "Compiler error:\n" + compiler_excerpt,
+    )
+    let (next_request_id, next_request_path, next_response_path, next_error_path
+    ) = create_llm_sim_request(
+      "openai", "gpt-5.4", "repair", "moonap://llm-sim", repair_body, original_prompt,
+      task_kind, next_conversation_history_json,
+    )
+    Some(
+      (next_request_id, next_request_path, next_response_path, next_error_path),
+    )
+  }
+  @fs.write_file(observation_path, observation, create=0o644)
+  @fs.write_file(latest_observation_path, observation, create=0o644)
+  @fs.write_file(
+    llm_sim_state_dir() + "/latest-response-status.json",
+    "{\n" +
+    "  \"request_id\": " +
+    json_string(request_id) +
+    ",\n" +
+    "  \"status\": " +
+    json_string(if report.ok { "compile-ok" } else { "compile-failed" }) +
+    ",\n" +
+    "  \"request_stage\": " +
+    json_string(stage) +
+    ",\n" +
+    "  \"response_path\": " +
+    json_string(response_path) +
+    ",\n" +
+    "  \"source_path\": " +
+    json_string(request_source_path) +
+    ",\n" +
+    "  \"compile_report_path\": " +
+    json_string(request_report_path) +
+    ",\n" +
+    "  \"next_request_id\": " +
+    json_string(
+      match next_repair_request {
+        Some((next_request_id, _, _, _)) => next_request_id
+        None => ""
+      },
+    ) +
+    "\n" +
+    "}\n",
+    create=0o644,
+  )
+  append_text_file(
+    runtime_log_directory(),
+    runtime_log_path(),
+    "{\"ts\":" +
+    json_string(request_id) +
+    ",\"kind\":\"llm-sim\",\"label\":\"response-processed\",\"text\":" +
+    json_string(request_report_path) +
+    "}\n",
+  )
+  append_text_file(
+    runtime_log_directory(),
+    runtime_log_path(),
+    "{\"ts\":" +
+    json_string(request_id) +
+    ",\"kind\":\"runtime-exec\",\"label\":\"compile-probe-finished\",\"text\":" +
+    json_string(if report.ok { "ok" } else { "failed" }) +
+    "}\n",
+  )
+  if report.ok {
+    append_text_file(
+      runtime_log_directory(),
+      runtime_log_path(),
+      "{\"ts\":" +
+      json_string(request_id) +
+      ",\"kind\":\"runtime-exec\",\"label\":\"runtime-request-ready\",\"text\":" +
+      json_string(request_runtime_request_path) +
+      "}\n",
+    )
+  }
+  if next_repair_request is Some((next_request_id, _, _, _)) {
+    append_text_file(
+      runtime_log_directory(),
+      runtime_log_path(),
+      "{\"ts\":" +
+      json_string(next_request_id) +
+      ",\"kind\":\"llm-sim\",\"label\":\"repair-request-created\",\"text\":" +
+      json_string(request_id) +
+      "}\n",
+    )
+  }
+  send_json(
+    conn,
+    200,
+    "{\n" +
+    "  \"ok\": " +
+    bool_json(report.ok) +
+    ",\n" +
+    "  \"request_id\": " +
+    json_string(request_id) +
+    ",\n" +
+    "  \"source_path\": " +
+    json_string(request_source_path) +
+    ",\n" +
+    "  \"compile_report_path\": " +
+    json_string(request_report_path) +
+    ",\n" +
+    "  \"observation_path\": " +
+    json_string(observation_path) +
+    ",\n" +
+    "  \"stage\": " +
+    json_string(report.stage) +
+    ",\n" +
+    "  \"summary_kind\": " +
+    json_string(report.summary_kind) +
+    ",\n" +
+    "  \"next_request_id\": " +
+    json_string(
+      match next_repair_request {
+        Some((next_request_id, _, _, _)) => next_request_id
+        None => ""
+      },
+    ) +
+    ",\n" +
+    "  \"next_request_path\": " +
+    json_string(
+      match next_repair_request {
+        Some((_, next_request_path, _, _)) => next_request_path
+        None => ""
+      },
+    ) +
+    "\n" +
+    "}\n",
+  )
+}
+
+///|
+fn runtime_exec_request_json(
+  request_id : String,
+  request_stage : String,
+  source_path : String,
+  report : @core.ArtifactCompileReport,
+  run_id : String,
+) -> String {
+  let base_url = "/api/runtime-exec/request-artifact?run_id=" +
+    run_id +
+    "&request_id=" +
+    request_id
+  "{\n" +
+  "  \"run_id\": " +
+  json_string(run_id) +
+  ",\n" +
+  "  \"request_id\": " +
+  json_string(request_id) +
+  ",\n" +
+  "  \"request_stage\": " +
+  json_string(request_stage) +
+  ",\n" +
+  "  \"status\": \"ready-for-runtime\",\n" +
+  "  \"wasm_path\": " +
+  json_string(report.wasm_path) +
+  ",\n" +
+  "  \"wasm_url\": " +
+  json_string(base_url + "&kind=wasm") +
+  ",\n" +
+  "  \"source_path\": " +
+  json_string(source_path) +
+  ",\n" +
+  "  \"source_url\": " +
+  json_string(base_url + "&kind=source") +
+  ",\n" +
+  "  \"compile_report_url\": " +
+  json_string(base_url + "&kind=compile-report") +
+  ",\n" +
+  "  \"raw_response_url\": " +
+  json_string(base_url + "&kind=raw-response") +
+  ",\n" +
+  "  \"result_delivery\": {\n" +
+  "    \"show_in_browser\": true,\n" +
+  "    \"allow_download\": true,\n" +
+  "    \"save_skill_after_user_accepts\": true\n" +
+  "  }\n" +
+  "}\n"
+}
+
+///|
+async fn persist_runtime_execution_result(
+  conn : @http.ServerConnection,
+  payload : String,
+) -> Unit {
+  let normalized = normalize_runtime_execution_payload(payload)
+  let request_id = extract_json_string_field(normalized, "request_id")
+  let status = extract_json_string_field(normalized, "status")
+  let request_dir = if request_id == "" {
+    runtime_exec_root()
+  } else {
+    runtime_exec_requests_dir() + "/" + request_id
+  }
+  ensure_directory(runtime_exec_root())
+  ensure_directory(runtime_exec_requests_dir())
+  ensure_directory(request_dir)
+  @fs.write_file(
+    runtime_exec_root() + "/latest-result.json",
+    normalized,
+    create=0o644,
+  )
+  @fs.write_file(request_dir + "/result.json", normalized, create=0o644)
+  let stdout = extract_json_string_field(normalized, "stdout_text")
+  let error_text = extract_json_string_field(normalized, "error_text")
+  let download_name = extract_json_string_field(normalized, "download_name")
+  let download_content = extract_json_string_field(
+    normalized, "download_content",
+  )
+  @fs.write_file(
+    request_dir + "/stdout.txt",
+    if stdout == "" {
+      ""
+    } else {
+      stdout + "\n"
+    },
+    create=0o644,
+  )
+  @fs.write_file(
+    request_dir + "/error.txt",
+    if error_text == "" {
+      ""
+    } else {
+      error_text + "\n"
+    },
+    create=0o644,
+  )
+  @fs.write_file(
+    request_dir + "/preview.json",
+    "{\n" +
+    "  \"request_id\": " +
+    json_string(request_id) +
+    ",\n" +
+    "  \"status\": " +
+    json_string(status) +
+    ",\n" +
+    "  \"download_name\": " +
+    json_string(download_name) +
+    "\n" +
+    "}\n",
+    create=0o644,
+  )
+  if download_name != "" || download_content != "" {
+    let download_file_name = if download_name == "" {
+      "download.txt"
+    } else {
+      download_name
+    }
+    let download_path = request_dir + "/" + download_file_name
+    @fs.write_file(download_path, download_content, create=0o644)
+  }
+  append_text_file(
+    runtime_log_directory(),
+    runtime_log_path(),
+    "{\"ts\":" +
+    json_string(
+      if request_id == "" {
+        @core.async_runtime_marker().to_string()
+      } else {
+        request_id
+      },
+    ) +
+    ",\"kind\":\"runtime-exec\",\"label\":\"runtime-result-received\",\"text\":" +
+    json_string(request_dir + "/result.json") +
+    "}\n",
+  )
+  send_text(conn, 200, normalized, "application/json; charset=utf-8")
+}
+
+///|
+fn normalize_runtime_execution_payload(payload : String) -> String {
+  let run_id = extract_json_string_field(payload, "run_id")
+  let request_id = extract_json_string_field(payload, "request_id")
+  let status = extract_json_string_field(payload, "status")
+  let result_kind = extract_json_string_field(payload, "result_kind")
+  let summary = extract_json_string_field(payload, "summary")
+  let display_text = extract_json_string_field(payload, "display_text")
+  let stdout_text = extract_json_string_field(payload, "stdout_text")
+  let error_text = extract_json_string_field(payload, "error_text")
+  let download_name = extract_json_string_field(payload, "download_name")
+  let download_content = extract_json_string_field(payload, "download_content")
+  let accepted_for_skill = extract_json_bool_field(
+    payload, "accepted_for_skill",
+  )
+  let download_url = if request_id == "" || download_name == "" {
+    ""
+  } else {
+    "/api/runtime-exec/request-artifact?" +
+    (if run_id == "" { "" } else { "run_id=" + run_id + "&" }) +
+    "request_id=" +
+    request_id +
+    "&kind=download&name=" +
+    download_name
+  }
+  "{\n" +
+  "  \"run_id\": " +
+  json_string(run_id) +
+  ",\n" +
+  "  \"request_id\": " +
+  json_string(request_id) +
+  ",\n" +
+  "  \"status\": " +
+  json_string(if status == "" { "runtime-succeeded" } else { status }) +
+  ",\n" +
+  "  \"result_kind\": " +
+  json_string(if result_kind == "" { "text" } else { result_kind }) +
+  ",\n" +
+  "  \"summary\": " +
+  json_string(summary) +
+  ",\n" +
+  "  \"display_text\": " +
+  json_string(display_text) +
+  ",\n" +
+  "  \"stdout_text\": " +
+  json_string(stdout_text) +
+  ",\n" +
+  "  \"error_text\": " +
+  json_string(error_text) +
+  ",\n" +
+  "  \"download_name\": " +
+  json_string(download_name) +
+  ",\n" +
+  "  \"download_url\": " +
+  json_string(download_url) +
+  ",\n" +
+  "  \"download_content\": " +
+  json_string(download_content) +
+  ",\n" +
+  "  \"accepted_for_skill\": " +
+  bool_json(accepted_for_skill) +
+  "\n" +
+  "}\n"
+}
+
+///|
+async fn persist_skill_save_decision(
+  conn : @http.ServerConnection,
+  payload : String,
+) -> Unit {
+  let normalized = normalize_skill_save_decision_payload(payload)
+  let request_id = extract_json_string_field(normalized, "request_id")
+  let decision = extract_json_string_field(normalized, "decision")
+  ensure_directory(skill_export_root())
+  @fs.write_file(
+    skill_export_root() + "/save-decision.json",
+    normalized,
+    create=0o644,
+  )
+  if request_id != "" && decision == "accepted-save-skill" {
+    materialize_skill_export(request_id)
+  }
+  append_text_file(
+    runtime_log_directory(),
+    runtime_log_path(),
+    "{\"ts\":" +
+    json_string(@core.async_runtime_marker().to_string()) +
+    ",\"kind\":\"skill-export\",\"label\":\"save-decision-recorded\",\"text\":" +
+    json_string(skill_export_root() + "/save-decision.json") +
+    "}\n",
+  )
+  send_text(conn, 200, normalized, "application/json; charset=utf-8")
+}
+
+///|
+async fn materialize_skill_export(request_id : String) -> Unit {
+  let run_id = run_id_from_dir(current_runtime_dir())
+  let request_dir = runtime_exec_requests_dir() + "/" + request_id
+  guard @fs.exists(request_dir) else { return }
+  let program_dir = skill_export_root() + "/program"
+  ensure_directory(skill_export_root())
+  ensure_directory(program_dir)
+  let source_path = request_dir + "/main.mbt"
+  let report_path = request_dir + "/compile-report.json"
+  let result_path = request_dir + "/result.json"
+  let runtime_request_path = request_dir + "/runtime-request.json"
+  let source_text = read_text_or_default(source_path, "")
+  let report_json = read_text_or_default(report_path, "{\n  \"ok\": false\n}\n")
+  let result_json = read_text_or_default(
+    result_path, "{\n  \"status\": \"missing\"\n}\n",
+  )
+  let runtime_request_json = read_text_or_default(
+    runtime_request_path, "{\n  \"status\": \"missing\"\n}\n",
+  )
+  if source_text != "" {
+    @fs.write_file(program_dir + "/main.mbt", source_text, create=0o644)
+  }
+  @fs.write_file(
+    program_dir + "/compile-report.json",
+    report_json,
+    create=0o644,
+  )
+  @fs.write_file(
+    program_dir + "/runtime-request.json",
+    runtime_request_json,
+    create=0o644,
+  )
+  @fs.write_file(program_dir + "/result.json", result_json, create=0o644)
+  let wasm_url = "/api/runtime-exec/request-artifact?run_id=" +
+    run_id +
+    "&request_id=" +
+    request_id +
+    "&kind=wasm"
+  let source_url = "/api/runtime-exec/request-artifact?run_id=" +
+    run_id +
+    "&request_id=" +
+    request_id +
+    "&kind=source"
+  let result_url = "/api/runtime-exec/request-artifact?run_id=" +
+    run_id +
+    "&request_id=" +
+    request_id +
+    "&kind=result"
+  @fs.write_file(
+    skill_export_root() + "/skill-manifest.json",
+    "{\n" +
+    "  \"run_id\": " +
+    json_string(run_id) +
+    ",\n" +
+    "  \"request_id\": " +
+    json_string(request_id) +
+    ",\n" +
+    "  \"status\": \"exported\",\n" +
+    "  \"entry_source\": " +
+    json_string(program_dir + "/main.mbt") +
+    ",\n" +
+    "  \"wasm_url\": " +
+    json_string(wasm_url) +
+    ",\n" +
+    "  \"source_url\": " +
+    json_string(source_url) +
+    ",\n" +
+    "  \"result_url\": " +
+    json_string(result_url) +
+    "\n" +
+    "}\n",
+    create=0o644,
+  )
+  @fs.write_file(
+    skill_export_root() + "/SKILL.md",
+    "# Exported MoonAP SKILL\n\n" +
+    "- request_id: `" +
+    request_id +
+    "`\n" +
+    "- source: `program/main.mbt`\n" +
+    "- compile report: `program/compile-report.json`\n" +
+    "- runtime request: `program/runtime-request.json`\n" +
+    "- runtime result: `program/result.json`\n\n" +
+    "## Runtime Artifacts\n\n" +
+    "- wasm URL: `" +
+    wasm_url +
+    "`\n" +
+    "- source URL: `" +
+    source_url +
+    "`\n" +
+    "- result URL: `" +
+    result_url +
+    "`\n",
+    create=0o644,
+  )
+  append_text_file(
+    runtime_log_directory(),
+    runtime_log_path(),
+    "{\"ts\":" +
+    json_string(request_id) +
+    ",\"kind\":\"skill-export\",\"label\":\"skill-export-materialized\",\"text\":" +
+    json_string(skill_export_root() + "/skill-manifest.json") +
+    "}\n",
+  )
+}
+
+///|
+fn normalize_skill_save_decision_payload(payload : String) -> String {
+  let request_id = extract_json_string_field(payload, "request_id")
+  let decision = extract_json_string_field(payload, "decision")
+  let reason = extract_json_string_field(payload, "reason")
+  "{\n" +
+  "  \"request_id\": " +
+  json_string(request_id) +
+  ",\n" +
+  "  \"decision\": " +
+  json_string(if decision == "" { "pending" } else { decision }) +
+  ",\n" +
+  "  \"reason\": " +
+  json_string(reason) +
+  "\n" +
+  "}\n"
+}
+
+///|
+fn llm_sim_compile_observation_markdown(
+  request_id : String,
+  report : @core.ArtifactCompileReport,
+) -> String {
+  "# llm-sim compile observation\n\n" +
+  "- request_id: `" +
+  request_id +
+  "`\n" +
+  "- compile_ok: `" +
+  (if report.ok { "true" } else { "false" }) +
+  "`\n" +
+  "- stage: `" +
+  report.stage +
+  "`\n" +
+  "- summary_kind: `" +
+  report.summary_kind +
+  "`\n" +
+  "- primary_file: `" +
+  report.primary_file +
+  "`\n" +
+  "- primary_line: `" +
+  report.primary_line.to_string() +
+  "`\n\n" +
+  "## Note\n\n" +
+  report.note +
+  "\n\n" +
+  "## Likely Cause\n\n" +
+  (if report.likely_cause == "" { "None." } else { report.likely_cause }) +
+  "\n\n" +
+  "## Repair Hint\n\n" +
+  (if report.repair_hint == "" {
+    "No repair hint needed."
+  } else {
+    report.repair_hint
+  }) +
+  "\n"
+}
+
+///|
+fn llm_sim_repair_request_body_from_report(
+  source : String,
+  report : @core.ArtifactCompileReport,
+  task_kind : String,
+  conversation_history_json : String,
+) -> String {
+  let system_prompt = "You are an AI coder.\n" +
+    "You only write MoonBit code.\n" +
+    "Your job is to repair MoonBit code for the user's task.\n" +
+    "Return only the full contents of cmd/main/main.mbt."
+  let task_prefix = if task_kind == "" || task_kind == "moonbit-task" {
+    ""
+  } else {
+    "Task kind: " + task_kind + "\n\n"
+  }
+  let compiler_excerpt = if report.trimmed_output != "" {
+    report.trimmed_output
+  } else if report.summary_excerpt != "" {
+    report.summary_excerpt
+  } else {
+    report.output
+  }
+  let repair_user_message = "The previous MoonBit file failed to compile under wasm-gc.\n\n" +
+    task_prefix +
+    "Compiler error:\n" +
+    compiler_excerpt +
+    "\n\nFix the file and return the full corrected cmd/main/main.mbt only."
+  let conversation_with_source = append_json_message_array(
+    conversation_history_json, "assistant", source,
+  )
+  let conversation_with_feedback = append_json_message_array(
+    conversation_with_source, "user", repair_user_message,
+  )
+  "{\n" +
+  "  \"model\": \"gpt-5.4\",\n" +
+  "  \"messages\": [\n" +
+  "    {\n" +
+  "      \"role\": \"system\",\n" +
+  "      \"content\": " +
+  json_string(system_prompt) +
+  "\n" +
+  "    },\n" +
+  conversation_with_feedback[1:conversation_with_feedback.length() - 1].to_string() +
+  "  ],\n" +
+  "  \"temperature\": 0.1\n" +
+  "}\n"
+}
+
+///|
+fn normalize_human_sim_action_payload(payload : String) -> String {
+  let action = extract_json_string_field(payload, "action")
+  let source = extract_json_string_field(payload, "source")
+  let prompt = extract_json_string_field(payload, "prompt")
+  let task_kind = extract_json_string_field(payload, "task_kind")
+  let reason = extract_json_string_field(payload, "reason")
+  let artifact_id = extract_json_string_field(payload, "artifact_id")
+  let notes = extract_json_string_field(payload, "notes")
+  "{\n" +
+  "  \"action\": " +
+  json_string(if action == "" { "unknown" } else { action }) +
+  ",\n" +
+  "  \"source\": " +
+  json_string(if source == "" { "simulated-user-thread" } else { source }) +
+  ",\n" +
+  "  \"prompt\": " +
+  json_string(prompt) +
+  ",\n" +
+  "  \"task_kind\": " +
+  json_string(task_kind) +
+  ",\n" +
+  "  \"reason\": " +
+  json_string(reason) +
+  ",\n" +
+  "  \"artifact_id\": " +
+  json_string(artifact_id) +
+  ",\n" +
+  "  \"notes\": " +
+  json_string(notes) +
+  "\n" +
+  "}\n"
+}
+
+///|
+fn normalize_human_sim_intent_status_payload(payload : String) -> String {
+  let status = extract_json_string_field(payload, "status")
+  let assignee = extract_json_string_field(payload, "assignee")
+  let notes = extract_json_string_field(payload, "notes")
+  "{\n" +
+  "  \"status\": " +
+  json_string(if status == "" { "unknown" } else { status }) +
+  ",\n" +
+  "  \"assignee\": " +
+  json_string(assignee) +
+  ",\n" +
+  "  \"notes\": " +
+  json_string(notes) +
+  "\n" +
+  "}\n"
+}
+
+///|
+fn llm_sim_request_body_from_intent(
+  prompt : String,
+) -> String {
+  let system_prompt = "You are an AI coder.\n" +
+    "You only write MoonBit code.\n" +
+    "Your job is to write MoonBit code for the user's task.\n" +
+    "Return only the full contents of cmd/main/main.mbt."
+  let user_prompt = prompt
+  "{\n" +
+  "  \"model\": \"gpt-5.4\",\n" +
+  "  \"messages\": [\n" +
+  "    {\n" +
+  "      \"role\": \"system\",\n" +
+  "      \"content\": " +
+  json_string(system_prompt) +
+  "\n" +
+  "    },\n" +
+  "    {\n" +
+  "      \"role\": \"user\",\n" +
+  "      \"content\": " +
+  json_string(user_prompt) +
+  "\n" +
+  "    }\n" +
+  "  ],\n" +
+  "  \"temperature\": 0.2\n" +
+  "}\n"
+}
+
+///|
+fn llm_sim_initial_conversation_history_json(prompt : String) -> String {
+  "[\n" + json_message("user", prompt) + "\n]"
+}
+
+///|
+fn human_sim_intent_json(normalized_payload : String) -> String {
+  let prompt = extract_json_string_field(normalized_payload, "prompt")
+  let task_kind = extract_json_string_field(normalized_payload, "task_kind")
+  let source = extract_json_string_field(normalized_payload, "source")
+  "{\n" +
+  "  \"intent_kind\": \"submit-prompt\",\n" +
+  "  \"prompt\": " +
+  json_string(prompt) +
+  ",\n" +
+  "  \"task_kind\": " +
+  json_string(if task_kind == "" { "moonbit-task" } else { task_kind }) +
+  ",\n" +
+  "  \"source\": " +
+  json_string(source) +
+  ",\n" +
+  "  \"status\": \"captured\",\n" +
+  "  \"next_owner\": \"developer-thread\"\n" +
+  "}\n"
 }
 
 ///|
 async fn codex_threads_dev_manifest_json() -> String {
   let run_id = current_runtime_dir()
-  let codex_root = codex_demo_root()
+  let llm_root = llm_sim_root()
   let human_root = human_sim_root()
   let human_actions = human_sim_actions_dir()
   let human_feedback = human_sim_feedback_dir()
@@ -447,8 +1570,8 @@ async fn codex_threads_dev_manifest_json() -> String {
   "  \"run_root\": " +
   json_string(run_id) +
   ",\n" +
-  "  \"codex_demo_root\": " +
-  json_string(codex_root) +
+  "  \"llm_sim_root\": " +
+  json_string(llm_root) +
   ",\n" +
   "  \"human_sim_root\": " +
   json_string(human_root) +
@@ -492,6 +1615,324 @@ async fn codex_threads_dev_manifest_json() -> String {
 }
 
 ///|
+async fn serve_runtime_exec_request_artifact(
+  conn : @http.ServerConnection,
+  path : String,
+) -> Unit {
+  let run_id = query_param(path, "run_id")
+  let request_id = query_param(path, "request_id")
+  let kind = query_param(path, "kind")
+  let name = query_param(path, "name")
+  let file_path = runtime_exec_request_artifact_path(
+    run_id, request_id, kind, name,
+  )
+  if file_path == "" {
+    send_json(
+      conn, 404, "{\n  \"ok\": false,\n  \"error\": \"Runtime artifact was not found.\"\n}\n",
+    )
+    return
+  }
+  serve_static_file(
+    conn,
+    file_path,
+    runtime_exec_artifact_content_type(kind, name),
+  )
+}
+
+///|
+async fn runtime_exec_request_artifact_path(
+  run_id : String,
+  request_id : String,
+  kind : String,
+  name : String,
+) -> String {
+  guard request_id != "" else { return "" }
+  let request_dir = (if run_id == "" {
+      runtime_exec_root()
+    } else {
+      "logs/runs/" + run_id + "/runtime-exec"
+    }) +
+    "/requests/" +
+    request_id
+  if !@fs.exists(request_dir) {
+    return ""
+  }
+  if kind == "source" {
+    let path = request_dir + "/main.mbt"
+    if @fs.exists(path) {
+      path
+    } else {
+      ""
+    }
+  } else if kind == "compile-report" {
+    let path = request_dir + "/compile-report.json"
+    if @fs.exists(path) {
+      path
+    } else {
+      ""
+    }
+  } else if kind == "raw-response" {
+    let path = request_dir + "/raw-response.txt"
+    if @fs.exists(path) {
+      path
+    } else {
+      ""
+    }
+  } else if kind == "result" {
+    let path = request_dir + "/result.json"
+    if @fs.exists(path) {
+      path
+    } else {
+      ""
+    }
+  } else if kind == "stdout" {
+    let path = request_dir + "/stdout.txt"
+    if @fs.exists(path) {
+      path
+    } else {
+      ""
+    }
+  } else if kind == "error" {
+    let path = request_dir + "/error.txt"
+    if @fs.exists(path) {
+      path
+    } else {
+      ""
+    }
+  } else if kind == "download" {
+    let file_name = if name == "" { "download.txt" } else { name }
+    let path = request_dir + "/" + file_name
+    if @fs.exists(path) {
+      path
+    } else {
+      ""
+    }
+  } else if kind == "wasm" {
+    let report_json = read_text_or_default(
+      request_dir + "/compile-report.json",
+      "",
+    )
+    let wasm_path = extract_json_string_field(report_json, "wasm_path")
+    if wasm_path != "" && @fs.exists(wasm_path) {
+      wasm_path
+    } else {
+      let fallback = request_dir + "/main.wasm"
+      if @fs.exists(fallback) {
+        fallback
+      } else {
+        ""
+      }
+    }
+  } else {
+    ""
+  }
+}
+
+///|
+fn runtime_exec_artifact_content_type(kind : String, name : String) -> String {
+  if kind == "wasm" {
+    "application/wasm"
+  } else if kind == "source" {
+    "text/plain; charset=utf-8"
+  } else if kind == "compile-report" || kind == "result" {
+    "application/json; charset=utf-8"
+  } else if kind == "raw-response" || kind == "stdout" || kind == "error" {
+    "text/plain; charset=utf-8"
+  } else if kind == "download" && name.has_suffix(".json") {
+    "application/json; charset=utf-8"
+  } else {
+    "text/plain; charset=utf-8"
+  }
+}
+
+///|
+fn query_param(path : String, key : String) -> String {
+  guard path.find("?") is Some(query_start) else { return "" }
+  let query = path[query_start + 1:]
+  for item in query.split("&") {
+    let prefix = key + "="
+    if item.has_prefix(prefix) {
+      return item[prefix.length():].to_string()
+    }
+  }
+  ""
+}
+
+///|
+fn run_id_from_dir(dir : String) -> String {
+  let mut last = dir
+  for part in dir.split("/") {
+    last = part.to_string()
+  }
+  last
+}
+
+///|
+async fn codex_threads_dev_coordination_json() -> String {
+  let intent_json = read_text_or_default(
+    human_sim_state_dir() + "/latest-intent.json",
+    "{\n  \"status\": \"empty\"\n}\n",
+  )
+  let intent_status_json = read_text_or_default(
+    human_sim_state_dir() + "/latest-intent-status.json",
+    "{\n  \"status\": \"unknown\"\n}\n",
+  )
+  let llm_request_json = latest_llm_sim_request_json_or_default()
+  let llm_response_json = latest_llm_sim_response_status_json()
+  let runtime_request_json = read_text_or_default(
+    runtime_exec_root() + "/latest-request.json",
+    "{\n  \"status\": \"empty\"\n}\n",
+  )
+  let runtime_result_json = read_text_or_default(
+    runtime_exec_root() + "/latest-result.json",
+    "{\n  \"status\": \"empty\"\n}\n",
+  )
+  let save_decision_json = read_text_or_default(
+    skill_export_root() + "/save-decision.json",
+    "{\n  \"decision\": \"unset\"\n}\n",
+  )
+  let prompt = extract_json_string_field(intent_json, "prompt")
+  let intent_status = extract_json_string_field(intent_status_json, "status")
+  let llm_request_id = extract_json_string_field(llm_request_json, "request_id")
+  let llm_request_stage = extract_json_string_field(llm_request_json, "stage")
+  let llm_reply_path = extract_json_string_field(llm_request_json, "reply_path")
+  let llm_error_path = extract_json_string_field(llm_request_json, "error_path")
+  let llm_response_request_id = extract_json_string_field(
+    llm_response_json, "request_id",
+  )
+  let runtime_request_id = extract_json_string_field(
+    runtime_request_json, "request_id",
+  )
+  let runtime_request_status = extract_json_string_field(
+    runtime_request_json, "status",
+  )
+  let runtime_result_request_id = extract_json_string_field(
+    runtime_result_json, "request_id",
+  )
+  let runtime_result_status = extract_json_string_field(
+    runtime_result_json, "status",
+  )
+  let save_decision_request_id = extract_json_string_field(
+    save_decision_json, "request_id",
+  )
+  let save_decision = extract_json_string_field(save_decision_json, "decision")
+  let llm_response_ready = llm_reply_path != "" && @fs.exists(llm_reply_path)
+  let llm_error_ready = llm_error_path != "" && @fs.exists(llm_error_path)
+  let developer_status = if prompt != "" &&
+    intent_status != "dispatched" &&
+    intent_status != "completed" {
+    "needs-dispatch"
+  } else if llm_request_id != "" &&
+    (llm_response_ready || llm_error_ready) &&
+    llm_response_request_id != llm_request_id {
+    "needs-process-llm-response"
+  } else {
+    "idle"
+  }
+  let developer_prompt = if developer_status == "needs-dispatch" {
+    "Call POST /api/human-sim/dispatch-latest-intent once to convert the captured human intent into a new llm-sim request."
+  } else if developer_status == "needs-process-llm-response" {
+    "Call POST /api/llm-sim/process-latest-response once to compile the newest llm-sim response and continue the flow."
+  } else {
+    "No developer action is required right now."
+  }
+  let llm_status = if llm_request_id != "" &&
+    !llm_response_ready &&
+    !llm_error_ready {
+    "needs-reply"
+  } else {
+    "idle"
+  }
+  let llm_prompt = if llm_status == "needs-reply" {
+    "Read /api/llm-sim/latest-request once. Read the raw_body messages before answering. Treat those messages as the source of truth. Do not use keyword templates or canned task handlers. If the request_id is new, write only the next MoonBit code response to the reply_path and then stop."
+  } else {
+    "No llm-sim reply is needed right now."
+  }
+  let user_status = if runtime_request_id != "" &&
+    runtime_request_status == "ready-for-runtime" &&
+    runtime_result_request_id != runtime_request_id {
+    "needs-runtime-result"
+  } else if runtime_result_request_id != "" &&
+    runtime_result_status.contains("succeeded") &&
+    save_decision_request_id != runtime_result_request_id &&
+    save_decision != "accepted-save-skill" &&
+    save_decision != "rejected-save-skill" {
+    "needs-save-decision"
+  } else {
+    "idle"
+  }
+  let user_prompt = if user_status == "needs-runtime-result" {
+    "Inspect /api/runtime-exec/latest-request once. Then submit one runtime result through POST /api/task/execute and stop."
+  } else if user_status == "needs-save-decision" {
+    "Inspect /api/runtime-exec/latest-result once. Then decide whether to save as a SKILL through POST /api/skill-export/save-decision and stop."
+  } else {
+    "No simulated-user action is required right now."
+  }
+  let wake_order = if developer_status != "idle" {
+    "[\"developer-thread\"]"
+  } else if llm_status != "idle" {
+    "[\"simulated-llm-thread\"]"
+  } else if user_status != "idle" {
+    "[\"simulated-user-thread\"]"
+  } else {
+    "[]"
+  }
+  "{\n" +
+  "  \"mode\": \"codex-threads-dev\",\n" +
+  "  \"developer\": {\n" +
+  "    \"status\": " +
+  json_string(developer_status) +
+  ",\n" +
+  "    \"prompt\": " +
+  json_string(developer_prompt) +
+  "\n" +
+  "  },\n" +
+  "  \"simulated_llm\": {\n" +
+  "    \"status\": " +
+  json_string(llm_status) +
+  ",\n" +
+  "    \"request_id\": " +
+  json_string(llm_request_id) +
+  ",\n" +
+  "    \"stage\": " +
+  json_string(llm_request_stage) +
+  ",\n" +
+  "    \"prompt\": " +
+  json_string(llm_prompt) +
+  "\n" +
+  "  },\n" +
+  "  \"simulated_user\": {\n" +
+  "    \"status\": " +
+  json_string(user_status) +
+  ",\n" +
+  "    \"request_id\": " +
+  json_string(runtime_request_id) +
+  ",\n" +
+  "    \"prompt\": " +
+  json_string(user_prompt) +
+  "\n" +
+  "  },\n" +
+  "  \"wake_order\": " +
+  wake_order +
+  ",\n" +
+  "  \"observed\": {\n" +
+  "    \"intent_status\": " +
+  json_string(intent_status) +
+  ",\n" +
+  "    \"llm_response_request_id\": " +
+  json_string(llm_response_request_id) +
+  ",\n" +
+  "    \"runtime_result_request_id\": " +
+  json_string(runtime_result_request_id) +
+  ",\n" +
+  "    \"save_decision\": " +
+  json_string(save_decision) +
+  "\n" +
+  "  }\n" +
+  "}\n"
+}
+
+///|
 async fn proxy_llm_post(spec : String) -> (Int, String) {
   let normalized = spec.replace_all(old="\r\n", new="\n")
   guard normalized.find("\nBODY\n") is Some(body_sep) else {
@@ -521,8 +1962,8 @@ async fn proxy_llm_post(spec : String) -> (Int, String) {
       400, "Invalid LLM proxy payload: missing target URL.", "", "proxy-parse",
     )
   }
-  if is_codex_demo_url(url) {
-    return handle_codex_demo_proxy(url, body)
+  if is_llm_sim_url(url) {
+    return handle_llm_sim_proxy(url, body)
   }
   try {
     let (response, response_body) = @http.post(url, body, headers~)
@@ -539,24 +1980,45 @@ async fn proxy_llm_post(spec : String) -> (Int, String) {
 }
 
 ///|
-fn is_codex_demo_url(url : String) -> Bool {
-  url.has_prefix("moonap://codex-demo") ||
-  url.has_prefix("http://moonap.codex-demo") ||
-  url.has_prefix("https://moonap.codex-demo")
+fn is_llm_sim_url(url : String) -> Bool {
+  url.has_prefix("moonap://llm-sim") ||
+  url.has_prefix("http://moonap.llm-sim") ||
+  url.has_prefix("https://moonap.llm-sim") ||
+  url.has_prefix("moonap://codex-demo")
 }
 
 ///|
-async fn handle_codex_demo_proxy(url : String, body : String) -> (Int, String) {
-  let request_id = "codex-demo-" + @core.async_runtime_marker().to_string()
-  let inbox_dir = codex_demo_inbox_dir()
-  let outbox_dir = codex_demo_outbox_dir()
-  let state_dir = codex_demo_state_dir()
+async fn handle_llm_sim_proxy(url : String, body : String) -> (Int, String) {
+  let model = extract_json_string_field(body, "model")
+  let model_name = if model == "" { "gpt-5.4" } else { model }
+  let stage = infer_llm_sim_stage(body)
+  let (request_id, _, response_path, error_path) = create_llm_sim_request(
+    "openai", model_name, stage, url, body, "", "", "[]",
+  )
+  if stage == "api-test" {
+    return (200, openai_chat_completion_payload(model_name, "OK", request_id))
+  }
+  wait_for_llm_sim_response(request_id, model_name, response_path, error_path)
+}
+
+///|
+async fn create_llm_sim_request(
+  provider : String,
+  model_name : String,
+  stage : String,
+  url : String,
+  body : String,
+  original_prompt : String,
+  task_kind : String,
+  conversation_history_json : String,
+) -> (String, String, String, String) {
+  let request_id = "llm-sim-" + @core.async_runtime_marker().to_string()
+  let inbox_dir = llm_sim_inbox_dir()
+  let outbox_dir = llm_sim_outbox_dir()
+  let state_dir = llm_sim_state_dir()
   ensure_directory(inbox_dir)
   ensure_directory(outbox_dir)
   ensure_directory(state_dir)
-  let model = extract_json_string_field(body, "model")
-  let model_name = if model == "" { "gpt-5.4" } else { model }
-  let stage = infer_codex_demo_stage(body)
   let response_path = outbox_dir + "/" + request_id + ".response.txt"
   let error_path = outbox_dir + "/" + request_id + ".error.txt"
   let request_json_path = inbox_dir + "/" + request_id + ".json"
@@ -565,12 +2027,23 @@ async fn handle_codex_demo_proxy(url : String, body : String) -> (Int, String) {
     "  \"request_id\": " +
     json_string(request_id) +
     ",\n" +
-    "  \"provider\": \"openai\",\n" +
+    "  \"provider\": " +
+    json_string(provider) +
+    ",\n" +
     "  \"model\": " +
     json_string(model_name) +
     ",\n" +
     "  \"stage\": " +
     json_string(stage) +
+    ",\n" +
+    "  \"original_prompt\": " +
+    json_string(original_prompt) +
+    ",\n" +
+    "  \"task_kind\": " +
+    json_string(task_kind) +
+    ",\n" +
+    "  \"conversation_history_json\": " +
+    json_string(conversation_history_json) +
     ",\n" +
     "  \"url\": " +
     json_string(url) +
@@ -585,16 +2058,27 @@ async fn handle_codex_demo_proxy(url : String, body : String) -> (Int, String) {
     json_string(body) +
     "\n" +
     "}\n"
-  let request_text = "MoonAP Codex-demo request\n" +
+  let request_text = "MoonAP LLM-sim request\n" +
     "request_id: " +
     request_id +
     "\n" +
-    "provider: openai\n" +
+    "provider: " +
+    provider +
+    "\n" +
     "model: " +
     model_name +
     "\n" +
     "stage: " +
     stage +
+    "\n" +
+    "original_prompt: " +
+    original_prompt +
+    "\n" +
+    "task_kind: " +
+    task_kind +
+    "\n" +
+    "conversation_history_json: " +
+    conversation_history_json +
     "\n" +
     "reply_path: " +
     response_path +
@@ -602,6 +2086,11 @@ async fn handle_codex_demo_proxy(url : String, body : String) -> (Int, String) {
     "error_path: " +
     error_path +
     "\n\n" +
+    "worker_contract:\n" +
+    "- read the raw_body messages below before generating any response\n" +
+    "- use the request messages as the source of truth\n" +
+    "- do not answer from task-keyword templates or cached canned code\n" +
+    "- write only the next code response to reply_path\n\n" +
     "raw_body:\n" +
     body +
     "\n"
@@ -617,16 +2106,11 @@ async fn handle_codex_demo_proxy(url : String, body : String) -> (Int, String) {
     runtime_log_path(),
     "{\"ts\":" +
     json_string(request_id) +
-    ",\"kind\":\"codex-demo\",\"label\":\"request-created\",\"text\":" +
+    ",\"kind\":\"llm-sim\",\"label\":\"request-created\",\"text\":" +
     json_string(stage + " -> " + request_text_path) +
     "}\n",
   )
-  if stage == "api-test" {
-    return (200, openai_chat_completion_payload(model_name, "OK", request_id))
-  }
-  wait_for_codex_demo_response(
-    request_id, model_name, response_path, error_path,
-  )
+  (request_id, request_text_path, response_path, error_path)
 }
 
 ///|
@@ -643,13 +2127,13 @@ async fn append_text_file(
 }
 
 ///|
-async fn wait_for_codex_demo_response(
+async fn wait_for_llm_sim_response(
   request_id : String,
   model : String,
   response_path : String,
   error_path : String,
 ) -> (Int, String) {
-  wait_for_codex_demo_response_from(
+  wait_for_llm_sim_response_from(
     request_id,
     model,
     response_path,
@@ -660,7 +2144,7 @@ async fn wait_for_codex_demo_response(
 }
 
 ///|
-async fn wait_for_codex_demo_response_from(
+async fn wait_for_llm_sim_response_from(
   request_id : String,
   model : String,
   response_path : String,
@@ -675,7 +2159,7 @@ async fn wait_for_codex_demo_response_from(
       runtime_log_path(),
       "{\"ts\":" +
       json_string(request_id) +
-      ",\"kind\":\"codex-demo\",\"label\":\"response-received\",\"text\":" +
+      ",\"kind\":\"llm-sim\",\"label\":\"response-received\",\"text\":" +
       json_string(response_path) +
       "}\n",
     )
@@ -687,15 +2171,13 @@ async fn wait_for_codex_demo_response_from(
       runtime_log_path(),
       "{\"ts\":" +
       json_string(request_id) +
-      ",\"kind\":\"codex-demo\",\"label\":\"response-error\",\"text\":" +
+      ",\"kind\":\"llm-sim\",\"label\":\"response-error\",\"text\":" +
       json_string(detail) +
       "}\n",
     )
-    proxy_error_payload(
-      502, "Codex-demo response failed.", response_path, detail,
-    )
+    proxy_error_payload(502, "LLM-sim response failed.", response_path, detail)
   } else if (@async.now() - started).to_int() >= timeout_ms {
-    let detail = "Timed out waiting for Codex-demo response file.\n" +
+    let detail = "Timed out waiting for LLM-sim response file.\n" +
       "Write the MoonBit response to: " +
       response_path +
       "\n" +
@@ -706,23 +2188,23 @@ async fn wait_for_codex_demo_response_from(
       runtime_log_path(),
       "{\"ts\":" +
       json_string(request_id) +
-      ",\"kind\":\"codex-demo\",\"label\":\"response-timeout\",\"text\":" +
+      ",\"kind\":\"llm-sim\",\"label\":\"response-timeout\",\"text\":" +
       json_string(detail) +
       "}\n",
     )
     proxy_error_payload(
-      504, "Codex-demo response timed out.", response_path, detail,
+      504, "LLM-sim response timed out.", response_path, detail,
     )
   } else {
     @async.sleep(250)
-    wait_for_codex_demo_response_from(
+    wait_for_llm_sim_response_from(
       request_id, model, response_path, error_path, started, timeout_ms,
     )
   }
 }
 
 ///|
-fn infer_codex_demo_stage(body : String) -> String {
+fn infer_llm_sim_stage(body : String) -> String {
   let lowered = body.to_lower()
   if lowered.contains("reply with ok") {
     "api-test"
@@ -748,6 +2230,16 @@ fn extract_json_string_field(body : String, key : String) -> String {
   let source = after_colon[1:]
   guard source.find("\"") is Some(end) else { return "" }
   source[:end].to_string()
+}
+
+///|
+fn extract_json_bool_field(body : String, key : String) -> Bool {
+  let marker = "\"" + key + "\""
+  guard body.find(marker) is Some(start) else { return false }
+  let after_key = body[start + marker.length():]
+  guard after_key.find(":") is Some(colon) else { return false }
+  let after_colon = after_key[colon + 1:].trim().to_string()
+  after_colon.has_prefix("true")
 }
 
 ///|
@@ -912,7 +2404,7 @@ fn web_index_html() -> String {
     "</form>", "</dialog>", "<dialog id=\"llmDialog\" class=\"skill-dialog\">", "<form method=\"dialog\" class=\"skill-dialog-body\">",
     "<div class=\"dialog-head\"><span>LLM Router</span><strong>Connect one or more providers</strong></div>",
     "<p class=\"dialog-summary\">MoonAP stores these keys in this browser only. Level 1 selects providers. Level 2 selects models inside each provider. MoonAP rotates through the checked models from top to bottom.</p>",
-    "<div class=\"router-grid\">", "<div class=\"router-row\"><div class=\"router-row-head\"><span class=\"router-level\">Level 1</span><input id=\"routerEnableOpenAI\" type=\"checkbox\" checked /><strong>OpenAI</strong></div><div class=\"router-level-label\">Level 2 - Models</div><div id=\"routerModelsOpenAI\" class=\"router-model-list\"></div><label>Base URL<input id=\"routerBaseOpenAI\" value=\"moonap://codex-demo\" /></label><label>API key<input id=\"routerKeyOpenAI\" type=\"password\" value=\"codex-demo-mode\" placeholder=\"codex-demo-mode\" /></label></div>",
+    "<div class=\"router-grid\">", "<div class=\"router-row\"><div class=\"router-row-head\"><span class=\"router-level\">Level 1</span><input id=\"routerEnableOpenAI\" type=\"checkbox\" checked /><strong>OpenAI</strong></div><div class=\"router-level-label\">Level 2 - Models</div><div id=\"routerModelsOpenAI\" class=\"router-model-list\"></div><label>Base URL<input id=\"routerBaseOpenAI\" value=\"moonap://llm-sim\" /></label><label>API key<input id=\"routerKeyOpenAI\" type=\"password\" value=\"llm-sim-mode\" placeholder=\"llm-sim-mode\" /></label></div>",
     "<div class=\"router-row\"><div class=\"router-row-head\"><span class=\"router-level\">Level 1</span><input id=\"routerEnableNVIDIA\" type=\"checkbox\" checked /><strong>NVIDIA</strong></div><div class=\"router-level-label\">Level 2 - Models</div><div id=\"routerModelsNVIDIA\" class=\"router-model-list\"></div><label>Base URL<input id=\"routerBaseNVIDIA\" value=\"https://integrate.api.nvidia.com/v1\" /></label><label>API key<input id=\"routerKeyNVIDIA\" type=\"password\" placeholder=\"Paste NVIDIA API key\" /></label></div>",
     "<div class=\"router-row\"><div class=\"router-row-head\"><span class=\"router-level\">Level 1</span><input id=\"routerEnableZAI\" type=\"checkbox\" checked /><strong>ZAI</strong></div><div class=\"router-level-label\">Level 2 - Models</div><div id=\"routerModelsZAI\" class=\"router-model-list\"></div><label>Base URL<input id=\"routerBaseZAI\" value=\"https://open.bigmodel.cn/api/paas/v4\" /></label><label>API key<input id=\"routerKeyZAI\" type=\"password\" placeholder=\"Paste ZAI API key\" /></label></div>",
     "<div class=\"router-row\"><div class=\"router-row-head\"><span class=\"router-level\">Level 1</span><input id=\"routerEnableGemini\" type=\"checkbox\" /><strong>Gemini</strong></div><div class=\"router-level-label\">Level 2 - Models</div><div id=\"routerModelsGemini\" class=\"router-model-list\"></div><label>Base URL<input id=\"routerBaseGemini\" value=\"https://generativelanguage.googleapis.com\" /></label><label>API key<input id=\"routerKeyGemini\" type=\"password\" placeholder=\"Paste Gemini API key\" /></label></div>",

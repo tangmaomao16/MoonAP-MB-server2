@@ -11,6 +11,7 @@ Read in this order:
 5. [Simulated LLM Thread Guide](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/modes/codex-threads-dev/simulated-llm-thread.md)
 6. [Human-sim Action Examples](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/modes/codex-threads-dev/human-sim-action-examples.md)
 7. [Human-sim Feedback Examples](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/modes/codex-threads-dev/human-sim-feedback-examples.md)
+8. [Launch Prompts](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/modes/codex-threads-dev/launch-prompts.md)
 
 ## Current Principle
 
@@ -21,3 +22,16 @@ Read in this order:
 - the simulated LLM thread owns model responses
 
 The threads should coordinate through local files and run-local manifests, not by ad hoc role mixing.
+
+## Current Working Loop
+
+The current automated handoff inside `Codex-threads-dev mode` is:
+
+1. user-side intent enters `human-sim`
+2. developer thread dispatches the latest intent into `llm-sim`
+3. simulated LLM thread writes a response file
+4. developer thread processes the latest `llm-sim` response into `runtime-exec/` and `human-sim/observations/`
+5. if compile succeeds, MoonAP emits a runtime request for browser or simulated-user execution
+6. the result is delivered before any SKILL save decision is recorded
+
+This means the three threads already share one debuggable file-backed pipeline before full wasm execution and SKILL export are added.

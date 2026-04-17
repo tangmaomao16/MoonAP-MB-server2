@@ -21,7 +21,7 @@ Your purpose is to test the product loop from the user's perspective, not to edi
 
 - modify MoonAP source code
 - start or stop the MoonAP server
-- write model responses into `codex-demo/outbox/`
+- write model responses into `llm-sim/outbox/`
 - perform git actions
 
 ## Write Scope
@@ -37,6 +37,8 @@ You may write only within the human-simulation protocol surface:
 - submit a prompt like `Generate a FastQ file generator`
 - request a page refresh
 - report what the user sees
+- inspect runtime results after wasm execution
+- decide whether the result should stay browser-visible, be downloaded, or be revised
 - say whether the output is acceptable
 - request saving to SKILL
 

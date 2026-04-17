@@ -51,8 +51,8 @@ Use the built-in router entry:
 
 - provider: `OpenAI`
 - model: `gpt-5.4`
-- base URL: `moonap://codex-demo`
-- API key: `codex-demo-mode`
+- base URL: `moonap://llm-sim`
+- API key: `llm-sim-mode`
 
 ## Runtime Layout
 
@@ -63,14 +63,14 @@ MoonAP also writes [current-run.json](C:/my_work/MoonBit_Competition/GitHub/Moon
 - `run_id`
 - `root`
 - `runtime_log`
-- `codex_demo_root`
+- `llm_sim_root`
 
 Inside one run directory:
 
 - `moonap-runtime.log`
-- `codex-demo/inbox/`
-- `codex-demo/outbox/`
-- `codex-demo/state/latest-request.txt`
+- `llm-sim/inbox/`
+- `llm-sim/outbox/`
+- `llm-sim/state/latest-request.txt`
 
 ## Request Contract
 

@@ -131,6 +131,23 @@ fn main {
 }
 ```
 
+## Runtime Form Abstraction
+
+Follow-up abstraction recorded on `2026-04-17 22:58` in `Asia/Shanghai (UTC+08:00)`:
+
+- MoonAP no longer relies on a fully hardcoded FastQ-only runtime form in the browser
+- the server now emits `task_kind` plus a `runtime_ui` schema in the `runtime-ready` request JSON
+- the web frontend renders runtime input fields from `runtime_ui.fields`
+- the browser-local runtime executor reads submitted values from the schema-driven form instead of fixed DOM ids
+
+This keeps the current FastQ MVP working while establishing the correct abstraction for future tasks such as:
+
+- Excel analysis
+- browser games
+- generic wasm/browser-local tools
+
+The current FastQ runtime schema is still the first concrete instance, but the rendering path is now schema-driven rather than task-name-hardcoded in the UI layer.
+
 Primary response file:
 
 - [llm-sim-13420903537499.response.txt](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/logs/runs/run-13420901188313/llm-sim/outbox/llm-sim-13420903537499.response.txt)

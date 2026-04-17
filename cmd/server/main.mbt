@@ -171,6 +171,9 @@ async fn moonap_server(
   } else if request.meth == Post &&
     path == "/api/llm-sim/process-latest-response" {
     process_latest_llm_sim_response(conn)
+  } else if request.meth == Post && path == "/api/runtime-exec/register-ready" {
+    let payload = body.read_all().text()
+    persist_runtime_ready_registration(conn, payload)
   } else if request.meth == Post && path == "/api/task/execute" {
     let payload = body.read_all().text()
     persist_runtime_execution_result(conn, payload)
@@ -838,6 +841,7 @@ async fn process_latest_llm_sim_response(conn : @http.ServerConnection) -> Unit 
     request_id,
     stage,
     request_source_path,
+    source,
     report,
     run_id_from_dir(current_runtime_dir()),
   )
@@ -1005,13 +1009,41 @@ fn runtime_exec_request_json(
   request_id : String,
   request_stage : String,
   source_path : String,
+  source_text : String,
   report : @core.ArtifactCompileReport,
   run_id : String,
+) -> String {
+  runtime_exec_request_json_from_fields(
+    request_id,
+    request_stage,
+    source_path,
+    report.wasm_path,
+    run_id,
+    "",
+    "",
+    source_text,
+  )
+}
+
+///|
+fn runtime_exec_request_json_from_fields(
+  request_id : String,
+  request_stage : String,
+  source_path : String,
+  wasm_path : String,
+  run_id : String,
+  task_title : String,
+  original_prompt : String,
+  source_text : String,
 ) -> String {
   let base_url = "/api/runtime-exec/request-artifact?run_id=" +
     run_id +
     "&request_id=" +
     request_id
+  let task_kind = runtime_task_kind_from_context(
+    task_title, original_prompt, source_text,
+  )
+  let runtime_ui_json = runtime_ui_json_for_task_kind(task_kind)
   "{\n" +
   "  \"run_id\": " +
   json_string(run_id) +
@@ -1022,9 +1054,12 @@ fn runtime_exec_request_json(
   "  \"request_stage\": " +
   json_string(request_stage) +
   ",\n" +
+  "  \"task_kind\": " +
+  json_string(task_kind) +
+  ",\n" +
   "  \"status\": \"ready-for-runtime\",\n" +
   "  \"wasm_path\": " +
-  json_string(report.wasm_path) +
+  json_string(wasm_path) +
   ",\n" +
   "  \"wasm_url\": " +
   json_string(base_url + "&kind=wasm") +
@@ -1041,12 +1076,256 @@ fn runtime_exec_request_json(
   "  \"raw_response_url\": " +
   json_string(base_url + "&kind=raw-response") +
   ",\n" +
+  "  \"runtime_ui\": " +
+  runtime_ui_json +
+  ",\n" +
   "  \"result_delivery\": {\n" +
   "    \"show_in_browser\": true,\n" +
   "    \"allow_download\": true,\n" +
   "    \"save_skill_after_user_accepts\": true\n" +
   "  }\n" +
   "}\n"
+}
+
+///|
+fn runtime_task_kind_from_context(
+  task_title : String,
+  original_prompt : String,
+  source_text : String,
+) -> String {
+  let haystack = task_title + "\n" + original_prompt + "\n" + source_text
+  if haystack.contains("fastq") ||
+    haystack.contains("FastQ") ||
+    haystack.contains("FASTQ") {
+    "fastq-generator"
+  } else if haystack.contains("excel") ||
+    haystack.contains("Excel") ||
+    haystack.contains("EXCEL") {
+    "excel-analysis"
+  } else if haystack.contains("game") ||
+    haystack.contains("Game") ||
+    haystack.contains("GAME") {
+    "browser-game"
+  } else {
+    "generic-task"
+  }
+}
+
+///|
+fn runtime_ui_json_for_task_kind(task_kind : String) -> String {
+  if task_kind == "fastq-generator" {
+    "{\n" +
+    "    \"mode\": \"form\",\n" +
+    "    \"title\": \"Generate FastQ file\",\n" +
+    "    \"primary_action_label\": \"Run generator\",\n" +
+    "    \"fields\": [\n" +
+    "      {\n" +
+    "        \"name\": \"read_count\",\n" +
+    "        \"label\": \"Read count\",\n" +
+    "        \"type\": \"int\",\n" +
+    "        \"default\": 10000,\n" +
+    "        \"min\": 1,\n" +
+    "        \"max\": 1000000,\n" +
+    "        \"step\": 1\n" +
+    "      },\n" +
+    "      {\n" +
+    "        \"name\": \"read_length\",\n" +
+    "        \"label\": \"Read length\",\n" +
+    "        \"type\": \"int\",\n" +
+    "        \"default\": 150,\n" +
+    "        \"min\": 1,\n" +
+    "        \"max\": 10000,\n" +
+    "        \"step\": 1\n" +
+    "      },\n" +
+    "      {\n" +
+    "        \"name\": \"n_rate\",\n" +
+    "        \"label\": \"N rate\",\n" +
+    "        \"type\": \"float\",\n" +
+    "        \"default\": 0.01,\n" +
+    "        \"min\": 0,\n" +
+    "        \"max\": 1,\n" +
+    "        \"step\": 0.001\n" +
+    "      },\n" +
+    "      {\n" +
+    "        \"name\": \"random_seed\",\n" +
+    "        \"label\": \"Random seed\",\n" +
+    "        \"type\": \"int\",\n" +
+    "        \"default\": 42,\n" +
+    "        \"step\": 1\n" +
+    "      }\n" +
+    "    ]\n" +
+    "  }"
+  } else {
+    "{\n" +
+    "    \"mode\": \"action\",\n" +
+    "    \"title\": \"Run browser-local step\",\n" +
+    "    \"primary_action_label\": \"Run runtime step\",\n" +
+    "    \"fields\": []\n" +
+    "  }"
+  }
+}
+
+///|
+async fn persist_runtime_ready_registration(
+  conn : @http.ServerConnection,
+  payload : String,
+) -> Unit {
+  let source_text = extract_payload_block(
+    payload, "SOURCE_BEGIN\n", "\nSOURCE_END",
+  )
+  let compile_report_json = extract_payload_block(
+    payload, "COMPILE_REPORT_BEGIN\n", "\nCOMPILE_REPORT_END",
+  )
+  let task_title = extract_payload_header(payload, "TASK_TITLE")
+  let original_prompt = extract_payload_header(payload, "ORIGINAL_PROMPT")
+  let llm_provider = extract_payload_header(payload, "LLM_PROVIDER")
+  let llm_model = extract_payload_header(payload, "LLM_MODEL")
+  let request_stage = extract_payload_header(payload, "REQUEST_STAGE")
+  let raw_response_text = extract_payload_block(
+    payload, "RAW_RESPONSE_BEGIN\n", "\nRAW_RESPONSE_END",
+  )
+  let compile_ok = extract_payload_header(payload, "COMPILE_OK") == "true"
+  let wasm_path = extract_payload_header(payload, "WASM_PATH")
+  if source_text.trim() == "" {
+    send_json(
+      conn, 400, "{\n  \"ok\": false,\n  \"error\": \"No source_text was provided for runtime registration.\"\n}\n",
+    )
+    return
+  }
+  if !compile_ok || wasm_path == "" {
+    send_json(
+      conn, 400, "{\n  \"ok\": false,\n  \"error\": \"MoonAP runtime registration requires a successful compile report with wasm_path.\"\n}\n",
+    )
+    return
+  }
+  let request_id = "browser-runtime-" + @core.async_runtime_marker().to_string()
+  let run_id = run_id_from_dir(current_runtime_dir())
+  let request_dir = runtime_exec_requests_dir() + "/" + request_id
+  let latest_response_path = runtime_exec_root() + "/latest-raw-response.txt"
+  let latest_source_path = runtime_exec_root() + "/latest-source.mbt"
+  let latest_report_path = runtime_exec_root() + "/latest-compile-report.json"
+  let latest_runtime_request_path = runtime_exec_root() + "/latest-request.json"
+  let request_response_path = request_dir + "/raw-response.txt"
+  let request_source_path = request_dir + "/main.mbt"
+  let request_report_path = request_dir + "/compile-report.json"
+  let request_runtime_request_path = request_dir + "/runtime-request.json"
+  ensure_directory(runtime_exec_root())
+  ensure_directory(runtime_exec_requests_dir())
+  ensure_directory(request_dir)
+  @fs.write_file(
+    request_response_path,
+    if raw_response_text == "" {
+      source_text + "\n"
+    } else {
+      raw_response_text + "\n"
+    },
+    create=0o644,
+  )
+  @fs.write_file(request_source_path, source_text + "\n", create=0o644)
+  @fs.write_file(request_report_path, compile_report_json + "\n", create=0o644)
+  @fs.write_file(
+    latest_response_path,
+    if raw_response_text == "" {
+      source_text + "\n"
+    } else {
+      raw_response_text + "\n"
+    },
+    create=0o644,
+  )
+  @fs.write_file(latest_source_path, source_text + "\n", create=0o644)
+  @fs.write_file(latest_report_path, compile_report_json + "\n", create=0o644)
+  let runtime_request_json = runtime_exec_request_json_from_fields(
+    request_id,
+    if request_stage == "" {
+      "browser-direct"
+    } else {
+      request_stage
+    },
+    request_source_path,
+    wasm_path,
+    run_id,
+    task_title,
+    original_prompt,
+    source_text,
+  )
+  @fs.write_file(
+    request_runtime_request_path,
+    runtime_request_json,
+    create=0o644,
+  )
+  @fs.write_file(
+    latest_runtime_request_path,
+    runtime_request_json,
+    create=0o644,
+  )
+  append_text_file(
+    runtime_log_directory(),
+    runtime_log_path(),
+    "{\"ts\":" +
+    json_string(request_id) +
+    ",\"kind\":\"runtime-exec\",\"label\":\"runtime-request-registered\",\"text\":" +
+    json_string(
+      (if task_title == "" { "browser-direct" } else { task_title }) +
+      " via " +
+      (if llm_provider == "" { "unknown-provider" } else { llm_provider }) +
+      "/" +
+      (if llm_model == "" { "unknown-model" } else { llm_model }),
+    ) +
+    "}\n",
+  )
+  send_text(
+    conn,
+    200,
+    "{\n" +
+    "  \"ok\": true,\n" +
+    "  \"run_id\": " +
+    json_string(run_id) +
+    ",\n" +
+    "  \"request_id\": " +
+    json_string(request_id) +
+    ",\n" +
+    "  \"request_stage\": " +
+    json_string(
+      if request_stage == "" {
+        "browser-direct"
+      } else {
+        request_stage
+      },
+    ) +
+    ",\n" +
+    "  \"task_title\": " +
+    json_string(task_title) +
+    ",\n" +
+    "  \"original_prompt\": " +
+    json_string(original_prompt) +
+    ",\n" +
+    runtime_request_json[1:runtime_request_json.length()].to_string(),
+    "application/json; charset=utf-8",
+  )
+}
+
+///|
+fn extract_payload_header(payload : String, key : String) -> String {
+  let marker = key + "\t"
+  for line in payload.split("\n") {
+    let trimmed = line.trim_end().to_string()
+    if trimmed.has_prefix(marker) {
+      return trimmed[marker.length():].to_string()
+    }
+  }
+  ""
+}
+
+///|
+fn extract_payload_block(
+  payload : String,
+  begin_marker : String,
+  end_marker : String,
+) -> String {
+  guard payload.find(begin_marker) is Some(start) else { return "" }
+  let after_start = payload[start + begin_marker.length():]
+  guard after_start.find(end_marker) is Some(end) else { return "" }
+  after_start[:end].to_string()
 }
 
 ///|
@@ -1497,9 +1776,7 @@ fn normalize_human_sim_intent_status_payload(payload : String) -> String {
 }
 
 ///|
-fn llm_sim_request_body_from_intent(
-  prompt : String,
-) -> String {
+fn llm_sim_request_body_from_intent(prompt : String) -> String {
   let system_prompt = "You are an AI coder.\n" +
     "You only write MoonBit code.\n" +
     "Your job is to write MoonBit code for the user's task.\n" +
@@ -2488,12 +2765,22 @@ fn web_style_css() -> String {
     ".skill-card small { color: #555555; font-size: 12px; line-height: 1.4; }", ".skill-card.personal { border-color: #cde4da; background: #f7fbf9; }",
     ".personal-skill-cards { display: grid; gap: 10px; }", ".personal-skill-empty { padding: 14px; border: 1px dashed #d7dfdb; border-radius: 12px; color: #5d5d5d; background: #fcfcfc; }",
     ".artifact-actions { width: min(920px, calc(100vw - 48px - var(--details-space))); margin: 0 auto; display: grid; gap: 14px; transition: width 160ms ease; }",
-    ".action-card { display: none; gap: 12px; max-width: 720px; padding: 16px; border: 1px solid #dfe7e3; border-radius: 14px; background: #f7fbf9; }",
-    ".action-card.is-open { display: grid; }", ".action-card strong { font-size: 15px; }",
-    ".action-card small { color: #555555; line-height: 1.45; }", ".action-card-meta { display: flex; flex-wrap: wrap; gap: 8px; }",
+    ".action-card { display: none; gap: 12px; max-width: 720px; padding: 18px 20px; border: 1px solid #dfe7e3; border-radius: 18px; background: #f7fbf9; box-shadow: 0 14px 34px rgba(22, 38, 31, 0.05); }",
+    ".action-card.is-open { display: grid; }", ".action-card strong { font-size: 16px; line-height: 1.3; }",
+    ".action-card small { color: #56615b; line-height: 1.55; }", ".action-card-meta { display: flex; flex-wrap: wrap; gap: 8px; }",
     ".action-card-meta span { border-radius: 999px; padding: 5px 10px; background: #eef5f1; color: #24523f; font-size: 12px; }",
-    ".action-card-actions { display: flex; flex-wrap: wrap; gap: 10px; }", ".action-card button { justify-self: start; height: 38px; border: 1px solid #111111; border-radius: 999px; padding: 0 16px; background: #111111; color: #ffffff; cursor: pointer; }",
+    ".action-card-actions { display: flex; flex-wrap: wrap; gap: 10px; }", ".action-card button { justify-self: start; min-height: 40px; border: 1px solid #111111; border-radius: 999px; padding: 0 16px; background: #111111; color: #ffffff; cursor: pointer; }",
     ".action-card button.secondary { border-color: #d8d8d8; background: #ffffff; color: #111111; }",
+    ".action-card-runtime { gap: 14px; border-color: #d7e6df; background: linear-gradient(180deg, #f6fbf8 0%, #eef6f1 100%); box-shadow: 0 18px 42px rgba(41, 76, 60, 0.08); }",
+    ".action-card-runtime.is-complete { border-color: #d1e4da; background: linear-gradient(180deg, #f7fbf7 0%, #edf6ef 100%); }",
+    ".action-card-eyebrow { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #2f5d4b; }",
+    ".action-card-status { display: flex; flex-wrap: wrap; gap: 8px; }", ".action-card-status span { border-radius: 999px; padding: 6px 10px; background: #e5f1ea; color: #24523f; font-size: 12px; }",
+    ".action-card-params { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; padding: 12px; border: 1px solid #dbe7e0; border-radius: 14px; background: rgba(255,255,255,0.68); }",
+    ".action-card-params label { display: grid; gap: 6px; font-size: 12px; color: #335748; }",
+    ".action-card-params label span { font-weight: 600; }", ".action-card-params input { width: 100%; min-height: 38px; border: 1px solid #d0ddd6; border-radius: 10px; padding: 0 12px; background: #ffffff; color: #14261d; font: inherit; }",
+    ".action-card-primary, .action-card-secondary { display: flex; flex-wrap: wrap; gap: 10px; }",
+    ".action-card-primary button.primary { background: #111111; color: #ffffff; border-color: #111111; }",
+    ".action-card-secondary { padding-top: 2px; }", ".action-card-secondary button.secondary { background: rgba(255,255,255,0.84); border-color: #d4dfd8; color: #193529; }",
     ".result-panel { width: 100%; display: none; gap: 12px; padding: 16px; border: 1px solid #e0e0e0; border-radius: 14px; background: #ffffff; box-shadow: 0 12px 36px rgba(0,0,0,0.06); }",
     ".result-panel.is-open { display: grid; }", ".result-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }",
     ".result-head span { border-radius: 999px; background: #111111; color: #ffffff; padding: 5px 10px; font-size: 12px; }",

@@ -113,21 +113,68 @@ extern "js" fn browser_render_artifact_card(
   #|   const requestId = String(runtimeRequest?.request_id || "");
   #|   const runtimeReady = String(runtimeRequest?.status || "") === "ready-for-runtime";
   #|   const runtimeDone = String(runtimeResult?.request_id || "") === requestId && String(runtimeResult?.status || "").includes("succeeded");
-  #|   card.innerHTML = `
-  #|     <strong>${String(title)}</strong>
-  #|     <small>${String(summary)}</small>
-  #|     <div class="action-card-meta">${metaHtml}</div>
-  #|     <div class="action-card-actions">
-  #|       ${allowCompile ? '<button id="compileArtifact" type="button">Run Compile Probe</button>' : ''}
-  #|       ${allowRepair ? '<button id="repairArtifact" type="button">Repair with Error Summary</button>' : ''}
-  #|       ${allowSave ? '<button id="savePersonalSkill" type="button">Save to Personal-SKILL-Set</button>' : ''}
-  #|       ${runtimeReady && !runtimeDone ? '<button id="recordDemoRuntimeResult" type="button">Record Demo Result</button>' : ''}
-  #|       ${wasmUrl ? '<button id="downloadRuntimeWasm" class="secondary" type="button">Download wasm</button>' : ''}
-  #|       ${sourceUrl ? '<button id="downloadRuntimeSource" class="secondary" type="button">Download source</button>' : ''}
-  #|       ${compileReportUrl ? '<button id="downloadCompileReport" class="secondary" type="button">Download compile report</button>' : ''}
-  #|       ${resultUrl ? '<button id="downloadRuntimeResult" class="secondary" type="button">Download result</button>' : ''}
-  #|       <button id="exportSkillBundle" class="secondary" type="button">Export Source Bundle</button>
-  #|     </div>`;
+  #|   const runtimeCard = runtimeReady || runtimeDone;
+  #|   if (runtimeCard) {
+  #|     card.className += runtimeDone ? " action-card-runtime is-complete" : " action-card-runtime is-awaiting";
+  #|     const runtimeUi = runtimeRequest?.runtime_ui && typeof runtimeRequest.runtime_ui === "object" ? runtimeRequest.runtime_ui : {};
+  #|     const runtimeFields = Array.isArray(runtimeUi.fields) ? runtimeUi.fields : [];
+  #|     const taskKind = String(runtimeRequest?.task_kind || "");
+  #|     const isFastqRuntime = taskKind === "fastq-generator";
+  #|     const eyebrow = runtimeDone ? "Runtime result" : "Runtime ready";
+  #|     const statusHtml = runtimeDone
+  #|       ? '<span>result recorded</span><span>ready to save</span>'
+  #|       : '<span>wasm prepared</span><span>awaiting local execution</span>';
+  #|     const paramsHtml = runtimeReady && !runtimeDone && runtimeFields.length
+  #|       ? `<div class="action-card-params">${runtimeFields.map((field) => {
+  #|           const name = String(field?.name || "");
+  #|           const label = String(field?.label || name || "Parameter");
+  #|           const type = String(field?.type || "text");
+  #|           const inputType = type === "int" || type === "float" ? "number" : "text";
+  #|           const attrs = [
+  #|             `id="runtime-field-${name}"`,
+  #|             `data-runtime-field="${name}"`,
+  #|             `type="${inputType}"`,
+  #|             field?.min !== undefined ? `min="${String(field.min)}"` : "",
+  #|             field?.max !== undefined ? `max="${String(field.max)}"` : "",
+  #|             field?.step !== undefined ? `step="${String(field.step)}"` : "",
+  #|             `value="${String(field?.default ?? "")}"`
+  #|           ].filter(Boolean).join(" ");
+  #|           return `<label><span>${label}</span><input ${attrs} /></label>`;
+  #|         }).join("")}</div>`
+  #|       : "";
+  #|     const primaryAction = runtimeDone
+  #|       ? (allowSave ? '<button id="savePersonalSkill" class="primary" type="button">Save to Personal-SKILL-Set</button>' : '')
+  #|       : `<button id="recordDemoRuntimeResult" class="primary" type="button">${String(runtimeUi?.primary_action_label || "Run runtime step")}</button>`;
+  #|     const secondaryActions = [
+  #|       wasmUrl ? '<button id="downloadRuntimeWasm" class="secondary" type="button">Download wasm</button>' : '',
+  #|       sourceUrl ? '<button id="downloadRuntimeSource" class="secondary" type="button">Download source</button>' : '',
+  #|       resultUrl ? '<button id="downloadRuntimeResult" class="secondary" type="button">Download result</button>' : ''
+  #|     ].filter(Boolean).join("");
+  #|     card.innerHTML = `
+  #|       <div class="action-card-eyebrow">${eyebrow}</div>
+  #|       <strong>${String(title)}</strong>
+  #|       <small>${String(summary)}</small>
+  #|       <div class="action-card-status">${statusHtml}</div>
+  #|       ${paramsHtml}
+  #|       <div class="action-card-primary">${primaryAction}</div>
+  #|       ${secondaryActions ? `<div class="action-card-secondary">${secondaryActions}</div>` : ''}`;
+  #|   } else {
+  #|     card.innerHTML = `
+  #|       <strong>${String(title)}</strong>
+  #|       <small>${String(summary)}</small>
+  #|       ${metaHtml ? `<div class="action-card-meta">${metaHtml}</div>` : ''}
+  #|       <div class="action-card-actions">
+  #|         ${allowCompile ? '<button id="compileArtifact" type="button">Run Compile Probe</button>' : ''}
+  #|         ${allowRepair ? '<button id="repairArtifact" type="button">Repair with Error Summary</button>' : ''}
+  #|         ${allowSave ? '<button id="savePersonalSkill" type="button">Save to Personal-SKILL-Set</button>' : ''}
+  #|         ${runtimeReady && !runtimeDone ? '<button id="recordDemoRuntimeResult" type="button">Record Demo Result</button>' : ''}
+  #|         ${wasmUrl ? '<button id="downloadRuntimeWasm" class="secondary" type="button">Download wasm</button>' : ''}
+  #|         ${sourceUrl ? '<button id="downloadRuntimeSource" class="secondary" type="button">Download source</button>' : ''}
+  #|         ${compileReportUrl ? '<button id="downloadCompileReport" class="secondary" type="button">Download compile report</button>' : ''}
+  #|         ${resultUrl ? '<button id="downloadRuntimeResult" class="secondary" type="button">Download result</button>' : ''}
+  #|         <button id="exportSkillBundle" class="secondary" type="button">Export Source Bundle</button>
+  #|       </div>`;
+  #|   }
   #|   root.append(card);
   #| }
 
@@ -194,26 +241,182 @@ extern "js" fn browser_record_demo_runtime_result(
   #|     if (!requestId) throw new Error("MoonAP runtime request_id is missing.");
   #|     const sourceUrl = String(runtimeRequest.source_url || "");
   #|     const wasmUrl = String(runtimeRequest.wasm_url || "");
-  #|     const response = await fetch("/api/task/execute", {
-  #|       method: "POST",
-  #|       headers: { "Content-Type": "application/json; charset=utf-8" },
-  #|       body: JSON.stringify({
+  #|     const taskKind = String(runtimeRequest.task_kind || "");
+  #|     const runtimeUi = runtimeRequest?.runtime_ui && typeof runtimeRequest.runtime_ui === "object" ? runtimeRequest.runtime_ui : {};
+  #|     const runtimeFields = Array.isArray(runtimeUi.fields) ? runtimeUi.fields : [];
+  #|     const runtimeInputs = {};
+  #|     for (const field of runtimeFields) {
+  #|       const name = String(field?.name || "");
+  #|       if (!name) continue;
+  #|       const type = String(field?.type || "text");
+  #|       const fallback = field?.default;
+  #|       const raw = document.querySelector(`#runtime-field-${name}`)?.value;
+  #|       const text = String(raw ?? fallback ?? "");
+  #|       runtimeInputs[name] = type === "int"
+  #|         ? Number.parseInt(text, 10)
+  #|         : type === "float"
+  #|           ? Number.parseFloat(text)
+  #|           : text;
+  #|     }
+  #|     const isFastqRuntime = taskKind === "fastq-generator";
+  #|     let payload;
+  #|     if (isFastqRuntime) {
+  #|       const readCount = Math.max(1, Math.min(1000000, Number(runtimeInputs.read_count) || 10000));
+  #|       const readLength = Math.max(1, Math.min(10000, Number(runtimeInputs.read_length) || 150));
+  #|       const nRate = Math.max(0, Math.min(1, Number(runtimeInputs.n_rate) || 0.01));
+  #|       const originalSeed = Number(runtimeInputs.random_seed) || 42;
+  #|       let seed = originalSeed;
+  #|       const bases = ["A", "C", "G", "T"];
+  #|       const rand = () => {
+  #|         seed = (seed * 1664525 + 1013904223) >>> 0;
+  #|         return seed / 4294967296;
+  #|       };
+  #|       const chunks = [];
+  #|       let nCount = 0;
+  #|       let totalBases = 0;
+  #|       for (let read = 0; read < readCount; read += 1) {
+  #|         let seq = "";
+  #|         for (let i = 0; i < readLength; i += 1) {
+  #|           totalBases += 1;
+  #|           if (rand() < nRate) {
+  #|             seq += "N";
+  #|             nCount += 1;
+  #|           } else {
+  #|             seq += bases[Math.floor(rand() * bases.length)];
+  #|           }
+  #|         }
+  #|         chunks.push(`@moonap_${read}\n${seq}\n+\n${"I".repeat(readLength)}\n`);
+  #|       }
+  #|       const blob = new Blob(chunks, { type: "text/plain;charset=utf-8" });
+  #|       const url = URL.createObjectURL(blob);
+  #|       const link = document.createElement("a");
+  #|       link.href = url;
+  #|       link.download = "moonap-demo.fastq";
+  #|       document.body.append(link);
+  #|       link.click();
+  #|       link.remove();
+  #|       setTimeout(() => URL.revokeObjectURL(url), 1000);
+  #|       payload = {
+  #|         run_id: String(runtimeRequest.run_id || ""),
+  #|         request_id: requestId,
+  #|         status: "runtime-succeeded",
+  #|         result_kind: "fastq-file",
+  #|         runtime_inputs: runtimeInputs,
+  #|         summary: `Generated moonap-demo.fastq with ${readCount} reads of length ${readLength}.`,
+  #|         display_text: `FastQ file generated and downloaded in the browser.\nread_count=${readCount}\nread_length=${readLength}\nn_rate=${nRate}\nrandom_seed=${originalSeed}\nexpected_n_count=${nCount}\ntotal_bases=${totalBases}`,
+  #|         stdout_text: `Browser-local FastQ generation completed for ${requestId}.`,
+  #|         download_name: "",
+  #|         download_content: "",
+  #|         accepted_for_skill: false
+  #|       };
+  #|     } else {
+  #|       payload = {
   #|         run_id: String(runtimeRequest.run_id || ""),
   #|         request_id: requestId,
   #|         status: "runtime-succeeded",
   #|         result_kind: "text",
+  #|         runtime_inputs: runtimeInputs,
   #|         summary: "MoonAP recorded a browser-side demo runtime result for the compiled wasm artifact.",
   #|         display_text: `Demo runtime result recorded for ${requestId}. Source URL: ${sourceUrl || "n/a"}. wasm URL: ${wasmUrl || "n/a"}.`,
   #|         stdout_text: "Demo runtime result recorded from the browser placeholder executor.",
   #|         download_name: "runtime-preview.txt",
   #|         download_content: `MoonAP demo runtime result\nrequest_id: ${requestId}\nsource_url: ${sourceUrl}\nwasm_url: ${wasmUrl}\n`,
   #|         accepted_for_skill: false
-  #|       })
+  #|       };
+  #|     }
+  #|     const response = await fetch("/api/task/execute", {
+  #|       method: "POST",
+  #|       headers: { "Content-Type": "application/json; charset=utf-8" },
+  #|       body: JSON.stringify(payload)
   #|     });
   #|     const text = await response.text();
   #|     if (!response.ok) throw new Error(text || `Runtime execute failed (${response.status})`);
   #|     onDone(String(text));
   #|   } catch (error) {
+  #|     onError(error instanceof Error ? error.message : String(error));
+  #|   }
+  #| }
+
+///|
+#cfg(target="js")
+extern "js" fn browser_register_runtime_ready(
+  on_done : (String) -> Unit,
+  on_error : (String) -> Unit,
+) -> Unit =
+  #| async (onDone, onError) => {
+  #|   try {
+  #|     const artifact = globalThis.__moonapLastArtifact;
+  #|     const compileReport = globalThis.__moonapLastCompileReport;
+  #|     const source = String(artifact?.moonbit_source || "");
+  #|     if (!source.trim()) throw new Error("No captured MoonBit source is available for runtime registration.");
+  #|     if (!compileReport || typeof compileReport !== "object" || compileReport.ok !== true) {
+  #|       throw new Error("MoonAP runtime registration requires a successful compile report.");
+  #|     }
+  #|     const requestStage = artifact?.quality_assessment_used
+  #|       ? "quality-repair"
+  #|       : artifact?.compile_summary_used
+  #|         ? "compile-repair"
+  #|         : "browser-direct";
+  #|     const envelope = [
+  #|       `TASK_TITLE\t${String(artifact?.name || "MoonBit task")}`,
+  #|       `ORIGINAL_PROMPT\t${String(artifact?.prompt || "")}`,
+  #|       `LLM_PROVIDER\t${String(artifact?.llm_provider || "")}`,
+  #|       `LLM_MODEL\t${String(artifact?.llm_model || "")}`,
+  #|       `REQUEST_STAGE\t${String(requestStage)}`,
+  #|       `COMPILE_OK\t${String(Boolean(compileReport.ok))}`,
+  #|       `WASM_PATH\t${String(compileReport.wasm_path || "")}`,
+  #|       "SOURCE_BEGIN",
+  #|       source,
+  #|       "SOURCE_END",
+  #|       "COMPILE_REPORT_BEGIN",
+  #|       JSON.stringify(compileReport, null, 2),
+  #|       "COMPILE_REPORT_END",
+  #|       "RAW_RESPONSE_BEGIN",
+  #|       String(artifact?.llm_response_preview || ""),
+  #|       "RAW_RESPONSE_END"
+  #|     ].join("\n");
+  #|     fetch("/api/logs/moonap-runtime.log", {
+  #|       method: "POST",
+  #|       headers: { "Content-Type": "text/plain; charset=utf-8" },
+  #|       body: JSON.stringify({
+  #|         ts: new Date().toISOString(),
+  #|         kind: "runtime-exec",
+  #|         label: "runtime-request-register-attempt",
+  #|         text: String(artifact?.prompt || "")
+  #|       }) + "\n",
+  #|       keepalive: true
+  #|     }).catch(() => {});
+  #|     const response = await fetch("/api/runtime-exec/register-ready", {
+  #|       method: "POST",
+  #|       headers: { "Content-Type": "text/plain; charset=utf-8" },
+  #|       body: envelope
+  #|     });
+  #|     const text = await response.text();
+  #|     if (!response.ok) throw new Error(text || `Runtime registration failed (${response.status})`);
+  #|     fetch("/api/logs/moonap-runtime.log", {
+  #|       method: "POST",
+  #|       headers: { "Content-Type": "text/plain; charset=utf-8" },
+  #|       body: JSON.stringify({
+  #|         ts: new Date().toISOString(),
+  #|         kind: "runtime-exec",
+  #|         label: "runtime-request-register-succeeded",
+  #|         text: String(text || "")
+  #|       }) + "\n",
+  #|       keepalive: true
+  #|     }).catch(() => {});
+  #|     onDone(String(text));
+  #|   } catch (error) {
+  #|     fetch("/api/logs/moonap-runtime.log", {
+  #|       method: "POST",
+  #|       headers: { "Content-Type": "text/plain; charset=utf-8" },
+  #|       body: JSON.stringify({
+  #|         ts: new Date().toISOString(),
+  #|         kind: "runtime-exec",
+  #|         label: "runtime-request-register-failed",
+  #|         text: String(error instanceof Error ? error.message : String(error))
+  #|       }) + "\n",
+  #|       keepalive: true
+  #|     }).catch(() => {});
   #|     onError(error instanceof Error ? error.message : String(error));
   #|   }
   #| }
@@ -2343,24 +2546,24 @@ extern "js" fn browser_generate_moonbit_artifact(
   #|       setText("#promptSystem", systemPromptText || "No LLM prompt captured yet.");
   #|       setText("#promptUser", userPromptText || "No LLM prompt captured yet.");
   #|     };
-    #|     const buildCodegenPrompts = (llm) => {
-    #|       const modelName = String(llm?.model || "");
-    #|       const isGpt54 = modelName.toLowerCase().includes("gpt-5.4");
-    #|       const taskKind = inferTaskKind();
-    #|       const adapter = taskAdapterLines(taskKind);
-    #|       if (isGpt54) {
-    #|         const systemPrompt = [
-    #|           "You are an AI coder.",
-    #|           "You only write MoonBit code.",
-    #|           "Your job is to write MoonBit code for the user's task.",
-    #|           "Return only the full contents of cmd/main/main.mbt."
-    #|         ].join("\\n");
-    #|         return {
-    #|           modeText: "codegen / frontier-direct",
-    #|           systemPrompt,
-    #|           userPrompt: String(prompt || "")
-    #|         };
-    #|       }
+  #|     const buildCodegenPrompts = (llm) => {
+  #|       const modelName = String(llm?.model || "");
+  #|       const isGpt54 = modelName.toLowerCase().includes("gpt-5.4");
+  #|       const taskKind = inferTaskKind();
+  #|       const adapter = taskAdapterLines(taskKind);
+  #|       if (isGpt54) {
+  #|         const systemPrompt = [
+  #|           "You are an AI coder.",
+  #|           "You only write MoonBit code.",
+  #|           "Your job is to write MoonBit code for the user's task.",
+  #|           "Return only the full contents of cmd/main/main.mbt."
+  #|         ].join("\\n");
+  #|         return {
+  #|           modeText: "codegen / frontier-direct",
+  #|           systemPrompt,
+  #|           userPrompt: String(prompt || "")
+  #|         };
+  #|       }
   #|       const systemPrompt = simpleMode
   #|         ? [
   #|             "You write MoonBit code.",
@@ -3171,6 +3374,11 @@ extern "js" fn browser_artifact_field(raw : String, field : String) -> String =
 
 ///|
 #cfg(target="js")
+extern "js" fn browser_has_last_artifact_source() -> Bool =
+  #| () => String(globalThis.__moonapLastArtifact?.moonbit_source || "").trim() !== ""
+
+///|
+#cfg(target="js")
 fn context_path(message : String, file_name : String) -> String {
   let hint = (message + " " + file_name).to_lower()
   if hint.contains("fastq") || hint.contains(".fq") {
@@ -3763,6 +3971,14 @@ fn run_compile_probe() -> Unit {
         },
       )
       if ok == "true" {
+        browser_register_runtime_ready(
+          fn(raw) { on_runtime_request_ready(raw) },
+          fn(error) {
+            browser_append_runtime_log(
+              "runtime-exec", "runtime-request-register-failed", error,
+            )
+          },
+        )
         let benchmark_assessment = browser_assess_last_benchmark()
         browser_append_runtime_log(
           "benchmark", "benchmark-assessment", benchmark_assessment,
@@ -3997,6 +4213,9 @@ fn on_runtime_request_ready(raw : String) -> Unit {
   let request_id = browser_artifact_field(raw, "request_id")
   let status = browser_artifact_field(raw, "status")
   let wasm_path = browser_artifact_field(raw, "wasm_path")
+  if !browser_has_last_artifact_source() {
+    return
+  }
   if request_id == "" || status == "" || status == "empty" {
     return
   }
@@ -4033,6 +4252,9 @@ fn on_runtime_result_ready(raw : String) -> Unit {
   let summary = browser_artifact_field(raw, "summary")
   let display_text = browser_artifact_field(raw, "display_text")
   let download_name = browser_artifact_field(raw, "download_name")
+  if !browser_has_last_artifact_source() {
+    return
+  }
   if request_id == "" || status == "" || status == "empty" {
     return
   }
@@ -4075,6 +4297,9 @@ fn on_skill_save_decision(raw : String) -> Unit {
   let request_id = browser_artifact_field(raw, "request_id")
   let decision = browser_artifact_field(raw, "decision")
   let reason = browser_artifact_field(raw, "reason")
+  if !browser_has_last_artifact_source() {
+    return
+  }
   if request_id == "" ||
     decision == "" ||
     decision == "pending" ||
@@ -4181,9 +4406,7 @@ fn submit_message() -> Unit {
 fn main {
   ignore(browser_extract_moonbit_source(""))
   browser_enable_minimal_shell()
-  browser_prepare_message_input(
-    "Write the smallest valid cmd/main/main.mbt that compiles under wasm-gc and returns the string hello moonbit. Return only the file contents.",
-  )
+  browser_prepare_message_input("Generate a FastQ file generator.")
   browser_on_submit(fn() { submit_message() })
   browser_on_click("#detailsToggle", fn() { browser_toggle_details() })
   browser_on_click("#llmButton", fn() { show_llm_entry() })

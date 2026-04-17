@@ -57,6 +57,36 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app29browser__append__ru
      keepalive: true
    }).catch(() => {});
  };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app33browser__extract__moonbit__source = (raw) => {
+   if (!globalThis.__moonapExtractMoonBitSource) {
+     globalThis.__moonapExtractMoonBitSource = (value) => {
+       const text = String(value || "").trim();
+       if (!text) return "";
+       const extract = (source, startMarker, endMarker) => {
+         const start = source.indexOf(startMarker);
+         if (start < 0) return "";
+         const after = source.slice(start + startMarker.length).trim();
+         if (!after) return "";
+         const end = after.indexOf(endMarker);
+         if (end < 0) return "";
+         return after.slice(0, end).trim();
+       };
+       const patterns = [
+         ["FILE: cmd/main/main.mbt", "END_FILE"],
+         ['<moonbit-file path="cmd/main/main.mbt">', "</moonbit-file>"],
+         ["```moonbit", "```"],
+         ["```mbt", "```"],
+         ["```", "```"]
+       ];
+       for (const [startMarker, endMarker] of patterns) {
+         const extracted = extract(text, startMarker, endMarker);
+         if (extracted) return extracted;
+       }
+       return text;
+     };
+   }
+   return globalThis.__moonapExtractMoonBitSource(raw);
+ };
 const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__render__artifact__card = (title, summary, metaJson, allowCompile, allowRepair, allowSave) => {
    const root = document.querySelector("#artifactActions");
    if (!root) return;
@@ -120,15 +150,26 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app32browser__assess__la
    const hasFastqPlus = source.includes("\\n+\\n") || source.includes("\"+\"") || source.includes("+\\n");
    const hasQuality = source.includes("IIII") || source.includes("qual");
    const hasSequenceLogic = /A|C|G|T|N/.test(source) && (hasControlFlow || helperNames.length > 0);
+   const missingSignals = [];
+   const preserveConstraints = ["keep the original task goal", "keep the source import-free when possible", "return only cmd/main/main.mbt", "preserve wasm-gc compatibility"];
    const result = {
      applicable: level > 0 || isFastqMoonbitTask,
+     assessment_kind: "system-assessment",
+     task_kind: level > 0 ? `benchmark-l${level}` : (isFastqMoonbitTask ? "fastq-generator" : "general-moonbit"),
      level: level,
      pass: false,
      title: "Compile probe succeeded",
      summary: "MoonAP used the native MoonBit toolchain on this machine and produced a real wasm-gc artifact. Browser-local runtime execution is the next implementation step.",
-     meta_json: JSON.stringify(["compile probe ok", "real wasm built", "runtime pending"])
+     meta_json: JSON.stringify(["compile probe ok", "real wasm built", "runtime pending"]),
+     missing_signals_json: "[]",
+     preserve_constraints_json: JSON.stringify(preserveConstraints),
+     repair_hint: "Keep the task intent intact while improving the machine-checkable task structure."
    };
    if (level === 1) {
+     if (!hasMain) missingSignals.push("define exactly one fn main");
+     if (hasImport) missingSignals.push("remove import usage");
+     if (!hasHelloMoonbit) missingSignals.push("return text containing hello moonbit");
+     if (helperNames.length !== 0) missingSignals.push("avoid helper functions for Benchmark L1");
      const pass = hasMain && !hasImport && hasHelloMoonbit && helperNames.length === 0;
      result.pass = pass;
      result.title = pass ? "Benchmark L1 passed" : "Compile succeeded, but Benchmark L1 failed";
@@ -138,9 +179,15 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app32browser__assess__la
      result.meta_json = JSON.stringify(pass
        ? ["benchmark l1", "compile ok", "quality pass"]
        : ["benchmark l1", "compile ok", "quality failed"]);
+     result.repair_hint = "Benchmark L1 should be a single-file MoonBit program with one main function, no imports, no helpers, and a return value that visibly contains hello moonbit.";
    } else if (level === 2) {
      const helper = helperNames.length === 1 ? helperNames[0] : "";
      const mainCallsHelper = helper !== "" && source.includes(`${helper}(`);
+     if (!hasMain) missingSignals.push("define fn main");
+     if (hasImport) missingSignals.push("remove import usage");
+     if (!hasHelloMoonbit) missingSignals.push("return text containing hello moonbit");
+     if (helperNames.length !== 1) missingSignals.push("define exactly one helper function");
+     if (!mainCallsHelper) missingSignals.push("have main call the helper function");
      const pass = hasMain && !hasImport && hasHelloMoonbit && helperNames.length === 1 && mainCallsHelper;
      result.pass = pass;
      result.title = pass ? "Benchmark L2 passed" : "Compile succeeded, but Benchmark L2 failed";
@@ -150,7 +197,13 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app32browser__assess__la
      result.meta_json = JSON.stringify(pass
        ? ["benchmark l2", "compile ok", "quality pass"]
        : ["benchmark l2", "compile ok", "quality failed"]);
+     result.repair_hint = "Benchmark L2 should keep one helper function that produces hello moonbit, with main delegating to that helper and no imports.";
    } else if (level === 3) {
+     if (!hasMain) missingSignals.push("define fn main");
+     if (hasImport) missingSignals.push("remove import usage");
+     if (!hasABC) missingSignals.push("return text containing ABC");
+     if (!hasControlFlow) missingSignals.push("include simple control flow");
+     if (hasRandomness) missingSignals.push("remove randomness");
      const pass = hasMain && !hasImport && hasABC && hasControlFlow && !hasRandomness;
      result.pass = pass;
      result.title = pass ? "Benchmark L3 passed" : "Compile succeeded, but Benchmark L3 failed";
@@ -160,7 +213,14 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app32browser__assess__la
      result.meta_json = JSON.stringify(pass
        ? ["benchmark l3", "compile ok", "quality pass"]
        : ["benchmark l3", "compile ok", "quality failed"]);
+     result.repair_hint = "Benchmark L3 should visibly implement ABC with deterministic control flow and no imports or randomness.";
    } else if (isFastqMoonbitTask) {
+     if (!hasMain) missingSignals.push("define fn main");
+     if (hasImport) missingSignals.push("remove import usage");
+     if (!hasFastqHeader) missingSignals.push("emit a visible FastQ header such as @SEQ or @moonap");
+     if (!hasFastqPlus) missingSignals.push("emit a plus line between sequence and quality");
+     if (!hasQuality) missingSignals.push("generate an explicit quality string such as IIII or qual");
+     if (!hasSequenceLogic) missingSignals.push("include visible sequence-generation logic over A/C/G/T/N");
      const pass = hasMain && !hasImport && hasFastqHeader && hasFastqPlus && hasQuality && hasSequenceLogic;
      result.pass = pass;
      result.title = pass ? "FastQ Generator task passed" : "Compile succeeded, but FastQ Generator task failed";
@@ -170,11 +230,218 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app32browser__assess__la
      result.meta_json = JSON.stringify(pass
        ? ["fastq generator", "compile ok", "quality pass"]
        : ["fastq generator", "compile ok", "quality failed"]);
+     result.repair_hint = "Keep the program compiling, but make the MoonBit source visibly look like a FastQ generator with header, sequence, plus line, and quality generation.";
    }
+   result.missing_signals_json = JSON.stringify(missingSignals);
    return JSON.stringify(result);
  };
 const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app35browser__set__benchmark__assessment = (raw) => {
    globalThis.__moonapBenchmarkAssessment = String(raw || "");
+ };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app57browser__repair__last__artifact__with__system__assessment = async (knowledgePack, onDone, onError) => {
+   try {
+     const artifact = globalThis.__moonapLastArtifact;
+     const source = String(artifact?.moonbit_source || "");
+     if (!source.trim()) throw new Error("No captured MoonBit source is available for quality repair.");
+     let assessment = {};
+     try {
+       assessment = JSON.parse(String(globalThis.__moonapBenchmarkAssessment || "{}"));
+     } catch {
+       assessment = {};
+     }
+     if (!assessment || typeof assessment !== "object") throw new Error("No system assessment is available yet.");
+     const readRouter = () => {
+       try {
+         const parsed = JSON.parse(localStorage.getItem("moonap.llm.router.v1") || "{}");
+         return parsed && typeof parsed === "object" ? parsed : {};
+       } catch {
+         return {};
+       }
+     };
+     const saved = readRouter();
+     const providers = Array.isArray(saved.providers) ? saved.providers.filter((item) => item.enabled && String(item.apiKey || "").trim() !== "" && String(item.test_status || "") !== "failed") : [];
+     if (providers.length === 0) throw new Error("No enabled LLM provider is available in the router.");
+     const cursor = Number.isFinite(saved.cursor) ? saved.cursor : 0;
+     const start = ((cursor % providers.length) + providers.length) % providers.length;
+     const ordered = providers.slice(start).concat(providers.slice(0, start));
+     const proxyPost = async (url, headers, body) => {
+       const envelope = [
+         `URL\t${String(url)}`,
+         ...Object.entries(headers || {}).map(([key, value]) => `HEADER\t${String(key)}\t${String(value).replace(/\r?\n/g, " ")}`),
+         "BODY",
+         String(body)
+       ].join("\n");
+       const response = await fetch("/api/llm/proxy", {
+         method: "POST",
+         headers: { "Content-Type": "text/plain; charset=utf-8" },
+         body: envelope
+       });
+       const text = await response.text();
+       let json = {};
+       try {
+         json = JSON.parse(text);
+       } catch {
+         const plain = String(text || "")
+           .replace(/<script[\s\S]*?<\/script>/gi, " ")
+           .replace(/<style[\s\S]*?<\/style>/gi, " ")
+           .replace(/<[^>]+>/g, " ")
+           .replace(/\s+/g, " ")
+           .trim();
+         const summarized = plain || `MoonAP proxy returned non-JSON (${response.status})`;
+         throw new Error(`Provider returned non-JSON (${response.status}): ${summarized.slice(0, 240)}`);
+       }
+       if (!response.ok) {
+         const detail = json?.error?.detail ? ` ${String(json.error.detail)}` : "";
+         throw new Error((json?.error?.message || `LLM request failed (${response.status})`) + detail);
+       }
+       return json;
+     };
+     const updatePrompts = (modeText, systemPromptText, userPromptText) => {
+       const setText = (selector, value) => {
+         const node = document.querySelector(selector);
+         if (node) node.textContent = String(value);
+       };
+       setText("#promptMode", modeText || "No LLM prompt captured yet.");
+       setText("#promptSystem", systemPromptText || "No LLM prompt captured yet.");
+       setText("#promptUser", userPromptText || "No LLM prompt captured yet.");
+     };
+     let missingSignals = [];
+     let preserveConstraints = [];
+     try { missingSignals = JSON.parse(String(assessment?.missing_signals_json || "[]")); } catch {}
+     try { preserveConstraints = JSON.parse(String(assessment?.preserve_constraints_json || "[]")); } catch {}
+     const originalTask = String(artifact?.prompt || "Generate MoonBit code for the requested task.");
+     const systemPrompt = [
+       "You are improving MoonBit code for MoonAP after the native compile probe already succeeded.",
+       "Target language: MoonBit 0.9.",
+       "Return ONLY the revised contents of cmd/main/main.mbt.",
+       "Do NOT return markdown fences, explanations, bullet lists, moon.pkg, or moon.mod.json.",
+       "Any non-code text is a failed repair.",
+       "Preserve compilability under wasm-gc while improving the task-specific quality signals.",
+       "Preserve the original task goal."
+     ].join("\\n");
+     const userPrompt = [
+       "Read this MoonBit 0.9 primer first and follow it strictly:",
+       String(knowledgePack || ""),
+       "",
+       `Original task: ${originalTask}`,
+       "",
+       "System assessment after a successful compile:",
+       `- task_kind: ${String(assessment?.task_kind || "general-moonbit")}`,
+       `- title: ${String(assessment?.title || "System assessment failed")}`,
+       `- summary: ${String(assessment?.summary || "")}`,
+       `- repair_hint: ${String(assessment?.repair_hint || "")}`,
+       "",
+       "Machine-detected missing signals:",
+       ...(Array.isArray(missingSignals) && missingSignals.length > 0 ? missingSignals.map((item) => `- ${String(item)}`) : ["- none listed; improve task structure conservatively"]),
+       "",
+       "Constraints to preserve:",
+       ...(Array.isArray(preserveConstraints) && preserveConstraints.length > 0 ? preserveConstraints.map((item) => `- ${String(item)}`) : ["- preserve the original task goal", "- keep wasm-gc compatibility"]),
+       "",
+       "Current source:",
+       source,
+       "",
+       "Please revise the source so it still compiles and better satisfies the system assessment.",
+       "Return the full corrected cmd/main/main.mbt file and nothing else."
+     ].join("\\n");
+     updatePrompts("quality-repair / full", systemPrompt, userPrompt);
+     const requestJson = async (llm) => {
+       if (llm.provider === "gemini") {
+         const url = `${llm.baseUrl}/v1beta/models/${encodeURIComponent(llm.model)}:generateContent`;
+         const json = await proxyPost(url, {
+           "Content-Type": "application/json",
+           "x-goog-api-key": String(llm.apiKey || "")
+         }, JSON.stringify({
+           system_instruction: { parts: [{ text: systemPrompt }] },
+           contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+           generationConfig: { temperature: 0.1 }
+         }));
+         const text = (json?.candidates?.[0]?.content?.parts || []).map((part) => String(part?.text || "")).join("\\n").trim();
+         if (!text) throw new Error("Gemini returned no revised MoonBit source.");
+         return { source: text, raw: json };
+       }
+       const rawBaseUrl = String(llm.baseUrl || "").trim();
+       const baseUrl = rawBaseUrl.endsWith("/") ? rawBaseUrl.slice(0, -1) : rawBaseUrl;
+       let url = `${baseUrl}/chat/completions`;
+       if (llm.provider === "zai") {
+         if (baseUrl.endsWith("/chat/completions")) {
+           url = baseUrl;
+         } else if (baseUrl === "https://open.bigmodel.cn" || baseUrl === "https://open.bigmodel.cn/") {
+           url = "https://open.bigmodel.cn/api/paas/v4/chat/completions";
+         } else if (!baseUrl.includes("/api/paas/v4")) {
+           url = `${baseUrl}/api/paas/v4/chat/completions`;
+         }
+       }
+       const headers = {
+         "Content-Type": "application/json",
+         "Authorization": `Bearer ${String(llm.apiKey || "")}`
+       };
+       if (llm.provider === "openrouter") {
+         headers["HTTP-Referer"] = "http://127.0.0.1:3000";
+         headers["X-Title"] = "MoonAP";
+       }
+       const json = await proxyPost(url, headers, JSON.stringify({
+         model: llm.model,
+         messages: [
+           { role: "system", content: systemPrompt },
+           { role: "user", content: userPrompt }
+         ],
+         temperature: 0.1
+       }));
+       const text = String(json?.choices?.[0]?.message?.content || "").trim();
+       if (!text) throw new Error(`${llm.provider} returned no revised MoonBit source.`);
+       return { source: text, raw: json };
+     };
+     let repaired = null;
+     let selected = null;
+     const failures = [];
+     for (let index = 0; index < ordered.length; index += 1) {
+       const item = ordered[index];
+       const llm = {
+         provider: item.key,
+         model: item.model,
+         baseUrl: item.baseUrl,
+         apiKey: item.apiKey,
+         rotated: providers.length > 1
+       };
+       try {
+         repaired = await requestJson(llm);
+         selected = llm;
+         const nextCursor = (start + index + 1) % providers.length;
+         localStorage.setItem("moonap.llm.router.v1", JSON.stringify({
+           providers: Array.isArray(saved.providers) ? saved.providers : providers,
+           cursor: nextCursor,
+           savedAt: saved.savedAt || new Date().toISOString()
+         }));
+         break;
+       } catch (error) {
+         failures.push(`${String(item.key || "provider")}/${String(item.model || "model")}: ${error instanceof Error ? error.message : String(error)}`);
+       }
+     }
+     if (!repaired || !selected) {
+       throw new Error(`All enabled providers failed during quality repair. ${failures.join(" | ")}`);
+     }
+     const cleaned = browser_extract_moonbit_source(String(repaired.source || ""));
+     const nextArtifact = {
+       ...(artifact || {}),
+       moonbit_source: cleaned,
+       llm_provider: selected.provider || "unknown",
+       llm_model: selected.model || "unknown",
+       llm_rotated: Boolean(selected.rotated),
+       repair_round: Number(artifact?.repair_round || 0) + 1,
+       quality_assessment_used: {
+         task_kind: String(assessment?.task_kind || ""),
+         title: String(assessment?.title || ""),
+         repair_hint: String(assessment?.repair_hint || ""),
+         missing_signals_json: String(assessment?.missing_signals_json || "[]")
+       },
+       llm_response_preview: JSON.stringify(repaired.raw).slice(0, 1200),
+       created_at: new Date().toISOString()
+     };
+     globalThis.__moonapLastArtifact = nextArtifact;
+     onDone(JSON.stringify(nextArtifact, null, 2));
+   } catch (error) {
+     onError(error instanceof Error ? error.message : String(error));
+   }
  };
 const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__next__benchmark__level = () => {
    try {
@@ -393,7 +660,36 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app55browser__repair__la
      if (!repaired || !selected) {
        throw new Error(`All enabled providers failed during repair. ${failures.join(" | ")}`);
      }
-     const cleaned = browser_extract_moonbit_source(String(repaired.source || ""));
+     const ensureExtractMoonBitSource = () => {
+       if (typeof globalThis.__moonapExtractMoonBitSource === "function") return globalThis.__moonapExtractMoonBitSource;
+       globalThis.__moonapExtractMoonBitSource = (value) => {
+         const text = String(value || "").trim();
+         if (!text) return "";
+         const extract = (source, startMarker, endMarker) => {
+           const start = source.indexOf(startMarker);
+           if (start < 0) return "";
+           const after = source.slice(start + startMarker.length).trim();
+           if (!after) return "";
+           const end = after.indexOf(endMarker);
+           if (end < 0) return "";
+           return after.slice(0, end).trim();
+         };
+         const patterns = [
+           ["FILE: cmd/main/main.mbt", "END_FILE"],
+           ['<moonbit-file path="cmd/main/main.mbt">', "</moonbit-file>"],
+           ["```moonbit", "```"],
+           ["```mbt", "```"],
+           ["```", "```"]
+         ];
+         for (const [startMarker, endMarker] of patterns) {
+           const extracted = extract(text, startMarker, endMarker);
+           if (extracted) return extracted;
+         }
+         return text;
+       };
+       return globalThis.__moonapExtractMoonBitSource;
+     };
+     const cleaned = ensureExtractMoonBitSource()(String(repaired.source || ""));
      const nextArtifact = {
        ...(artifact || {}),
        moonbit_source: cleaned,
@@ -835,6 +1131,8 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app26browser__open__llm_
        baseUrl = "https://open.bigmodel.cn/api/paas/v4";
      } else if (key === "siliconflow") {
        baseUrl = "https://api.siliconflow.cn/v1";
+     } else if (key === "openai") {
+       baseUrl = "moonap://codex-demo";
      } else if (key === "nvidia") {
        baseUrl = "https://integrate.api.nvidia.com/v1";
      }
@@ -844,6 +1142,8 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app26browser__open__llm_
      const key = String(provider || "").toLowerCase();
      const name = String(model || "").toLowerCase();
      let score = 0;
+     if (name.includes("gpt-5.4")) score += 1200;
+     else
      if (name.includes("llama-4-maverick-17b-128e-instruct")) score += 1000;
      else if (name.includes("glm-5.1")) score += 900;
      else if (name.includes("gemini-3-flash-preview")) score += 840;
@@ -875,7 +1175,8 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app26browser__open__llm_
      else if (name.includes("nemotron-3-super-120b-a12b:free")) score += 280;
      else if (name.includes("openrouter/free")) score += 200;
      else if (name.includes("openrouter/auto")) score += 180;
-     if (key === "nvidia") score += 90;
+     if (key === "openai") score += 120;
+     else if (key === "nvidia") score += 90;
      else if (key === "zai") score += 70;
      else if (key === "gemini") score += 40;
      else if (key === "siliconflow") score += 30;
@@ -900,8 +1201,16 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app26browser__open__llm_
        return {};
      }
    };
-   const routerProfileVersion = 4;
+   const routerProfileVersion = 5;
    const providerConfigs = [
+     {
+       key: "openai",
+       enabled: true,
+       baseUrl: "moonap://codex-demo",
+       models: [
+         { id: "gpt-5.4", enabled: true }
+       ]
+     },
      {
        key: "nvidia",
        enabled: true,
@@ -973,7 +1282,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app26browser__open__llm_
        enabled: Boolean(spec.enabled && model.enabled),
        model: model.id,
        baseUrl: spec.baseUrl,
-       apiKey: ""
+       apiKey: spec.key === "openai" ? "codex-demo-mode" : ""
      }))
    );
    const saved = readRouter();
@@ -1044,6 +1353,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app26browser__open__llm_
      enable?.addEventListener("change", syncDisabled);
      syncDisabled();
    };
+   bind("openai", { enable: "routerEnableOpenAI", model: "routerModelsOpenAI", base: "routerBaseOpenAI", key: "routerKeyOpenAI" });
    bind("gemini", { enable: "routerEnableGemini", model: "routerModelsGemini", base: "routerBaseGemini", key: "routerKeyGemini" });
    bind("siliconflow", { enable: "routerEnableSiliconFlow", model: "routerModelsSiliconFlow", base: "routerBaseSiliconFlow", key: "routerKeySiliconFlow" });
    bind("nvidia", { enable: "routerEnableNVIDIA", model: "routerModelsNVIDIA", base: "routerBaseNVIDIA", key: "routerKeyNVIDIA" });
@@ -1105,7 +1415,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app27browser__render__on
    const providers = Array.isArray(saved.providers) ? saved.providers : [];
    const usable = providers.filter((item) => Boolean(item?.enabled) && String(item?.apiKey || "").trim() !== "" && String(item?.test_status || "") !== "failed");
    const primary = usable[0];
-   const primaryLabel = primary ? `${String(primary.key || "")}/${String(primary.model || "")}` : "NVIDIA Maverick -> ZAI GLM-5.1";
+   const primaryLabel = primary ? `${String(primary.key || "")}/${String(primary.model || "")}` : "OpenAI/GPT-5.4 (Codex-demo mode)";
    let benchmark = {};
    try { benchmark = JSON.parse(globalThis.__moonapBenchmarkAssessment || "{}"); } catch { benchmark = {}; }
    const passedLevel = Number(benchmark?.pass ? benchmark.level || 0 : 0);
@@ -1129,7 +1439,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app27browser__render__on
        </div>`
      : `
        <strong>Connect an LLM to begin</strong>
-       <small>Set up NVIDIA Maverick first, then keep ZAI GLM-5.1 as the fallback. After Save, MoonAP will test the checked models and show the usable order in Details.</small>
+       <small>Use OpenAI / GPT-5.4 Codex-demo mode for the local demo path, or switch to real providers later. After Save, MoonAP will test the checked models and show the usable order in Details.</small>
        <div class="onboarding-actions">
          <button id="onboardingEditLLM" type="button">Open LLM Router</button>
          <button id="onboardingOpenSkill" class="secondary" type="button">Browse SKILL</button>
@@ -1260,6 +1570,8 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app22browser__on__llm__s
        baseUrl = "https://open.bigmodel.cn/api/paas/v4";
      } else if (key === "siliconflow") {
        baseUrl = "https://api.siliconflow.cn/v1";
+     } else if (key === "openai") {
+       baseUrl = "moonap://codex-demo";
      } else if (key === "nvidia") {
        baseUrl = "https://integrate.api.nvidia.com/v1";
      }
@@ -1269,6 +1581,8 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app22browser__on__llm__s
      const key = String(provider || "").toLowerCase();
      const name = String(model || "").toLowerCase();
      let score = 0;
+     if (name.includes("gpt-5.4")) score += 1200;
+     else
      if (name.includes("llama-4-maverick-17b-128e-instruct")) score += 1000;
      else if (name.includes("glm-5.1")) score += 900;
      else if (name.includes("gemini-3-flash-preview")) score += 840;
@@ -1300,7 +1614,8 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app22browser__on__llm__s
      else if (name.includes("nemotron-3-super-120b-a12b:free")) score += 280;
      else if (name.includes("openrouter/free")) score += 200;
      else if (name.includes("openrouter/auto")) score += 180;
-     if (key === "nvidia") score += 90;
+     if (key === "openai") score += 120;
+     else if (key === "nvidia") score += 90;
      else if (key === "zai") score += 70;
      else if (key === "gemini") score += 40;
      else if (key === "siliconflow") score += 30;
@@ -1310,6 +1625,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app22browser__on__llm__s
    const sortMoonBitProviders = (providers) => [...providers].sort((a, b) => providerPriority(b?.key, b?.model) - providerPriority(a?.key, a?.model));
    const collectCheckedModels = (selector) => Array.from(document.querySelectorAll(`${selector} input[type=checkbox]:checked`)).map((node) => String(node.value || "").trim()).filter((value) => value.length > 0);
    const providerSpecs = [
+     { key: "openai", enabled: Boolean(document.querySelector("#routerEnableOpenAI")?.checked), models: collectCheckedModels("#routerModelsOpenAI"), baseUrl: String(document.querySelector("#routerBaseOpenAI")?.value || "").trim(), apiKey: String(document.querySelector("#routerKeyOpenAI")?.value || "").trim() },
      { key: "nvidia", enabled: Boolean(document.querySelector("#routerEnableNVIDIA")?.checked), models: collectCheckedModels("#routerModelsNVIDIA"), baseUrl: String(document.querySelector("#routerBaseNVIDIA")?.value || "").trim(), apiKey: String(document.querySelector("#routerKeyNVIDIA")?.value || "").trim() },
      { key: "zai", enabled: Boolean(document.querySelector("#routerEnableZAI")?.checked), models: collectCheckedModels("#routerModelsZAI"), baseUrl: String(document.querySelector("#routerBaseZAI")?.value || "").trim(), apiKey: String(document.querySelector("#routerKeyZAI")?.value || "").trim() },
      { key: "gemini", enabled: Boolean(document.querySelector("#routerEnableGemini")?.checked), models: collectCheckedModels("#routerModelsGemini"), baseUrl: String(document.querySelector("#routerBaseGemini")?.value || "").trim(), apiKey: String(document.querySelector("#routerKeyGemini")?.value || "").trim() },
@@ -1711,7 +2027,36 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app36browser__generate__
      if (!generated || !llm) {
        throw new Error(`All enabled providers failed during code generation. ${failures.join(" | ")}`);
      }
-     const source = browser_extract_moonbit_source(String(generated.source || ""));
+     const ensureExtractMoonBitSource = () => {
+       if (typeof globalThis.__moonapExtractMoonBitSource === "function") return globalThis.__moonapExtractMoonBitSource;
+       globalThis.__moonapExtractMoonBitSource = (value) => {
+         const text = String(value || "").trim();
+         if (!text) return "";
+         const extract = (source, startMarker, endMarker) => {
+           const start = source.indexOf(startMarker);
+           if (start < 0) return "";
+           const after = source.slice(start + startMarker.length).trim();
+           if (!after) return "";
+           const end = after.indexOf(endMarker);
+           if (end < 0) return "";
+           return after.slice(0, end).trim();
+         };
+         const patterns = [
+           ["FILE: cmd/main/main.mbt", "END_FILE"],
+           ['<moonbit-file path="cmd/main/main.mbt">', "</moonbit-file>"],
+           ["```moonbit", "```"],
+           ["```mbt", "```"],
+           ["```", "```"]
+         ];
+         for (const [startMarker, endMarker] of patterns) {
+           const extracted = extract(text, startMarker, endMarker);
+           if (extracted) return extracted;
+         }
+         return text;
+       };
+       return globalThis.__moonapExtractMoonBitSource;
+     };
+     const source = ensureExtractMoonBitSource()(String(generated.source || ""));
      const slug = String(taskTitle || "moonbit-task")
        .toLowerCase()
        .replace(/[^a-z0-9]+/g, "-")
@@ -1761,7 +2106,36 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__run__free_
      globalThis.__moonapEvalRunning = true;
      const clampLevel = (value) => Math.max(1, Math.min(3, Number(value || 3)));
      const nowIso = () => new Date().toISOString();
-     const cleanSource = (text) => browser_extract_moonbit_source(String(text || ""));
+     const ensureExtractMoonBitSource = () => {
+       if (typeof globalThis.__moonapExtractMoonBitSource === "function") return globalThis.__moonapExtractMoonBitSource;
+       globalThis.__moonapExtractMoonBitSource = (value) => {
+         const sourceText = String(value || "").trim();
+         if (!sourceText) return "";
+         const extract = (source, startMarker, endMarker) => {
+           const start = source.indexOf(startMarker);
+           if (start < 0) return "";
+           const after = source.slice(start + startMarker.length).trim();
+           if (!after) return "";
+           const end = after.indexOf(endMarker);
+           if (end < 0) return "";
+           return after.slice(0, end).trim();
+         };
+         const patterns = [
+           ["FILE: cmd/main/main.mbt", "END_FILE"],
+           ['<moonbit-file path="cmd/main/main.mbt">', "</moonbit-file>"],
+           ["```moonbit", "```"],
+           ["```mbt", "```"],
+           ["```", "```"]
+         ];
+         for (const [startMarker, endMarker] of patterns) {
+           const extracted = extract(sourceText, startMarker, endMarker);
+           if (extracted) return extracted;
+         }
+         return sourceText;
+       };
+       return globalThis.__moonapExtractMoonBitSource;
+     };
+     const cleanSource = (text) => ensureExtractMoonBitSource()(String(text || ""));
      const parseModelList = (raw) => {
        const seen = new Set();
        return String(raw || "")
@@ -1782,6 +2156,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__run__free_
        else if (key === "openrouter") baseUrl = "https://openrouter.ai/api/v1";
        else if (key === "zai") baseUrl = "https://open.bigmodel.cn/api/paas/v4";
        else if (key === "siliconflow") baseUrl = "https://api.siliconflow.cn/v1";
+       else if (key === "openai") baseUrl = "moonap://codex-demo";
        else if (key === "nvidia") baseUrl = "https://integrate.api.nvidia.com/v1";
        return {
          key,
@@ -2898,9 +3273,15 @@ function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app19run__compile__pr
         const benchmark_meta_json = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(benchmark_assessment, "meta_json");
         const benchmark_pass = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(benchmark_assessment, "pass");
         _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__update__process(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__llm__summary(), "moonbit-benchmark-check", benchmark_pass === "true" ? "succeeded" : "failed", benchmark_summary, "");
-        _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__render__artifact__card(benchmark_title, benchmark_summary, benchmark_meta_json, true, _M0IP016_24default__implPB2Eq10not__equalGsE(benchmark_pass, "true"), false);
-        _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app27browser__render__onboarding();
-        return;
+        const benchmark_hint = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(benchmark_assessment, "repair_hint");
+        const benchmark_missing_signals_json = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(benchmark_assessment, "missing_signals_json");
+        if (_M0IP016_24default__implPB2Eq10not__equalGsE(benchmark_pass, "true") && _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app44maybe__auto__repair__after__quality__failure(benchmark_title, benchmark_summary, benchmark_hint, benchmark_missing_signals_json)) {
+          return;
+        } else {
+          _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__render__artifact__card(benchmark_title, benchmark_summary, benchmark_meta_json, true, false, false);
+          _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app27browser__render__onboarding();
+          return;
+        }
       } else {
         _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__render__artifact__card("Compile probe succeeded", "MoonAP used the native MoonBit toolchain on this machine and produced a real wasm-gc artifact. Browser-local runtime execution is the next implementation step.", "[\"compile probe ok\",\"real wasm built\",\"runtime pending\"]", true, false, false);
         _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app27browser__render__onboarding();
@@ -2952,6 +3333,45 @@ function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app35run__repair__fro
     _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app19run__compile__probe();
   }, (error) => {
     _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app11show__error("MoonBit compile repair failed", error);
+  });
+}
+function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app44maybe__auto__repair__after__quality__failure(assessment_title, assessment_summary, assessment_hint, missing_signals_json) {
+  const repair_round = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__last__artifact__repair__round();
+  const max_rounds = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app25max__auto__repair__rounds();
+  if (repair_round >= max_rounds) {
+    return false;
+  } else {
+    const next_round = repair_round + 1 | 0;
+    const detected_title = assessment_title === "" ? "System assessment failed" : assessment_title;
+    const missing_excerpt = missing_signals_json === "" || missing_signals_json === "[]" ? "" : `\nMissing signals: ${missing_signals_json}`;
+    const hint_excerpt = assessment_hint === "" ? missing_excerpt : `\nRepair hint: ${assessment_hint}${missing_excerpt}`;
+    const log_text = `Compile probe succeeded, but system assessment failed. MoonAP is auto-repairing round ${_M0MPC13int3Int18to__string_2einner(next_round, 10)}/${_M0MPC13int3Int18to__string_2einner(max_rounds, 10)} using the captured benchmark feedback.\n${assessment_summary}${hint_excerpt}`;
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__update__process(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__llm__summary(), "quality-repair", "running", log_text, "");
+    const _tmp = `MoonAP kept the compiled artifact, but the system assessment still failed. Starting quality repair round ${_M0MPC13int3Int18to__string_2einner(next_round, 10)}/${_M0MPC13int3Int18to__string_2einner(max_rounds, 10)}.`;
+    const _tmp$2 = _M0MPC13int3Int18to__string_2einner(next_round, 10);
+    const _bind = "\"";
+    const _tmp$3 = new _M0TPC16string10StringView(_bind, 0, _bind.length);
+    const _bind$2 = "'";
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__render__artifact__card("Compile succeeded, auto-repairing quality", _tmp, `[\"quality repair\",\"round ${_tmp$2}\",\"${_M0MPC16string6String12replace__all(detected_title, _tmp$3, new _M0TPC16string10StringView(_bind$2, 0, _bind$2.length))}\"]`, false, false, false);
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app37run__repair__from__system__assessment();
+    return true;
+  }
+}
+function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app37run__repair__from__system__assessment() {
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app30browser__clear__artifact__card();
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__update__process(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__llm__summary(), "quality-repair", "running", "Submitting the captured system assessment back to the next enabled provider together with the MoonBit primer.", "");
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app57browser__repair__last__artifact__with__system__assessment(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24moonbit__llm__primer__v1(), (result) => {
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app19browser__set__state(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__pretty__json(result));
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app29browser__append__runtime__log("artifact", "quality-repair-result", _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__pretty__json(result));
+    const provider = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(result, "llm_provider");
+    const model = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(result, "llm_model");
+    const source = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(result, "moonbit_source");
+    const repair_round = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(result, "repair_round");
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__update__process(provider === "" ? _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__llm__summary() : model === "" ? provider : `${provider}/${model}`, "quality-repair", "succeeded", "MoonAP injected the current system assessment into a quality-repair prompt. The revised MoonBit source will now be compiled again automatically.", source === "" ? "No revised source returned." : source);
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__render__artifact__card("Quality-repaired source is ready", `MoonAP generated repair round ${repair_round} from the system assessment and is now re-running the native compile probe.`, `[\"quality repair round ${repair_round}\",\"system assessment\",\"compile starting\"]`, true, false, false);
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app19run__compile__probe();
+  }, (error) => {
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app11show__error("MoonBit quality repair failed", error);
   });
 }
 function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app26run__llm__moonbit__codegen(task_title, prompt, source_summary, simple_mode) {
@@ -3164,6 +3584,7 @@ function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app15submit__message(
   });
 }
 (() => {
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app33browser__extract__moonbit__source("");
   _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app32browser__prepare__message__input("Write the smallest valid cmd/main/main.mbt that compiles under wasm-gc and returns the string hello moonbit. Return only the file contents.");
   _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app19browser__on__submit(() => {
     _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app15submit__message();

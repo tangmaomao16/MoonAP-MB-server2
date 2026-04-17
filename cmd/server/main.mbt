@@ -1,6 +1,8 @@
 ///|
 async fn main {
+  let session_dir = initialize_runtime_session()
   println("MoonAP native MoonBit server starting at http://127.0.0.1:3000")
+  println("MoonAP runtime session: " + session_dir)
   let server = @http.Server::new(@socket.Addr::parse("127.0.0.1:3000"))
   server.run_forever((request, body, conn) => moonap_server(request, body, conn))
 }
@@ -77,9 +79,7 @@ async fn moonap_server(
     send_text(
       conn,
       200,
-      read_text_or_default(
-        "logs/moonap-runtime.log", "MoonAP runtime log is empty.\n",
-      ),
+      read_text_or_default(runtime_log_path(), "MoonAP runtime log is empty.\n"),
       "text/plain; charset=utf-8",
     )
   } else if request.meth == Get && path.contains("/api/skills/run-plan") {
@@ -159,7 +159,11 @@ async fn moonap_server(
   } else if request.meth == Post && path == "/api/logs/moonap-runtime.log" {
     let payload = body.read_all().text()
     append_runtime_log(
-      conn, "logs", "logs/moonap-runtime.log", payload, "text/plain; charset=utf-8",
+      conn,
+      runtime_log_directory(),
+      runtime_log_path(),
+      payload,
+      "text/plain; charset=utf-8",
     )
   } else {
     send_text(
@@ -177,6 +181,93 @@ async fn moonap_server(
       "text/plain; charset=utf-8",
     )
   }
+}
+
+///|
+async fn initialize_runtime_session() -> String {
+  let run_id = "run-" + @core.async_runtime_marker().to_string()
+  let root = "logs/runs/" + run_id
+  let codex_root = root + "/codex-demo"
+  ensure_directory("logs")
+  ensure_directory("logs/runs")
+  ensure_directory(root)
+  ensure_directory(codex_root + "/inbox")
+  ensure_directory(codex_root + "/outbox")
+  ensure_directory(codex_root + "/state")
+  let runtime_log = root + "/moonap-runtime.log"
+  let manifest = "{\n" +
+    "  \"run_id\": " +
+    json_string(run_id) +
+    ",\n" +
+    "  \"root\": " +
+    json_string(root) +
+    ",\n" +
+    "  \"runtime_log\": " +
+    json_string(runtime_log) +
+    ",\n" +
+    "  \"codex_demo_root\": " +
+    json_string(codex_root) +
+    "\n" +
+    "}\n"
+  @fs.write_file("logs/current-run-dir.txt", root + "\n", create=0o644)
+  @fs.write_file("logs/current-run.json", manifest, create=0o644)
+  @fs.write_file(
+    runtime_log,
+    "{\"ts\":" +
+    json_string(run_id) +
+    ",\"kind\":\"server\",\"label\":\"session-start\",\"text\":\"MoonAP runtime session initialized.\"}\n",
+    create=0o644,
+  )
+  root
+}
+
+///|
+async fn ensure_directory(path : String) -> Unit {
+  if path != "" && !@fs.exists(path) {
+    @fs.mkdir(path, recursive=true, permission=0o755)
+  }
+}
+
+///|
+async fn current_runtime_dir() -> String {
+  let path = "logs/current-run-dir.txt"
+  if @fs.exists(path) {
+    let text = @fs.read_file(path).text().trim().to_string()
+    if text != "" {
+      return text
+    }
+  }
+  "logs"
+}
+
+///|
+async fn runtime_log_directory() -> String {
+  current_runtime_dir()
+}
+
+///|
+async fn runtime_log_path() -> String {
+  current_runtime_dir() + "/moonap-runtime.log"
+}
+
+///|
+async fn codex_demo_root() -> String {
+  current_runtime_dir() + "/codex-demo"
+}
+
+///|
+async fn codex_demo_inbox_dir() -> String {
+  codex_demo_root() + "/inbox"
+}
+
+///|
+async fn codex_demo_outbox_dir() -> String {
+  codex_demo_root() + "/outbox"
+}
+
+///|
+async fn codex_demo_state_dir() -> String {
+  codex_demo_root() + "/state"
 }
 
 ///|
@@ -250,6 +341,9 @@ async fn proxy_llm_post(spec : String) -> (Int, String) {
       400, "Invalid LLM proxy payload: missing target URL.", "", "proxy-parse",
     )
   }
+  if is_codex_demo_url(url) {
+    return handle_codex_demo_proxy(url, body)
+  }
   try {
     let (response, response_body) = @http.post(url, body, headers~)
     (response.code, response_body.text())
@@ -262,6 +356,250 @@ async fn proxy_llm_post(spec : String) -> (Int, String) {
         err.to_string(),
       )
   }
+}
+
+///|
+fn is_codex_demo_url(url : String) -> Bool {
+  url.has_prefix("moonap://codex-demo") ||
+  url.has_prefix("http://moonap.codex-demo") ||
+  url.has_prefix("https://moonap.codex-demo")
+}
+
+///|
+async fn handle_codex_demo_proxy(url : String, body : String) -> (Int, String) {
+  let request_id = "codex-demo-" + @core.async_runtime_marker().to_string()
+  let inbox_dir = codex_demo_inbox_dir()
+  let outbox_dir = codex_demo_outbox_dir()
+  let state_dir = codex_demo_state_dir()
+  ensure_directory(inbox_dir)
+  ensure_directory(outbox_dir)
+  ensure_directory(state_dir)
+  let model = extract_json_string_field(body, "model")
+  let model_name = if model == "" { "gpt-5.4" } else { model }
+  let stage = infer_codex_demo_stage(body)
+  let response_path = outbox_dir + "/" + request_id + ".response.txt"
+  let error_path = outbox_dir + "/" + request_id + ".error.txt"
+  let request_json_path = inbox_dir + "/" + request_id + ".json"
+  let request_text_path = inbox_dir + "/" + request_id + ".txt"
+  let request_json = "{\n" +
+    "  \"request_id\": " +
+    json_string(request_id) +
+    ",\n" +
+    "  \"provider\": \"openai\",\n" +
+    "  \"model\": " +
+    json_string(model_name) +
+    ",\n" +
+    "  \"stage\": " +
+    json_string(stage) +
+    ",\n" +
+    "  \"url\": " +
+    json_string(url) +
+    ",\n" +
+    "  \"reply_path\": " +
+    json_string(response_path) +
+    ",\n" +
+    "  \"error_path\": " +
+    json_string(error_path) +
+    ",\n" +
+    "  \"raw_body\": " +
+    json_string(body) +
+    "\n" +
+    "}\n"
+  let request_text = "MoonAP Codex-demo request\n" +
+    "request_id: " +
+    request_id +
+    "\n" +
+    "provider: openai\n" +
+    "model: " +
+    model_name +
+    "\n" +
+    "stage: " +
+    stage +
+    "\n" +
+    "reply_path: " +
+    response_path +
+    "\n" +
+    "error_path: " +
+    error_path +
+    "\n\n" +
+    "raw_body:\n" +
+    body +
+    "\n"
+  @fs.write_file(request_json_path, request_json, create=0o644)
+  @fs.write_file(request_text_path, request_text, create=0o644)
+  @fs.write_file(
+    state_dir + "/latest-request.txt",
+    request_text_path + "\n",
+    create=0o644,
+  )
+  append_text_file(
+    runtime_log_directory(),
+    runtime_log_path(),
+    "{\"ts\":" +
+    json_string(request_id) +
+    ",\"kind\":\"codex-demo\",\"label\":\"request-created\",\"text\":" +
+    json_string(stage + " -> " + request_text_path) +
+    "}\n",
+  )
+  if stage == "api-test" {
+    return (200, openai_chat_completion_payload(model_name, "OK", request_id))
+  }
+  wait_for_codex_demo_response(
+    request_id, model_name, response_path, error_path,
+  )
+}
+
+///|
+async fn append_text_file(
+  directory : String,
+  path : String,
+  payload : String,
+) -> Unit {
+  if directory != "" && !@fs.exists(directory) {
+    @fs.mkdir(directory, recursive=true, permission=0o755)
+  }
+  let existing = if @fs.exists(path) { @fs.read_file(path).text() } else { "" }
+  @fs.write_file(path, existing + payload, create=0o644)
+}
+
+///|
+async fn wait_for_codex_demo_response(
+  request_id : String,
+  model : String,
+  response_path : String,
+  error_path : String,
+) -> (Int, String) {
+  wait_for_codex_demo_response_from(
+    request_id,
+    model,
+    response_path,
+    error_path,
+    @async.now(),
+    1000 * 60 * 20,
+  )
+}
+
+///|
+async fn wait_for_codex_demo_response_from(
+  request_id : String,
+  model : String,
+  response_path : String,
+  error_path : String,
+  started : Int64,
+  timeout_ms : Int,
+) -> (Int, String) {
+  if @fs.exists(response_path) {
+    let content = @fs.read_file(response_path).text()
+    append_text_file(
+      runtime_log_directory(),
+      runtime_log_path(),
+      "{\"ts\":" +
+      json_string(request_id) +
+      ",\"kind\":\"codex-demo\",\"label\":\"response-received\",\"text\":" +
+      json_string(response_path) +
+      "}\n",
+    )
+    (200, openai_chat_completion_payload(model, content, request_id))
+  } else if @fs.exists(error_path) {
+    let detail = @fs.read_file(error_path).text()
+    append_text_file(
+      runtime_log_directory(),
+      runtime_log_path(),
+      "{\"ts\":" +
+      json_string(request_id) +
+      ",\"kind\":\"codex-demo\",\"label\":\"response-error\",\"text\":" +
+      json_string(detail) +
+      "}\n",
+    )
+    proxy_error_payload(
+      502, "Codex-demo response failed.", response_path, detail,
+    )
+  } else if (@async.now() - started).to_int() >= timeout_ms {
+    let detail = "Timed out waiting for Codex-demo response file.\n" +
+      "Write the MoonBit response to: " +
+      response_path +
+      "\n" +
+      "Or write an error to: " +
+      error_path
+    append_text_file(
+      runtime_log_directory(),
+      runtime_log_path(),
+      "{\"ts\":" +
+      json_string(request_id) +
+      ",\"kind\":\"codex-demo\",\"label\":\"response-timeout\",\"text\":" +
+      json_string(detail) +
+      "}\n",
+    )
+    proxy_error_payload(
+      504, "Codex-demo response timed out.", response_path, detail,
+    )
+  } else {
+    @async.sleep(250)
+    wait_for_codex_demo_response_from(
+      request_id, model, response_path, error_path, started, timeout_ms,
+    )
+  }
+}
+
+///|
+fn infer_codex_demo_stage(body : String) -> String {
+  let lowered = body.to_lower()
+  if lowered.contains("reply with ok") {
+    "api-test"
+  } else if lowered.contains("repair") ||
+    lowered.contains("compiler failure") ||
+    lowered.contains("compile-error summarizer") {
+    "repair"
+  } else {
+    "codegen"
+  }
+}
+
+///|
+fn extract_json_string_field(body : String, key : String) -> String {
+  let marker = "\"" + key + "\""
+  guard body.find(marker) is Some(start) else { return "" }
+  let after_key = body[start + marker.length():]
+  guard after_key.find(":") is Some(colon) else { return "" }
+  let after_colon = after_key[colon + 1:].trim().to_string()
+  if !after_colon.has_prefix("\"") {
+    return ""
+  }
+  let source = after_colon[1:]
+  guard source.find("\"") is Some(end) else { return "" }
+  source[:end].to_string()
+}
+
+///|
+fn openai_chat_completion_payload(
+  model : String,
+  content : String,
+  request_id : String,
+) -> String {
+  "{\n" +
+  "  \"id\": " +
+  json_string(request_id) +
+  ",\n" +
+  "  \"object\": \"chat.completion\",\n" +
+  "  \"created\": " +
+  @core.async_runtime_marker().to_string() +
+  ",\n" +
+  "  \"model\": " +
+  json_string(model) +
+  ",\n" +
+  "  \"choices\": [\n" +
+  "    {\n" +
+  "      \"index\": 0,\n" +
+  "      \"message\": {\n" +
+  "        \"role\": \"assistant\",\n" +
+  "        \"content\": " +
+  json_string(content) +
+  "\n" +
+  "      },\n" +
+  "      \"finish_reason\": \"stop\"\n" +
+  "    }\n" +
+  "  ]\n" +
+  "}\n"
 }
 
 ///|
@@ -394,7 +732,8 @@ fn web_index_html() -> String {
     "</form>", "</dialog>", "<dialog id=\"llmDialog\" class=\"skill-dialog\">", "<form method=\"dialog\" class=\"skill-dialog-body\">",
     "<div class=\"dialog-head\"><span>LLM Router</span><strong>Connect one or more providers</strong></div>",
     "<p class=\"dialog-summary\">MoonAP stores these keys in this browser only. Level 1 selects providers. Level 2 selects models inside each provider. MoonAP rotates through the checked models from top to bottom.</p>",
-    "<div class=\"router-grid\">", "<div class=\"router-row\"><div class=\"router-row-head\"><span class=\"router-level\">Level 1</span><input id=\"routerEnableNVIDIA\" type=\"checkbox\" checked /><strong>NVIDIA</strong></div><div class=\"router-level-label\">Level 2 - Models</div><div id=\"routerModelsNVIDIA\" class=\"router-model-list\"></div><label>Base URL<input id=\"routerBaseNVIDIA\" value=\"https://integrate.api.nvidia.com/v1\" /></label><label>API key<input id=\"routerKeyNVIDIA\" type=\"password\" placeholder=\"Paste NVIDIA API key\" /></label></div>",
+    "<div class=\"router-grid\">", "<div class=\"router-row\"><div class=\"router-row-head\"><span class=\"router-level\">Level 1</span><input id=\"routerEnableOpenAI\" type=\"checkbox\" checked /><strong>OpenAI</strong></div><div class=\"router-level-label\">Level 2 - Models</div><div id=\"routerModelsOpenAI\" class=\"router-model-list\"></div><label>Base URL<input id=\"routerBaseOpenAI\" value=\"moonap://codex-demo\" /></label><label>API key<input id=\"routerKeyOpenAI\" type=\"password\" value=\"codex-demo-mode\" placeholder=\"codex-demo-mode\" /></label></div>",
+    "<div class=\"router-row\"><div class=\"router-row-head\"><span class=\"router-level\">Level 1</span><input id=\"routerEnableNVIDIA\" type=\"checkbox\" checked /><strong>NVIDIA</strong></div><div class=\"router-level-label\">Level 2 - Models</div><div id=\"routerModelsNVIDIA\" class=\"router-model-list\"></div><label>Base URL<input id=\"routerBaseNVIDIA\" value=\"https://integrate.api.nvidia.com/v1\" /></label><label>API key<input id=\"routerKeyNVIDIA\" type=\"password\" placeholder=\"Paste NVIDIA API key\" /></label></div>",
     "<div class=\"router-row\"><div class=\"router-row-head\"><span class=\"router-level\">Level 1</span><input id=\"routerEnableZAI\" type=\"checkbox\" checked /><strong>ZAI</strong></div><div class=\"router-level-label\">Level 2 - Models</div><div id=\"routerModelsZAI\" class=\"router-model-list\"></div><label>Base URL<input id=\"routerBaseZAI\" value=\"https://open.bigmodel.cn/api/paas/v4\" /></label><label>API key<input id=\"routerKeyZAI\" type=\"password\" placeholder=\"Paste ZAI API key\" /></label></div>",
     "<div class=\"router-row\"><div class=\"router-row-head\"><span class=\"router-level\">Level 1</span><input id=\"routerEnableGemini\" type=\"checkbox\" /><strong>Gemini</strong></div><div class=\"router-level-label\">Level 2 - Models</div><div id=\"routerModelsGemini\" class=\"router-model-list\"></div><label>Base URL<input id=\"routerBaseGemini\" value=\"https://generativelanguage.googleapis.com\" /></label><label>API key<input id=\"routerKeyGemini\" type=\"password\" placeholder=\"Paste Gemini API key\" /></label></div>",
     "<div class=\"router-row\"><div class=\"router-row-head\"><span class=\"router-level\">Level 1</span><input id=\"routerEnableSiliconFlow\" type=\"checkbox\" /><strong>SiliconFlow</strong></div><div class=\"router-level-label\">Level 2 - Models</div><div id=\"routerModelsSiliconFlow\" class=\"router-model-list\"></div><label>Base URL<input id=\"routerBaseSiliconFlow\" value=\"https://api.siliconflow.cn/v1\" /></label><label>API key<input id=\"routerKeySiliconFlow\" type=\"password\" placeholder=\"Paste SiliconFlow API key\" /></label></div>",

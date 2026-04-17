@@ -888,11 +888,12 @@ pub fn synthetic_data_policy() -> SyntheticDataPolicy {
 ///|
 pub fn llm_router_policy() -> LlmRouterPolicy {
   {
-    default_provider: "nvidia",
+    default_provider: "openai",
     browser_keys_only: true,
     rate_limit_cooldown_ms: 900000,
     network_cooldown_ms: 120000,
     models: [
+      model("openai", "gpt-5.4", "OpenAI GPT-5.4 (Codex-demo mode)", 5, true),
       model(
         "nvidia", "meta/llama-4-maverick-17b-128e-instruct", "NVIDIA Llama 4 Maverick 17B 128E Instruct",
         10, true,

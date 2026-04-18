@@ -1331,6 +1331,188 @@ extern "js" fn browser_watch_runtime_protocol(
 
 ///|
 #cfg(target="js")
+extern "js" fn browser_ensure_skill_zip_runtime() -> Unit =
+  #| () => {
+  #|   if (globalThis.__moonapSkillZipRuntime) return;
+  #|   const encoder = new TextEncoder();
+  #|   const decoder = new TextDecoder();
+  #|   const crcTable = new Uint32Array(256);
+  #|   for (let n = 0; n < 256; n += 1) {
+  #|     let c = n;
+  #|     for (let k = 0; k < 8; k += 1) {
+  #|       c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+  #|     }
+  #|     crcTable[n] = c >>> 0;
+  #|   }
+  #|   const crc32 = (bytes) => {
+  #|     let crc = 0xFFFFFFFF;
+  #|     for (let i = 0; i < bytes.length; i += 1) {
+  #|       crc = crcTable[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
+  #|     }
+  #|     return (crc ^ 0xFFFFFFFF) >>> 0;
+  #|   };
+  #|   const toUint8 = (value) => {
+  #|     if (value instanceof Uint8Array) return value;
+  #|     if (value instanceof ArrayBuffer) return new Uint8Array(value);
+  #|     if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
+  #|     return encoder.encode(String(value == null ? "" : value));
+  #|   };
+  #|   const concatUint8 = (chunks) => {
+  #|     const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  #|     const merged = new Uint8Array(total);
+  #|     let offset = 0;
+  #|     for (const chunk of chunks) {
+  #|       merged.set(chunk, offset);
+  #|       offset += chunk.length;
+  #|     }
+  #|     return merged;
+  #|   };
+  #|   const zipName = (path, isDir) => {
+  #|     const clean = String(path || "").replace(/\\/g, "/").replace(/^\/+/, "");
+  #|     return isDir ? (clean.endsWith("/") ? clean : `${clean}/`) : clean.replace(/\/+$/, "");
+  #|   };
+  #|   const getDosDateTime = (value) => {
+  #|     const date = value instanceof Date ? value : new Date();
+  #|     const year = Math.min(127, Math.max(0, date.getFullYear() - 1980));
+  #|     const month = date.getMonth() + 1;
+  #|     const day = date.getDate();
+  #|     const hour = date.getHours();
+  #|     const minute = date.getMinutes();
+  #|     const second = Math.floor(date.getSeconds() / 2);
+  #|     return {
+  #|       time: ((hour & 0x1F) << 11) | ((minute & 0x3F) << 5) | (second & 0x1F),
+  #|       date: ((year & 0x7F) << 9) | ((month & 0x0F) << 5) | (day & 0x1F)
+  #|     };
+  #|   };
+  #|   const makeZip = async (entries) => {
+  #|     const normalized = Array.isArray(entries) ? entries : [];
+  #|     const localChunks = [];
+  #|     const centralChunks = [];
+  #|     let offset = 0;
+  #|     let count = 0;
+  #|     for (const entry of normalized) {
+  #|       const isDir = Boolean(entry?.directory);
+  #|       const name = zipName(entry?.path || "", isDir);
+  #|       if (!name) continue;
+  #|       const nameBytes = encoder.encode(name);
+  #|       const bytes = isDir ? new Uint8Array(0) : toUint8(entry?.bytes ?? entry?.text ?? "");
+  #|       const crc = isDir ? 0 : crc32(bytes);
+  #|       const { time, date } = getDosDateTime(entry?.date);
+  #|       const local = new Uint8Array(30 + nameBytes.length);
+  #|       const localView = new DataView(local.buffer);
+  #|       localView.setUint32(0, 0x04034b50, true);
+  #|       localView.setUint16(4, 20, true);
+  #|       localView.setUint16(6, 0x0800, true);
+  #|       localView.setUint16(8, 0, true);
+  #|       localView.setUint16(10, time, true);
+  #|       localView.setUint16(12, date, true);
+  #|       localView.setUint32(14, crc, true);
+  #|       localView.setUint32(18, bytes.length, true);
+  #|       localView.setUint32(22, bytes.length, true);
+  #|       localView.setUint16(26, nameBytes.length, true);
+  #|       localView.setUint16(28, 0, true);
+  #|       local.set(nameBytes, 30);
+  #|       localChunks.push(local);
+  #|       if (bytes.length > 0) localChunks.push(bytes);
+  #|       const central = new Uint8Array(46 + nameBytes.length);
+  #|       const centralView = new DataView(central.buffer);
+  #|       centralView.setUint32(0, 0x02014b50, true);
+  #|       centralView.setUint16(4, 20, true);
+  #|       centralView.setUint16(6, 20, true);
+  #|       centralView.setUint16(8, 0x0800, true);
+  #|       centralView.setUint16(10, 0, true);
+  #|       centralView.setUint16(12, time, true);
+  #|       centralView.setUint16(14, date, true);
+  #|       centralView.setUint32(16, crc, true);
+  #|       centralView.setUint32(20, bytes.length, true);
+  #|       centralView.setUint32(24, bytes.length, true);
+  #|       centralView.setUint16(28, nameBytes.length, true);
+  #|       centralView.setUint16(30, 0, true);
+  #|       centralView.setUint16(32, 0, true);
+  #|       centralView.setUint16(34, 0, true);
+  #|       centralView.setUint16(36, 0, true);
+  #|       centralView.setUint32(38, isDir ? 0x10 : 0, true);
+  #|       centralView.setUint32(42, offset, true);
+  #|       central.set(nameBytes, 46);
+  #|       centralChunks.push(central);
+  #|       offset += local.length + bytes.length;
+  #|       count += 1;
+  #|     }
+  #|     const centralSize = centralChunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  #|     const end = new Uint8Array(22);
+  #|     const endView = new DataView(end.buffer);
+  #|     endView.setUint32(0, 0x06054b50, true);
+  #|     endView.setUint16(8, count, true);
+  #|     endView.setUint16(10, count, true);
+  #|     endView.setUint32(12, centralSize, true);
+  #|     endView.setUint32(16, offset, true);
+  #|     return concatUint8([...localChunks, ...centralChunks, end]);
+  #|   };
+  #|   const findEndRecord = (bytes) => {
+  #|     for (let i = bytes.length - 22; i >= 0; i -= 1) {
+  #|       if (bytes[i] === 0x50 && bytes[i + 1] === 0x4b && bytes[i + 2] === 0x05 && bytes[i + 3] === 0x06) {
+  #|         return i;
+  #|       }
+  #|     }
+  #|     return -1;
+  #|   };
+  #|   const inflateRaw = async (bytes) => {
+  #|     if (typeof DecompressionStream !== "function") {
+  #|       throw new Error("This browser cannot extract compressed ZIP files yet.");
+  #|     }
+  #|     const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  #|     return new Uint8Array(await new Response(stream).arrayBuffer());
+  #|   };
+  #|   const unzip = async (bytesLike) => {
+  #|     const bytes = toUint8(bytesLike);
+  #|     const endOffset = findEndRecord(bytes);
+  #|     if (endOffset < 0) throw new Error("ZIP end-of-directory record not found.");
+  #|     const endView = new DataView(bytes.buffer, bytes.byteOffset + endOffset, 22);
+  #|     const totalEntries = endView.getUint16(10, true);
+  #|     const centralOffset = endView.getUint32(16, true);
+  #|     const results = [];
+  #|     let cursor = centralOffset;
+  #|     for (let index = 0; index < totalEntries; index += 1) {
+  #|       const centralView = new DataView(bytes.buffer, bytes.byteOffset + cursor, 46);
+  #|       if (centralView.getUint32(0, true) !== 0x02014b50) {
+  #|         throw new Error("ZIP central directory entry is invalid.");
+  #|       }
+  #|       const method = centralView.getUint16(10, true);
+  #|       const compressedSize = centralView.getUint32(20, true);
+  #|       const nameLength = centralView.getUint16(28, true);
+  #|       const extraLength = centralView.getUint16(30, true);
+  #|       const commentLength = centralView.getUint16(32, true);
+  #|       const localOffset = centralView.getUint32(42, true);
+  #|       const nameBytes = bytes.subarray(cursor + 46, cursor + 46 + nameLength);
+  #|       const path = decoder.decode(nameBytes).replace(/\\/g, "/");
+  #|       const localView = new DataView(bytes.buffer, bytes.byteOffset + localOffset, 30);
+  #|       if (localView.getUint32(0, true) !== 0x04034b50) {
+  #|         throw new Error(`ZIP local file header is invalid for ${path}.`);
+  #|       }
+  #|       const localNameLength = localView.getUint16(26, true);
+  #|       const localExtraLength = localView.getUint16(28, true);
+  #|       const dataStart = localOffset + 30 + localNameLength + localExtraLength;
+  #|       const compressedBytes = bytes.subarray(dataStart, dataStart + compressedSize);
+  #|       let data = new Uint8Array(0);
+  #|       if (!path.endsWith("/")) {
+  #|         if (method === 0) {
+  #|           data = new Uint8Array(compressedBytes);
+  #|         } else if (method === 8) {
+  #|           data = await inflateRaw(compressedBytes);
+  #|         } else {
+  #|           throw new Error(`ZIP compression method ${method} is not supported for ${path}.`);
+  #|         }
+  #|       }
+  #|       results.push({ path, directory: path.endsWith("/"), bytes: data });
+  #|       cursor += 46 + nameLength + extraLength + commentLength;
+  #|     }
+  #|     return results;
+  #|   };
+  #|   globalThis.__moonapSkillZipRuntime = { makeZip, unzip };
+  #| }
+
+///|
+#cfg(target="js")
 extern "js" fn browser_request_skill_save(
   on_done : (String) -> Unit,
   on_error : (String) -> Unit,
@@ -1383,7 +1565,7 @@ extern "js" fn browser_request_skill_save(
   #|       throw new Error("SKILL name cannot end with a dot or space.");
   #|     }
   #|     const folderName = enteredName;
-  #|     const defaultDescription = String(descriptionMap[taskKind] || `Run a reusable MoonAP workflow for ${taskKind}.`);
+  #|     const defaultDescription = String(descriptionMap[taskKind] || `Run a reusable APP for ${taskKind}.`);
   #|     const description = String(globalThis.__moonapSkillExportDescription || "").trim() || defaultDescription;
   #|     const sourceText = String(artifact?.moonbit_source || "");
   #|     const wasmUrl = String(runtimeRequest?.wasm_url || "");
@@ -1395,6 +1577,10 @@ extern "js" fn browser_request_skill_save(
   #|       if (!response.ok) throw new Error(`Failed to fetch ${path} (${response.status})`);
   #|       return new Uint8Array(await response.arrayBuffer());
   #|     };
+  #|     const zipRuntime = globalThis.__moonapSkillZipRuntime;
+  #|     if (!zipRuntime || typeof zipRuntime.makeZip !== "function") {
+  #|       throw new Error("MoonAP ZIP runtime is not ready yet.");
+  #|     }
   #|     const wasmBytes = await fetchBinary(wasmUrl);
   #|     const writeText = async (dirHandle, fileName, text) => {
   #|       const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
@@ -1509,6 +1695,22 @@ extern "js" fn browser_request_skill_save(
   #|     if (sourceText.trim()) {
   #|       await writeText(programDir, "main.mbt", sourceText);
   #|     }
+  #|     const exportZip = globalThis.__moonapSkillExportZipEnabled !== false;
+  #|     let exportedZipName = "";
+  #|     if (exportZip) {
+  #|       const zipEntries = [
+  #|         { path: folderName, directory: true },
+  #|         { path: `${folderName}/program`, directory: true },
+  #|         { path: `${folderName}/SKILL.md`, text: skillMd },
+  #|         { path: `${folderName}/program/main.wasm`, bytes: wasmBytes }
+  #|       ];
+  #|       if (sourceText.trim()) {
+  #|         zipEntries.push({ path: `${folderName}/program/main.mbt`, text: sourceText });
+  #|       }
+  #|       const zipBytes = await zipRuntime.makeZip(zipEntries);
+  #|       exportedZipName = `${folderName}.zip`;
+  #|       await writeBinary(rootHandle, exportedZipName, zipBytes);
+  #|     }
   #|     let skills = [];
   #|     try {
   #|       const parsed = JSON.parse(localStorage.getItem("moonap.personal.skills") || "[]");
@@ -1544,6 +1746,7 @@ extern "js" fn browser_request_skill_save(
   #|     const parsed = (() => { try { return JSON.parse(String(text || "{}")); } catch { return {}; } })();
   #|     parsed.exported_folder_name = folderName;
   #|     parsed.exported_root_name = String(rootHandle.name || "");
+  #|     parsed.exported_zip_name = exportedZipName;
   #|     onDone(JSON.stringify(parsed, null, 2));
   #|   } catch (error) {
   #|     onError(error instanceof Error ? error.message : String(error));
@@ -1561,11 +1764,15 @@ extern "js" fn browser_open_skill_export_dialog() -> Unit =
   #|     dialog.className = "skill-dialog skill-export-dialog";
   #|     dialog.innerHTML = `
   #|       <form method="dialog" class="skill-dialog-body">
-  #|         <div class="dialog-head"><span>PERSONAL SKILL</span><strong>Save workflow as SKILL</strong></div>
-  #|         <p class="dialog-summary">Choose a SKILL name, optionally adjust the description, then choose where to save the SKILL folder. Nothing will be written until you click Save SKILL. When you choose a save location, the browser may ask for permission to create files in that local directory.</p>
+  #|         <div class="dialog-head"><span>PERSONAL SKILL</span><strong>Save APP as SKILL</strong></div>
+  #|         <p class="dialog-summary">Choose a SKILL name, review the prefilled description and edit it if needed, then choose where to save the SKILL folder. Nothing will be written until you click Save SKILL. When you choose a save location, the browser may ask for permission to create files in that local directory.</p>
   #|         <div class="dialog-fields">
   #|           <label><span>SKILL name</span><input id="skillExportName" type="text" /></label>
-  #|           <label><span>Description</span><textarea id="skillExportDescription" rows="3"></textarea></label>
+  #|           <label><span>Description (prefilled, editable)</span><textarea id="skillExportDescription" rows="3"></textarea></label>
+  #|           <label class="skill-export-zip-toggle">
+  #|             <input id="skillExportZipEnabled" type="checkbox" checked />
+  #|             <span>Also generate a .zip package for publishing or sharing</span>
+  #|           </label>
   #|           <div class="skill-export-path">
   #|             <div class="skill-export-path-meta">
   #|               <span>Save location</span>
@@ -1592,12 +1799,14 @@ extern "js" fn browser_open_skill_export_dialog() -> Unit =
   #|     "browser-game": "Run a browser-local interactive game skill."
   #|   };
   #|   const defaultName = String(globalThis.__moonapSkillExportName || artifact?.name || artifact?.skill?.folder_name || taskKind || "moonap-skill").trim() || "moonap-skill";
-  #|   const defaultDescription = String(globalThis.__moonapSkillExportDescription || defaultDescriptionMap[taskKind] || `Run a reusable MoonAP workflow for ${taskKind}.`);
+  #|   const defaultDescription = String(globalThis.__moonapSkillExportDescription || defaultDescriptionMap[taskKind] || `Run a reusable APP for ${taskKind}.`);
   #|   const nameInput = document.querySelector("#skillExportName");
   #|   const descriptionInput = document.querySelector("#skillExportDescription");
+  #|   const zipInput = document.querySelector("#skillExportZipEnabled");
   #|   const pathLabel = document.querySelector("#skillExportPathLabel");
   #|   if (nameInput) nameInput.value = defaultName;
   #|   if (descriptionInput) descriptionInput.value = defaultDescription;
+  #|   if (zipInput) zipInput.checked = globalThis.__moonapSkillExportZipEnabled !== false;
   #|   const rootHandle = globalThis.__moonapSkillExportRootHandle;
   #|   if (pathLabel) {
   #|     pathLabel.textContent = rootHandle && rootHandle.name
@@ -1625,6 +1834,62 @@ extern "js" fn browser_choose_skill_export_path(
   #|     }
   #|     const handle = await window.showDirectoryPicker({ mode: "readwrite" });
   #|     globalThis.__moonapSkillExportRootHandle = handle;
+  #|     const ensurePersonalSkillRuntime = () => {
+  #|       if (globalThis.__moonapPersonalSkillRuntime && typeof globalThis.__moonapPersonalSkillRuntime.putRootHandle === "function") {
+  #|         return globalThis.__moonapPersonalSkillRuntime;
+  #|       }
+  #|       const DB_NAME = "moonap.personal.skill.handles.v1";
+  #|       const STORE_NAME = "handles";
+  #|       const ROOT_KEY = "__root__";
+  #|       const openDb = () => new Promise((resolve, reject) => {
+  #|         const request = indexedDB.open(DB_NAME, 1);
+  #|         request.onupgradeneeded = () => {
+  #|           const db = request.result;
+  #|           if (!db.objectStoreNames.contains(STORE_NAME)) {
+  #|             db.createObjectStore(STORE_NAME);
+  #|           }
+  #|         };
+  #|         request.onsuccess = () => resolve(request.result);
+  #|         request.onerror = () => reject(request.error || new Error("Failed to open Personal SKILL database."));
+  #|       });
+  #|       const withStore = async (mode, work) => {
+  #|         const db = await openDb();
+  #|         return await new Promise((resolve, reject) => {
+  #|           const transaction = db.transaction(STORE_NAME, mode);
+  #|           const store = transaction.objectStore(STORE_NAME);
+  #|           let settled = false;
+  #|           const finishResolve = (value) => {
+  #|             if (settled) return;
+  #|             settled = true;
+  #|             resolve(value);
+  #|           };
+  #|           const finishReject = (error) => {
+  #|             if (settled) return;
+  #|             settled = true;
+  #|             reject(error);
+  #|           };
+  #|           transaction.oncomplete = () => finishResolve(undefined);
+  #|           transaction.onerror = () => finishReject(transaction.error || new Error("Personal SKILL database transaction failed."));
+  #|           transaction.onabort = () => finishReject(transaction.error || new Error("Personal SKILL database transaction was aborted."));
+  #|           Promise.resolve(work(store, finishResolve, finishReject)).catch(finishReject);
+  #|         }).finally(() => db.close());
+  #|       };
+  #|       const runtime = {
+  #|         putRootHandle: async (rootHandle) => {
+  #|           await withStore("readwrite", (store, resolve, reject) => {
+  #|             const request = store.put(rootHandle, ROOT_KEY);
+  #|             request.onsuccess = () => resolve(true);
+  #|             request.onerror = () => reject(request.error || new Error("Failed to save Personal SKILL root handle."));
+  #|           });
+  #|         }
+  #|       };
+  #|       globalThis.__moonapPersonalSkillRuntime = {
+  #|         ...(globalThis.__moonapPersonalSkillRuntime || {}),
+  #|         ...runtime
+  #|       };
+  #|       return globalThis.__moonapPersonalSkillRuntime;
+  #|     };
+  #|     await ensurePersonalSkillRuntime().putRootHandle(handle);
   #|     const exportLabel = document.querySelector("#skillExportPathLabel");
   #|     if (exportLabel) exportLabel.textContent = `Selected folder: ${String(handle?.name || "")}`;
   #|     const panelLabel = document.querySelector("#personalSkillRootLabel");
@@ -1679,6 +1944,7 @@ extern "js" fn browser_on_skill_export_confirm(handler : () -> Unit) -> Unit =
   #|   try {
   #|     globalThis.__moonapSkillExportName = String(document.querySelector("#skillExportName")?.value || "").trim();
   #|     globalThis.__moonapSkillExportDescription = String(document.querySelector("#skillExportDescription")?.value || "").trim();
+  #|     globalThis.__moonapSkillExportZipEnabled = Boolean(document.querySelector("#skillExportZipEnabled")?.checked ?? true);
   #|     handler();
   #|   } catch (error) {
   #|     alert(`MoonAP skill export failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -2040,7 +2306,7 @@ extern "js" fn browser_open_skill_dialog(skill_id : String) -> Unit =
   #|         <div class="dialog-head"><span id="dialogScope">SKILL</span><strong id="dialogTitle">Configure SKILL</strong></div>
   #|         <p id="dialogSummary" class="dialog-summary"></p>
   #|         <div id="dialogFields" class="dialog-fields"></div>
-  #|         <div class="dialog-actions"><button id="dialogCancel" class="dialog-button" type="button">Cancel</button><button id="dialogRun" class="dialog-button primary" type="button">Run</button></div>
+  #|         <div class="dialog-actions"><button id="dialogCancel" class="dialog-button" type="button">Cancel</button><button id="dialogOpenSource" class="dialog-button secondary" type="button">View on GitHub</button><button id="dialogRun" class="dialog-button primary" type="button">Run</button></div>
   #|       </form>`;
   #|     document.body.append(dialog);
   #|   }
@@ -2048,11 +2314,17 @@ extern "js" fn browser_open_skill_dialog(skill_id : String) -> Unit =
   #|   const title = document.querySelector("#dialogTitle");
   #|   const summary = document.querySelector("#dialogSummary");
   #|   const fields = document.querySelector("#dialogFields");
+  #|   const runButton = document.querySelector("#dialogRun");
   #|   const set = (node, value) => { if (node) node.textContent = String(value); };
   #|   if (!dialog || !fields) return;
   #|   fields.innerHTML = "";
   #|   dialog.dataset.skillId = String(skillId);
   #|   dialog.dataset.taskKind = "";
+  #|   dialog.dataset.skillSource = "";
+  #|   dialog.dataset.externalUrl = "";
+  #|   dialog.dataset.downloadUrl = "";
+  #|   dialog.dataset.folderPath = "";
+  #|   if (runButton) runButton.textContent = "Run";
   #|   const addField = (id, label, value, mode = "numeric", fieldName = "") => {
   #|     const item = document.createElement("label");
   #|     item.textContent = label;
@@ -2066,6 +2338,9 @@ extern "js" fn browser_open_skill_dialog(skill_id : String) -> Unit =
   #|   };
   #|   const loadedPersonal = globalThis.__moonapPersonalSkillCache && typeof globalThis.__moonapPersonalSkillCache === "object"
   #|     ? globalThis.__moonapPersonalSkillCache[String(skillId)]
+  #|     : null;
+  #|   const loadedHubSkill = globalThis.__moonapHubSkillCache && typeof globalThis.__moonapHubSkillCache === "object"
+  #|     ? globalThis.__moonapHubSkillCache[String(skillId)]
   #|     : null;
   #|   if (loadedPersonal && typeof loadedPersonal === "object") {
   #|     const runtimeSpec = loadedPersonal.runtime_spec && typeof loadedPersonal.runtime_spec === "object"
@@ -2097,6 +2372,44 @@ extern "js" fn browser_open_skill_dialog(skill_id : String) -> Unit =
   #|           ? "text"
   #|           : "numeric";
   #|       addField(mapFieldId(name), labelText, defaultValue, inputMode, name);
+  #|     }
+  #|     dialog.dataset.skillSource = "personal";
+  #|   } else if (loadedHubSkill && typeof loadedHubSkill === "object") {
+  #|     const runtimeSpec = loadedHubSkill.runtime_spec && typeof loadedHubSkill.runtime_spec === "object"
+  #|       ? loadedHubSkill.runtime_spec
+  #|       : {};
+  #|     const runtimeFields = Array.isArray(runtimeSpec.fields) ? runtimeSpec.fields : [];
+  #|     const sourceKind = String(loadedHubSkill.source || "hub");
+  #|     const scopeLabel = sourceKind === "local"
+  #|       ? "1.2 Local-SKILL-Hub"
+  #|       : "1.3 Cloud-SKILL-Hub";
+  #|     const versionText = String(loadedHubSkill.version || "");
+  #|     const pathText = String(loadedHubSkill.relative_path || loadedHubSkill.folder_path || "");
+  #|     const metaLine = [versionText ? `version ${versionText}` : "", pathText ? `path ${pathText}` : ""].filter(Boolean).join(" | ");
+  #|     set(scope, scopeLabel);
+  #|     set(title, String(loadedHubSkill.name || "SKILL"));
+  #|     set(summary, metaLine
+  #|       ? `${String(loadedHubSkill.description || "MoonAP SKILL entry.")}\n${metaLine}`
+  #|       : String(loadedHubSkill.description || "MoonAP SKILL entry."));
+  #|     dialog.dataset.taskKind = String(loadedHubSkill.task_kind || "");
+  #|     dialog.dataset.skillSource = sourceKind;
+  #|     dialog.dataset.externalUrl = String(loadedHubSkill.external_url || loadedHubSkill.folder_url || loadedHubSkill.repository_url || "");
+  #|     dialog.dataset.downloadUrl = String(loadedHubSkill.download_url || "");
+  #|     dialog.dataset.folderPath = String(loadedHubSkill.folder_path || loadedHubSkill.relative_path || "");
+  #|     for (const field of runtimeFields) {
+  #|       const name = String(field?.name || "input");
+  #|       const labelText = String(field?.label || name);
+  #|       const defaultValue = field?.default == null ? "" : String(field.default);
+  #|       const kind = String(field?.kind || field?.type || "text").toLowerCase();
+  #|       const inputMode = kind === "float" || kind === "decimal"
+  #|         ? "decimal"
+  #|         : kind === "text"
+  #|           ? "text"
+  #|           : "numeric";
+  #|       addField(name, labelText, defaultValue, inputMode, name);
+  #|     }
+  #|     if (runButton) {
+  #|       runButton.textContent = sourceKind === "cloud" ? "Install to Local SKILL Hub" : "Run";
   #|     }
   #|   } else if (skillId.includes("moonbit.fastq-generator")) {
   #|     set(scope, "SKILL-Hub / MoonBit");
@@ -2181,6 +2494,35 @@ extern "js" fn browser_dialog_skill_task_kind() -> String =
 
 ///|
 #cfg(target="js")
+extern "js" fn browser_dialog_skill_source() -> String =
+  #| () => String(document.querySelector("#skillDialog")?.dataset?.skillSource || "")
+
+///|
+#cfg(target="js")
+extern "js" fn browser_dialog_external_url() -> String =
+  #| () => String(document.querySelector("#skillDialog")?.dataset?.externalUrl || "")
+
+///|
+#cfg(target="js")
+extern "js" fn browser_dialog_download_url() -> String =
+  #| () => String(document.querySelector("#skillDialog")?.dataset?.downloadUrl || "")
+
+///|
+#cfg(target="js")
+extern "js" fn browser_dialog_folder_path() -> String =
+  #| () => String(document.querySelector("#skillDialog")?.dataset?.folderPath || "")
+
+///|
+#cfg(target="js")
+extern "js" fn browser_open_external_url(url : String) -> Unit =
+  #| (url) => {
+  #|   const text = String(url || "").trim();
+  #|   if (!text) return;
+  #|   window.open(text, "_blank", "noopener,noreferrer");
+  #| }
+
+///|
+#cfg(target="js")
 extern "js" fn browser_on_dialog_run(handler : () -> Unit) -> Unit =
   #| (handler) => document.addEventListener("click", (event) => {
   #|   if (event.target?.id === "dialogRun") {
@@ -2191,6 +2533,22 @@ extern "js" fn browser_on_dialog_run(handler : () -> Unit) -> Unit =
   #|     setTimeout(() => {
   #|       if (globalThis.__moonapAllowDownload === "dialog-run") globalThis.__moonapAllowDownload = "";
   #|     }, 0);
+  #|   }
+  #| })
+
+///|
+#cfg(target="js")
+extern "js" fn browser_on_dialog_open_source(handler : () -> Unit) -> Unit =
+  #| (handler) => document.addEventListener("click", (event) => {
+  #|   if (event.target?.id === "dialogOpenSource") {
+  #|     event.preventDefault();
+  #|     event.stopPropagation();
+  #|     try {
+  #|       handler();
+  #|     } catch (error) {
+  #|       console.error("MoonAP source open failed:", error);
+  #|       alert(`MoonAP source open failed: ${error instanceof Error ? error.message : String(error)}`);
+  #|     }
   #|   }
   #| })
 
@@ -3742,6 +4100,7 @@ extern "js" fn browser_render_personal_skills() -> Int =
   #|     if (globalThis.__moonapPersonalSkillRuntime) return globalThis.__moonapPersonalSkillRuntime;
   #|     const DB_NAME = "moonap.personal.skill.handles.v1";
   #|     const STORE_NAME = "handles";
+  #|     const ROOT_KEY = "__root__";
   #|     const openDb = () => new Promise((resolve, reject) => {
   #|       const request = indexedDB.open(DB_NAME, 1);
   #|       request.onupgradeneeded = () => {
@@ -3819,6 +4178,19 @@ extern "js" fn browser_render_personal_skills() -> Int =
   #|       const file = await handle.getFile();
   #|       return await file.text();
   #|     };
+  #|     const ensurePermission = async (handle, mode = "read", request = false) => {
+  #|       if (!handle) return false;
+  #|       if (typeof handle.queryPermission !== "function") return true;
+  #|       try {
+  #|         let state = await handle.queryPermission({ mode });
+  #|         if (state === "granted") return true;
+  #|         if (request && typeof handle.requestPermission === "function") {
+  #|           state = await handle.requestPermission({ mode });
+  #|           if (state === "granted") return true;
+  #|         }
+  #|       } catch {}
+  #|       return false;
+  #|     };
   #|     const loadFromHandle = async (id, dirHandle, fallback) => {
   #|       const skillMd = await readTextFile(dirHandle, "SKILL.md");
   #|       const frontmatter = parseFrontmatter(skillMd);
@@ -3852,11 +4224,32 @@ extern "js" fn browser_render_personal_skills() -> Int =
   #|           request.onerror = () => reject(request.error || new Error("Failed to save Personal SKILL handle."));
   #|         });
   #|       },
+  #|       putRootHandle: async (handle) => {
+  #|         await withStore("readwrite", (store, resolve, reject) => {
+  #|           const request = store.put(handle, ROOT_KEY);
+  #|           request.onsuccess = () => resolve(true);
+  #|           request.onerror = () => reject(request.error || new Error("Failed to save Personal SKILL root handle."));
+  #|         });
+  #|       },
+  #|       getRootHandle: async () => {
+  #|         return await withStore("readonly", (store, resolve, reject) => {
+  #|           const request = store.get(ROOT_KEY);
+  #|           request.onsuccess = () => resolve(request.result || null);
+  #|           request.onerror = () => reject(request.error || new Error("Failed to read Personal SKILL root handle."));
+  #|         });
+  #|       },
   #|       getHandle: async (id) => {
   #|         return await withStore("readonly", (store, resolve, reject) => {
   #|           const request = store.get(String(id || ""));
   #|           request.onsuccess = () => resolve(request.result || null);
   #|           request.onerror = () => reject(request.error || new Error("Failed to read Personal SKILL handle."));
+  #|         });
+  #|       },
+  #|       deleteHandle: async (id) => {
+  #|         await withStore("readwrite", (store, resolve, reject) => {
+  #|           const request = store.delete(String(id || ""));
+  #|           request.onsuccess = () => resolve(true);
+  #|           request.onerror = () => reject(request.error || new Error("Failed to delete Personal SKILL handle."));
   #|         });
   #|       },
   #|       loadFromHandle,
@@ -3887,6 +4280,64 @@ extern "js" fn browser_render_personal_skills() -> Int =
   #|           }
   #|         }
   #|         return results;
+  #|       },
+  #|       findSkillDir: async (rootHandle, skillId) => {
+  #|         if (!rootHandle || typeof rootHandle.entries !== "function") return null;
+  #|         const wantedId = String(skillId || "");
+  #|         for await (const [entryName, entryHandle] of rootHandle.entries()) {
+  #|           if (!entryHandle || entryHandle.kind !== "directory") continue;
+  #|           const candidateId = `personal.${String(entryName || "")}`;
+  #|           if (candidateId !== wantedId) continue;
+  #|           try {
+  #|             await entryHandle.getFileHandle("SKILL.md");
+  #|             return entryHandle;
+  #|           } catch {}
+  #|         }
+  #|         return null;
+  #|       },
+  #|       listFromRoot: async (rootHandle) => {
+  #|         if (!rootHandle || typeof rootHandle.entries !== "function") return [];
+  #|         let fallbackMap = new Map();
+  #|         try {
+  #|           const parsed = JSON.parse(localStorage.getItem("moonap.personal.skills") || "[]");
+  #|           if (Array.isArray(parsed)) {
+  #|             fallbackMap = new Map(parsed.map((item) => [String(item?.id || ""), item]));
+  #|           }
+  #|         } catch {}
+  #|         const results = [];
+  #|         for await (const [entryName, entryHandle] of rootHandle.entries()) {
+  #|           if (!entryHandle || entryHandle.kind !== "directory") continue;
+  #|           const skillId = `personal.${String(entryName || "")}`;
+  #|           try {
+  #|             await entryHandle.getFileHandle("SKILL.md");
+  #|             const fallback = fallbackMap.get(skillId) || { id: skillId, folder_name: String(entryName || "") };
+  #|             const loaded = await loadFromHandle(skillId, entryHandle, fallback);
+  #|             loaded.export_root_name = String(rootHandle?.name || loaded.export_root_name || "");
+  #|             results.push(loaded);
+  #|             if (typeof runtime.putHandle === "function") {
+  #|               try { await runtime.putHandle(skillId, entryHandle); } catch {}
+  #|             }
+  #|           } catch {}
+  #|         }
+  #|         results.sort((left, right) => String(left?.name || left?.id || "").localeCompare(String(right?.name || right?.id || "")));
+  #|         return results;
+  #|       },
+  #|       syncIndexFromSkills: async (skills) => {
+  #|         const next = Array.isArray(skills)
+  #|           ? skills.map((skill) => ({
+  #|               id: String(skill?.id || ""),
+  #|               name: String(skill?.name || "Personal SKILL"),
+  #|               description: String(skill?.description || ""),
+  #|               task_kind: String(skill?.task_kind || "generic"),
+  #|               runtime_mode: String(skill?.runtime_mode || "form"),
+  #|               result_mode: String(skill?.result_mode || "text"),
+  #|               folder_name: String(skill?.handle_name || skill?.folder_name || ""),
+  #|               runtime_ready: true,
+  #|               export_root_name: String(skill?.export_root_name || ""),
+  #|               saved_at: String(skill?.saved_at || "")
+  #|             }))
+  #|           : [];
+  #|         try { localStorage.setItem("moonap.personal.skills", JSON.stringify(next)); } catch {}
   #|       }
   #|     };
   #|     globalThis.__moonapPersonalSkillCache = runtime.cache;
@@ -3902,12 +4353,34 @@ extern "js" fn browser_render_personal_skills() -> Int =
   #|   root.append(loading);
   #|   (async () => {
   #|     const runtime = ensurePersonalSkillRuntime();
-  #|     const skills = await runtime.listFromIndex();
+  #|     let rootHandle = globalThis.__moonapSkillExportRootHandle;
+  #|     if (!rootHandle || typeof rootHandle.entries !== "function") {
+  #|       rootHandle = await runtime.getRootHandle();
+  #|       if (rootHandle && typeof rootHandle.entries === "function") {
+  #|         globalThis.__moonapSkillExportRootHandle = rootHandle;
+  #|       }
+  #|     }
+  #|     const panelLabel = document.querySelector("#personalSkillRootLabel");
+  #|     if (panelLabel) {
+  #|       panelLabel.textContent = rootHandle && rootHandle.name
+  #|         ? `Selected folder: ${String(rootHandle.name)}`
+  #|         : "No local Personal SKILL folder selected yet.";
+  #|     }
+  #|     if (!rootHandle || typeof rootHandle.entries !== "function") {
+  #|       root.innerHTML = "";
+  #|       const empty = document.createElement("div");
+  #|       empty.className = "personal-skill-empty";
+  #|       empty.textContent = "Choose a local Personal SKILL folder to load your current SKILL set.";
+  #|       root.append(empty);
+  #|       return;
+  #|     }
+  #|     const skills = await runtime.listFromRoot(rootHandle);
+  #|     await runtime.syncIndexFromSkills(skills);
   #|     root.innerHTML = "";
   #|     if (skills.length === 0) {
   #|       const empty = document.createElement("div");
   #|       empty.className = "personal-skill-empty";
-  #|       empty.textContent = "No Personal SKILL has been exported yet.";
+  #|       empty.textContent = "No Personal SKILL was found in the selected local directory.";
   #|       root.append(empty);
   #|       return;
   #|     }
@@ -3940,6 +4413,517 @@ extern "js" fn browser_render_personal_skills() -> Int =
 
 ///|
 #cfg(target="js")
+extern "js" fn browser_render_local_skill_hub() -> Int =
+  #| () => {
+  #|   const ensureLocalSkillHubRuntime = () => {
+  #|     if (globalThis.__moonapLocalSkillHubRuntime) return globalThis.__moonapLocalSkillHubRuntime;
+  #|     const DB_NAME = "moonap.local.skill.hub.handles.v1";
+  #|     const STORE_NAME = "handles";
+  #|     const ROOT_KEY = "__root__";
+  #|     const openDb = () => new Promise((resolve, reject) => {
+  #|       const request = indexedDB.open(DB_NAME, 1);
+  #|       request.onupgradeneeded = () => {
+  #|         const db = request.result;
+  #|         if (!db.objectStoreNames.contains(STORE_NAME)) {
+  #|           db.createObjectStore(STORE_NAME);
+  #|         }
+  #|       };
+  #|       request.onsuccess = () => resolve(request.result);
+  #|       request.onerror = () => reject(request.error || new Error("Failed to open Local SKILL Hub database."));
+  #|     });
+  #|     const withStore = async (mode, work) => {
+  #|       const db = await openDb();
+  #|       return await new Promise((resolve, reject) => {
+  #|         const transaction = db.transaction(STORE_NAME, mode);
+  #|         const store = transaction.objectStore(STORE_NAME);
+  #|         let settled = false;
+  #|         const finishResolve = (value) => {
+  #|           if (settled) return;
+  #|           settled = true;
+  #|           resolve(value);
+  #|         };
+  #|         const finishReject = (error) => {
+  #|           if (settled) return;
+  #|           settled = true;
+  #|           reject(error);
+  #|         };
+  #|         transaction.oncomplete = () => finishResolve(undefined);
+  #|         transaction.onerror = () => finishReject(transaction.error || new Error("Local SKILL Hub database transaction failed."));
+  #|         transaction.onabort = () => finishReject(transaction.error || new Error("Local SKILL Hub database transaction was aborted."));
+  #|         Promise.resolve(work(store, finishResolve, finishReject)).catch(finishReject);
+  #|       }).finally(() => db.close());
+  #|     };
+  #|     const parseFrontmatter = (text) => {
+  #|       const source = String(text || "");
+  #|       if (!source.startsWith("---\n") && !source.startsWith("---\r\n")) return {};
+  #|       const lines = source.replace(/\r/g, "").split("\n");
+  #|       const fields = {};
+  #|       for (let index = 1; index < lines.length; index += 1) {
+  #|         const line = String(lines[index] || "");
+  #|         if (line.trim() === "---") break;
+  #|         const colon = line.indexOf(":");
+  #|         if (colon < 0) continue;
+  #|         const key = line.slice(0, colon).trim();
+  #|         const value = line.slice(colon + 1).trim();
+  #|         if (key) fields[key] = value;
+  #|       }
+  #|       return fields;
+  #|     };
+  #|     const parseKeyAttributes = (text) => {
+  #|       const source = String(text || "").replace(/\r/g, "");
+  #|       const match = source.match(/# Key Attributes\s+([\s\S]*?)(?:\n# |\n```|$)/);
+  #|       const result = {};
+  #|       const block = match?.[1] || "";
+  #|       for (const line of block.split("\n")) {
+  #|         const trimmed = String(line || "").trim();
+  #|         if (!trimmed.startsWith("- ")) continue;
+  #|         const content = trimmed.slice(2);
+  #|         const colon = content.indexOf(":");
+  #|         if (colon < 0) continue;
+  #|         const key = content.slice(0, colon).trim().toLowerCase().replace(/\s+/g, "_");
+  #|         const value = content.slice(colon + 1).trim();
+  #|         if (key) result[key] = value;
+  #|       }
+  #|       return result;
+  #|     };
+  #|     const parseRuntimeSpec = (text) => {
+  #|       const source = String(text || "").replace(/\r/g, "");
+  #|       const match = source.match(/# Runtime Spec\s+```json\s*([\s\S]*?)\s*```/);
+  #|       if (!match) return {};
+  #|       try { return JSON.parse(match[1]); } catch { return {}; }
+  #|     };
+  #|     const readTextFile = async (dirHandle, fileName) => {
+  #|       const handle = await dirHandle.getFileHandle(String(fileName || ""));
+  #|       const file = await handle.getFile();
+  #|       return await file.text();
+  #|     };
+  #|     const ensurePermission = async (handle, mode = "read", request = false) => {
+  #|       if (!handle) return false;
+  #|       if (typeof handle.queryPermission !== "function") return true;
+  #|       try {
+  #|         let state = await handle.queryPermission({ mode });
+  #|         if (state === "granted") return true;
+  #|         if (request && typeof handle.requestPermission === "function") {
+  #|           state = await handle.requestPermission({ mode });
+  #|           if (state === "granted") return true;
+  #|         }
+  #|       } catch {}
+  #|       return false;
+  #|     };
+  #|     const loadSkillFolder = async (dirHandle, relativePath) => {
+  #|       const skillMd = await readTextFile(dirHandle, "SKILL.md");
+  #|       const frontmatter = parseFrontmatter(skillMd);
+  #|       const keyAttributes = parseKeyAttributes(skillMd);
+  #|       const runtimeSpec = parseRuntimeSpec(skillMd);
+  #|       return {
+  #|         id: `local.${String(relativePath || dirHandle?.name || "").replace(/[\\/]/g, ".")}`,
+  #|         name: String(frontmatter.name || dirHandle?.name || "Local SKILL"),
+  #|         description: String(frontmatter.description || ""),
+  #|         task_kind: String(keyAttributes.task_kind || "generic"),
+  #|         runtime_mode: String(keyAttributes.runtime_mode || "form"),
+  #|         result_mode: String(keyAttributes.result_mode || "text"),
+  #|         relative_path: String(relativePath || dirHandle?.name || ""),
+  #|         runtime_spec: runtimeSpec && typeof runtimeSpec === "object" ? runtimeSpec : {}
+  #|       };
+  #|     };
+  #|     const walkSkills = async (dirHandle, prefix = "") => {
+  #|       let results = [];
+  #|       try {
+  #|         await dirHandle.getFileHandle("SKILL.md");
+  #|         results.push(await loadSkillFolder(dirHandle, prefix || String(dirHandle?.name || "")));
+  #|         return results;
+  #|       } catch {}
+  #|       for await (const [entryName, entryHandle] of dirHandle.entries()) {
+  #|         if (!entryHandle || entryHandle.kind !== "directory") continue;
+  #|         const nextPrefix = prefix ? `${prefix}/${String(entryName || "")}` : String(entryName || "");
+  #|         const nested = await walkSkills(entryHandle, nextPrefix);
+  #|         if (nested.length > 0) results = results.concat(nested);
+  #|       }
+  #|       return results;
+  #|     };
+  #|     const runtime = {
+  #|       putRootHandle: async (handle) => {
+  #|         await withStore("readwrite", (store, resolve, reject) => {
+  #|           const request = store.put(handle, ROOT_KEY);
+  #|           request.onsuccess = () => resolve(true);
+  #|           request.onerror = () => reject(request.error || new Error("Failed to save Local SKILL Hub root handle."));
+  #|         });
+  #|       },
+  #|       getRootHandle: async () => {
+  #|         return await withStore("readonly", (store, resolve, reject) => {
+  #|           const request = store.get(ROOT_KEY);
+  #|           request.onsuccess = () => resolve(request.result || null);
+  #|           request.onerror = () => reject(request.error || new Error("Failed to read Local SKILL Hub root handle."));
+  #|         });
+  #|       },
+  #|       hasPermission: async (handle, request = false) => {
+  #|         return await ensurePermission(handle, "readwrite", request);
+  #|       },
+  #|       listFromRoot: async (rootHandle) => {
+  #|         if (!rootHandle || typeof rootHandle.entries !== "function") return [];
+  #|         if (!await ensurePermission(rootHandle, "read", false)) {
+  #|           const error = new Error("MoonAP needs this browser to regain access to the selected Local SKILL Hub directory.");
+  #|           error.code = "permission-denied";
+  #|           throw error;
+  #|         }
+  #|         const skills = await walkSkills(rootHandle, "");
+  #|         skills.sort((left, right) => String(left?.relative_path || left?.name || "").localeCompare(String(right?.relative_path || right?.name || "")));
+  #|         return skills;
+  #|       }
+  #|     };
+  #|     globalThis.__moonapLocalSkillHubRuntime = runtime;
+  #|     return runtime;
+  #|   };
+  #|   const root = document.querySelector("#localSkillHubCards");
+  #|   if (!root) return 0;
+  #|   root.innerHTML = "";
+  #|   const loading = document.createElement("div");
+  #|   loading.className = "personal-skill-empty";
+  #|   loading.textContent = "Loading Local SKILL Hub...";
+  #|   root.append(loading);
+  #|   (async () => {
+  #|     const runtime = ensureLocalSkillHubRuntime();
+  #|     let rootHandle = globalThis.__moonapLocalSkillHubRootHandle;
+  #|     if (!rootHandle || typeof rootHandle.entries !== "function") {
+  #|       rootHandle = await runtime.getRootHandle();
+  #|       if (rootHandle && typeof rootHandle.entries === "function") {
+  #|         globalThis.__moonapLocalSkillHubRootHandle = rootHandle;
+  #|       }
+  #|     }
+  #|     const label = document.querySelector("#localSkillHubRootLabel");
+  #|     if (label) {
+  #|       label.textContent = rootHandle && rootHandle.name
+  #|         ? `Selected folder: ${String(rootHandle.name)}`
+  #|         : "No local SKILL Hub folder selected yet.";
+  #|     }
+  #|     root.innerHTML = "";
+  #|     if (!rootHandle || typeof rootHandle.entries !== "function") {
+  #|       const empty = document.createElement("div");
+  #|       empty.className = "personal-skill-empty";
+  #|       empty.textContent = "Choose a local SKILL Hub directory to browse installed public SKILLs.";
+  #|       root.append(empty);
+  #|       return;
+  #|     }
+  #|     const skills = await runtime.listFromRoot(rootHandle);
+  #|     if (skills.length === 0) {
+  #|       const empty = document.createElement("div");
+  #|       empty.className = "personal-skill-empty";
+  #|       empty.textContent = "No public SKILL folder was found in the selected Local SKILL Hub directory.";
+  #|       root.append(empty);
+  #|       return;
+  #|     }
+  #|     globalThis.__moonapHubSkillCache = globalThis.__moonapHubSkillCache || {};
+  #|     for (const skill of skills) {
+  #|       globalThis.__moonapHubSkillCache[String(skill.id || "")] = { ...skill, source: "local" };
+  #|       const card = document.createElement("button");
+  #|       card.className = "skill-card personal";
+  #|       card.type = "button";
+  #|       card.dataset.skillId = String(skill.id || "");
+  #|       card.innerHTML = `<span>Local Hub / ${String(skill.relative_path || "").replace(/\\/g, "/")}</span><strong>${skill.name || "Local SKILL"}</strong><small>${skill.description || `Task kind: ${String(skill.task_kind || "generic")}`}</small>`;
+  #|       root.append(card);
+  #|     }
+  #|   })().catch((error) => {
+  #|     root.innerHTML = "";
+  #|     const empty = document.createElement("div");
+  #|     empty.className = "personal-skill-empty";
+  #|     const message = error instanceof Error ? error.message : String(error);
+  #|     empty.textContent = error && error.code === "permission-denied"
+  #|       ? message
+  #|       : `Failed to load Local SKILL Hub: ${message}`;
+  #|     root.append(empty);
+  #|   });
+  #|   return 0;
+  #| }
+
+///|
+#cfg(target="js")
+extern "js" fn browser_render_cloud_skill_hub(force_refresh : Bool) -> Int =
+  #| (forceRefresh) => {
+  #|   const root = document.querySelector("#cloudSkillHubCards");
+  #|   if (!root) return 0;
+  #|   root.innerHTML = "";
+  #|   const loading = document.createElement("div");
+  #|   loading.className = "personal-skill-empty";
+  #|   loading.textContent = "Loading Cloud SKILL catalog...";
+  #|   root.append(loading);
+  #|   const repositoryUrl = "https://github.com/tangmaomao16/MoonAP-SKILL-Hub";
+  #|   const indexUrl = "https://raw.githubusercontent.com/tangmaomao16/MoonAP-SKILL-Hub/main/index.json";
+  #|   const sourceLabel = document.querySelector("#cloudSkillHubSourceLabel");
+  #|   if (sourceLabel) {
+  #|     sourceLabel.innerHTML = `<a href="${repositoryUrl}" target="_blank" rel="noreferrer">${repositoryUrl}</a>`;
+  #|   }
+  #|   const normalizeSkill = (entry, hub) => {
+  #|     const folderPath = String(entry?.folder_path || "");
+  #|     const repository = String(entry?.repository_url || hub?.repository_url || repositoryUrl);
+  #|     const rawBase = repository
+  #|       .replace("https://github.com/", "https://raw.githubusercontent.com/")
+  #|       .replace(/\/$/, "") + "/main";
+  #|     const version = String(entry?.version || "");
+  #|     const zipPath = String(entry?.zip_path || (folderPath ? `${folderPath}.zip` : ""));
+  #|     const zipUrl = String(entry?.zip_url || (zipPath ? `${rawBase}/${zipPath}` : ""));
+  #|     return {
+  #|       id: `cloud.${String(entry?.id || folderPath || entry?.name || "skill")}`,
+  #|       name: String(entry?.name || "Cloud SKILL"),
+  #|       description: String(entry?.description || ""),
+  #|       task_kind: String(entry?.task_kind || "generic"),
+  #|       runtime_mode: String(entry?.runtime_mode || "form"),
+  #|       result_mode: String(entry?.result_mode || "text"),
+  #|       runtime_spec: entry?.runtime_spec && typeof entry.runtime_spec === "object" ? entry.runtime_spec : {},
+  #|       version,
+  #|       domain: String(entry?.domain || ""),
+  #|       subdomain: String(entry?.subdomain || ""),
+  #|       tags: Array.isArray(entry?.tags) ? entry.tags : [],
+  #|       folder_path: folderPath,
+  #|       zip_path: zipPath,
+  #|       repository_url: repository,
+  #|       folder_url: folderPath ? `${repository}/tree/main/${folderPath}` : repository,
+  #|       external_url: String(entry?.homepage_url || entry?.folder_url || (folderPath ? `${repository}/tree/main/${folderPath}` : repository)),
+  #|       download_url: zipUrl,
+  #|       source: "cloud"
+  #|     };
+  #|   };
+  #|   (async () => {
+  #|     let catalog = null;
+  #|     if (!forceRefresh && globalThis.__moonapCloudSkillCatalog && Array.isArray(globalThis.__moonapCloudSkillCatalog.skills)) {
+  #|       catalog = globalThis.__moonapCloudSkillCatalog;
+  #|     } else {
+  #|       const response = await fetch(indexUrl, { cache: "no-store" });
+  #|       if (!response.ok) {
+  #|         throw new Error(`Cloud index.json not available yet (${response.status}).`);
+  #|       }
+  #|       const parsed = await response.json();
+  #|       catalog = Array.isArray(parsed)
+  #|         ? {
+  #|             hub_version: "1",
+  #|             hub_name: "MoonAP-SKILL-Hub",
+  #|             repository_url: repositoryUrl,
+  #|             skills: parsed
+  #|           }
+  #|         : (parsed && typeof parsed === "object" ? parsed : {});
+  #|       if (!Array.isArray(catalog?.skills) && Array.isArray(parsed?.entries)) {
+  #|         catalog.skills = parsed.entries;
+  #|       }
+  #|       globalThis.__moonapCloudSkillCatalog = catalog;
+  #|     }
+  #|     const entries = Array.isArray(catalog?.skills) ? catalog.skills : [];
+  #|     root.innerHTML = "";
+  #|     if (entries.length === 0) {
+  #|       const empty = document.createElement("div");
+  #|       empty.className = "personal-skill-empty";
+  #|       empty.textContent = "Cloud catalog is currently empty. Add public SKILL entries to index.json in the official MoonAP-SKILL-Hub repository.";
+  #|       root.append(empty);
+  #|       return;
+  #|     }
+  #|     globalThis.__moonapHubSkillCache = globalThis.__moonapHubSkillCache || {};
+  #|     for (const entry of entries) {
+  #|       const skill = normalizeSkill(entry, catalog);
+  #|       globalThis.__moonapHubSkillCache[String(skill.id || "")] = skill;
+  #|       const card = document.createElement("button");
+  #|       card.className = "skill-card";
+  #|       card.type = "button";
+  #|       card.dataset.skillId = String(skill.id || "");
+  #|       const top = [skill.domain || "", skill.subdomain || ""].filter(Boolean).join(" / ") || "Cloud SKILL";
+  #|       const bottom = skill.description || (skill.version ? `version ${skill.version}` : "Public MoonAP SKILL");
+  #|       card.innerHTML = `<span>${top}</span><strong>${skill.name || "Cloud SKILL"}</strong><small>${bottom}</small>`;
+  #|       root.append(card);
+  #|     }
+  #|   })().catch((error) => {
+  #|     root.innerHTML = "";
+  #|     const empty = document.createElement("div");
+  #|     empty.className = "personal-skill-empty";
+  #|     empty.textContent = `Failed to load Cloud SKILL catalog: ${error instanceof Error ? error.message : String(error)}`;
+  #|     root.append(empty);
+  #|   });
+  #|   return 0;
+  #| }
+
+///|
+#cfg(target="js")
+extern "js" fn browser_install_cloud_skill(
+  skill_id : String,
+  on_done : (String) -> Unit,
+  on_error : (String) -> Unit,
+) -> Unit =
+  #| async (skillId, onDone, onError) => {
+  #|   try {
+  #|     const skill = globalThis.__moonapHubSkillCache && typeof globalThis.__moonapHubSkillCache === "object"
+  #|       ? globalThis.__moonapHubSkillCache[String(skillId || "")]
+  #|       : null;
+  #|     if (!skill || String(skill.source || "") !== "cloud") {
+  #|       throw new Error("MoonAP could not find this Cloud SKILL entry.");
+  #|     }
+  #|     let rootHandle = globalThis.__moonapLocalSkillHubRootHandle;
+  #|     const ensurePermission = async (handle, request = false) => {
+  #|       if (!handle) return false;
+  #|       if (typeof handle.queryPermission !== "function") return true;
+  #|       try {
+  #|         let state = await handle.queryPermission({ mode: "readwrite" });
+  #|         if (state === "granted") return true;
+  #|         if (request && typeof handle.requestPermission === "function") {
+  #|           state = await handle.requestPermission({ mode: "readwrite" });
+  #|           if (state === "granted") return true;
+  #|         }
+  #|       } catch {}
+  #|       return false;
+  #|     };
+  #|     if (!rootHandle || typeof rootHandle.getDirectoryHandle !== "function") {
+  #|       if (typeof window.showDirectoryPicker !== "function") {
+  #|         throw new Error("This browser does not support local SKILL Hub directory selection.");
+  #|       }
+  #|       rootHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+  #|       globalThis.__moonapLocalSkillHubRootHandle = rootHandle;
+  #|       const runtime = globalThis.__moonapLocalSkillHubRuntime;
+  #|       if (runtime && typeof runtime.putRootHandle === "function") {
+  #|         await runtime.putRootHandle(rootHandle);
+  #|       }
+  #|     } else if (!await ensurePermission(rootHandle, true)) {
+  #|       if (typeof window.showDirectoryPicker !== "function") {
+  #|         throw new Error("MoonAP needs a writable Local SKILL Hub directory, but this browser cannot reopen one.");
+  #|       }
+  #|       rootHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+  #|       globalThis.__moonapLocalSkillHubRootHandle = rootHandle;
+  #|       const runtime = globalThis.__moonapLocalSkillHubRuntime;
+  #|       if (runtime && typeof runtime.putRootHandle === "function") {
+  #|         await runtime.putRootHandle(rootHandle);
+  #|       }
+  #|     }
+  #|     const folderPath = String(skill.folder_path || "").trim();
+  #|     const downloadUrl = String(skill.download_url || "").trim();
+  #|     if (!folderPath) throw new Error("Cloud SKILL entry does not include folder_path.");
+  #|     if (!downloadUrl) throw new Error("Cloud SKILL entry does not include a ZIP download path yet.");
+  #|     const zipRuntime = globalThis.__moonapSkillZipRuntime;
+  #|     if (!zipRuntime || typeof zipRuntime.unzip !== "function") {
+  #|       throw new Error("MoonAP ZIP runtime is not ready yet.");
+  #|     }
+  #|     const fetchBinary = async (url) => {
+  #|       const response = await fetch(url, { cache: "no-store" });
+  #|       if (!response.ok) {
+  #|         throw new Error(`Failed to fetch ${url} (${response.status})`);
+  #|       }
+  #|       return new Uint8Array(await response.arrayBuffer());
+  #|     };
+  #|     const writeText = async (dirHandle, fileName, text) => {
+  #|       const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
+  #|       const writable = await fileHandle.createWritable();
+  #|       await writable.write(String(text || ""));
+  #|       await writable.close();
+  #|     };
+  #|     const writeBinary = async (dirHandle, fileName, bytes) => {
+  #|       const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
+  #|       const writable = await fileHandle.createWritable();
+  #|       await writable.write(bytes);
+  #|       await writable.close();
+  #|     };
+  #|     const ensurePath = async (dirHandle, relativePath) => {
+  #|       let current = dirHandle;
+  #|       const parts = String(relativePath || "").split("/").filter(Boolean);
+  #|       for (const part of parts) {
+  #|         current = await current.getDirectoryHandle(part, { create: true });
+  #|       }
+  #|       return current;
+  #|     };
+  #|     const zipBytes = await fetchBinary(downloadUrl);
+  #|     const zipEntries = await zipRuntime.unzip(zipBytes);
+  #|     const folderName = String(folderPath.split("/").filter(Boolean).slice(-1)[0] || "");
+  #|     const fileEntries = zipEntries.filter((entry) => entry && typeof entry.path === "string" && !entry.directory);
+  #|     const stripRoot = folderName !== "" && fileEntries.length > 0 && fileEntries.every((entry) => {
+  #|       const normalized = String(entry.path || "").replace(/^\/+/, "");
+  #|       return normalized === folderName || normalized.startsWith(`${folderName}/`);
+  #|     });
+  #|     const targetDir = await ensurePath(rootHandle, folderPath);
+  #|     for (const entry of zipEntries) {
+  #|       const originalPath = String(entry?.path || "").replace(/^\/+/, "");
+  #|       if (!originalPath || originalPath.startsWith("__MACOSX/")) continue;
+  #|       const relativePath = stripRoot
+  #|         ? (originalPath === folderName ? "" : originalPath.slice(folderName.length + 1))
+  #|         : originalPath;
+  #|       if (!relativePath) continue;
+  #|       if (String(relativePath).endsWith("/")) {
+  #|         await ensurePath(targetDir, relativePath);
+  #|         continue;
+  #|       }
+  #|       const parts = relativePath.split("/").filter(Boolean);
+  #|       const fileName = parts.pop();
+  #|       const parentDir = parts.length == 0 ? targetDir : await ensurePath(targetDir, parts.join("/"));
+  #|       await writeBinary(parentDir, fileName, entry.bytes || new Uint8Array(0));
+  #|     }
+  #|     onDone(JSON.stringify({
+  #|       installed: true,
+  #|       name: String(skill.name || ""),
+  #|       folder_path: folderPath,
+  #|       root_name: String(rootHandle?.name || ""),
+  #|       zip_url: downloadUrl
+  #|     }, null, 2));
+  #|   } catch (error) {
+  #|     onError(error instanceof Error ? error.message : String(error));
+  #|   }
+  #| }
+
+///|
+#cfg(target="js")
+extern "js" fn browser_choose_local_skill_hub_path(
+  on_done : (String) -> Unit,
+  on_error : (String) -> Unit,
+) -> Unit =
+  #| async (onDone, onError) => {
+  #|   try {
+  #|     if (typeof window.showDirectoryPicker !== "function") {
+  #|       throw new Error("This browser does not support local SKILL Hub directory selection.");
+  #|     }
+  #|     const handle = await window.showDirectoryPicker({ mode: "readwrite" });
+  #|     globalThis.__moonapLocalSkillHubRootHandle = handle;
+  #|     const ensureLocalSkillHubRuntime = () => {
+  #|       if (globalThis.__moonapLocalSkillHubRuntime && typeof globalThis.__moonapLocalSkillHubRuntime.putRootHandle === "function") {
+  #|         return globalThis.__moonapLocalSkillHubRuntime;
+  #|       }
+  #|       return null;
+  #|     };
+  #|     const runtime = ensureLocalSkillHubRuntime();
+  #|     if (runtime) {
+  #|       await runtime.putRootHandle(handle);
+  #|     }
+  #|     const label = document.querySelector("#localSkillHubRootLabel");
+  #|     if (label) {
+  #|       label.textContent = handle && handle.name
+  #|         ? `Selected folder: ${String(handle.name)}`
+  #|         : "No local SKILL Hub folder selected yet.";
+  #|     }
+  #|     onDone(String(handle?.name || ""));
+  #|   } catch (error) {
+  #|     onError(error instanceof Error ? error.message : String(error));
+  #|   }
+  #| }
+
+///|
+#cfg(target="js")
+extern "js" fn browser_refresh_local_skill_hub_root_label() -> Unit =
+  #| () => {
+  #|   const label = document.querySelector("#localSkillHubRootLabel");
+  #|   if (!label) return;
+  #|   const rootHandle = globalThis.__moonapLocalSkillHubRootHandle;
+  #|   label.textContent = rootHandle && rootHandle.name
+  #|     ? `Selected folder: ${String(rootHandle.name)}`
+  #|     : "No local SKILL Hub folder selected yet.";
+  #| }
+
+///|
+#cfg(target="js")
+extern "js" fn browser_on_local_skill_hub_choose_path(
+  handler : () -> Unit,
+) -> Unit =
+  #| (handler) => document.addEventListener("click", (event) => {
+  #|   if (event.target?.id !== "localSkillHubChoosePath") return;
+  #|   event.preventDefault();
+  #|   event.stopPropagation();
+  #|   try {
+  #|     handler();
+  #|   } catch (error) {
+  #|     alert(`MoonAP local SKILL Hub directory selection failed: ${error instanceof Error ? error.message : String(error)}`);
+  #|   }
+  #| })
+
+///|
+#cfg(target="js")
 extern "js" fn browser_load_personal_skill(
   skill_id : String,
   on_done : (String) -> Unit,
@@ -3958,7 +4942,20 @@ extern "js" fn browser_load_personal_skill(
   #|         fallback = parsed.find((item) => String(item?.id || "") === String(skillId || "")) || null;
   #|       }
   #|     } catch {}
-  #|     const handle = await runtime.getHandle(skillId);
+  #|     let rootHandle = globalThis.__moonapSkillExportRootHandle;
+  #|     if ((!rootHandle || typeof rootHandle.entries !== "function") && typeof runtime.getRootHandle === "function") {
+  #|       rootHandle = await runtime.getRootHandle();
+  #|       if (rootHandle && typeof rootHandle.entries === "function") {
+  #|         globalThis.__moonapSkillExportRootHandle = rootHandle;
+  #|       }
+  #|     }
+  #|     let handle = null;
+  #|     if (rootHandle && typeof runtime.findSkillDir === "function") {
+  #|       handle = await runtime.findSkillDir(rootHandle, skillId);
+  #|     }
+  #|     if (!handle) {
+  #|       handle = await runtime.getHandle(skillId);
+  #|     }
   #|     if (!handle) {
   #|       throw new Error("MoonAP could not find a saved local folder handle for this Personal SKILL.");
   #|     }
@@ -4122,6 +5119,9 @@ fn show_skill_entry() -> Unit {
   browser_set_skill_panel_open(true)
   browser_refresh_personal_skill_root_label()
   ignore(browser_render_personal_skills())
+  browser_refresh_local_skill_hub_root_label()
+  ignore(browser_render_local_skill_hub())
+  ignore(browser_render_cloud_skill_hub(false))
   browser_fetch_text(
     "/api/skills",
     fn(raw) { browser_set_state(browser_pretty_json(raw)) },
@@ -4141,6 +5141,8 @@ fn show_skill_run_plan(skill_id : String) -> Unit {
       },
       fn(error) { show_error("Personal SKILL load failed", error) },
     )
+  } else if skill_id.contains("local.") || skill_id.contains("cloud.") {
+    browser_open_skill_dialog(skill_id)
   } else {
     browser_open_skill_dialog(skill_id)
   }
@@ -4151,6 +5153,10 @@ fn show_skill_run_plan(skill_id : String) -> Unit {
 fn execute_dialog_skill() -> Unit {
   let skill_id = browser_dialog_skill_id()
   let personal_task_kind = browser_dialog_skill_task_kind()
+  let skill_source = browser_dialog_skill_source()
+  let external_url = browser_dialog_external_url()
+  let download_url = browser_dialog_download_url()
+  let folder_path = browser_dialog_folder_path()
   browser_close_skill_dialog()
   if skill_id.contains("personal.") {
     if personal_task_kind == "fastq-generator" {
@@ -4166,6 +5172,59 @@ fn execute_dialog_skill() -> Unit {
       "MoonAP loaded this Personal SKILL, but rerun support for task kind `" +
       personal_task_kind +
       "` is not wired yet.",
+    )
+    return
+  }
+  if skill_source == "local" {
+    if personal_task_kind == "fastq-generator" {
+      run_fastq_generator()
+      return
+    }
+    if personal_task_kind == "fastq-analysis" {
+      run_fastq_counter()
+      return
+    }
+    if skill_id.contains("gomoku") || personal_task_kind == "browser-game" {
+      browser_show_toast(
+        "Local public SKILL metadata is loaded. Task-specific execution wiring for this installed skill is the next step.",
+      )
+      return
+    }
+    show_error(
+      "Local SKILL run not implemented",
+      "MoonAP loaded this Local SKILL, but rerun support for task kind `" +
+      personal_task_kind +
+      "` is not wired yet.",
+    )
+    return
+  }
+  if skill_source == "cloud" {
+    browser_show_toast("Installing Cloud SKILL into Local SKILL Hub...")
+    browser_install_cloud_skill(
+      skill_id,
+      fn(result) {
+        browser_refresh_local_skill_hub_root_label()
+        ignore(browser_render_local_skill_hub())
+        browser_set_state(browser_pretty_json(result))
+        browser_show_toast(
+          if folder_path == "" {
+            "Cloud SKILL installed into Local SKILL Hub."
+          } else {
+            "Cloud SKILL installed: " + folder_path
+          },
+        )
+      },
+      fn(error) {
+        show_error(
+          "Cloud SKILL install failed",
+          if download_url != "" || external_url != "" {
+            error +
+            " You can still open the source repository manually if needed."
+          } else {
+            error
+          },
+        )
+      },
     )
     return
   }
@@ -4992,6 +6051,7 @@ fn on_skill_save_decision(raw : String) -> Unit {
   let reason = browser_artifact_field(raw, "reason")
   let exported_folder = browser_artifact_field(raw, "exported_folder_name")
   let exported_root = browser_artifact_field(raw, "exported_root_name")
+  let exported_zip = browser_artifact_field(raw, "exported_zip_name")
   if !browser_has_last_artifact_source() {
     return
   }
@@ -5032,6 +6092,11 @@ fn on_skill_save_decision(raw : String) -> Unit {
         exported_root +
         "/" +
         exported_folder +
+        (if exported_zip == "" {
+          ""
+        } else {
+          " with ZIP package " + exported_zip + "."
+        }) +
         ". You can still rerun the program from this page or save another copy with a different name or location."
       },
       "[\"skill decision\",\"recorded\"]",
@@ -5051,6 +6116,11 @@ fn on_skill_save_decision(raw : String) -> Unit {
         exported_root +
         "/" +
         exported_folder +
+        (if exported_zip == "" {
+          ""
+        } else {
+          " with ZIP package " + exported_zip + "."
+        }) +
         ". You can rerun the program or save another copy."
       },
     )
@@ -5143,6 +6213,16 @@ fn main {
   )
   browser_on_skill_card_click(fn(skill_id) { show_skill_run_plan(skill_id) })
   browser_on_dialog_run(fn() { execute_dialog_skill() })
+  browser_on_dialog_open_source(fn() {
+    let external_url = browser_dialog_external_url()
+    if external_url == "" {
+      show_error(
+        "Open source unavailable", "This SKILL entry does not expose a GitHub source URL yet.",
+      )
+    } else {
+      browser_open_external_url(external_url)
+    }
+  })
   browser_on_dialog_cancel(fn() { browser_close_skill_dialog() })
   browser_on_llm_save(fn() { browser_render_onboarding() })
   browser_on_llm_cancel(fn() {  })
@@ -5188,17 +6268,41 @@ fn main {
     browser_choose_skill_export_path(
       fn(_folder_name) {
         browser_refresh_personal_skill_root_label()
+        ignore(browser_render_personal_skills())
       },
-      fn(error) { show_error("personal skill directory selection failed", error) },
+      fn(error) {
+        show_error("personal skill directory selection failed", error)
+      },
     )
   })
+  browser_on_local_skill_hub_choose_path(fn() {
+    browser_choose_local_skill_hub_path(
+      fn(_folder_name) {
+        browser_refresh_local_skill_hub_root_label()
+        ignore(browser_render_local_skill_hub())
+        browser_show_toast("Local SKILL Hub directory connected.")
+      },
+      fn(error) {
+        show_error("local SKILL Hub directory selection failed", error)
+      },
+    )
+  })
+  browser_on_click("#cloudSkillHubRefresh", fn() {
+    ignore(browser_render_cloud_skill_hub(true))
+    browser_show_toast(
+      "Refreshing Cloud SKILL catalog from the official MoonAP-SKILL-Hub repository.",
+    )
+  })
+  browser_ensure_skill_zip_runtime()
   browser_on_skill_export_confirm(fn() {
     browser_request_skill_save(
       fn(result) {
         browser_close_skill_export_dialog()
         ignore(browser_render_personal_skills())
         browser_set_skill_panel_open(true)
-        browser_show_toast("SKILL saved. You can rerun this program, or save another copy with a different name or location.")
+        browser_show_toast(
+          "SKILL saved. You can rerun this program, or save another copy with a different name or location.",
+        )
         on_skill_save_decision(result)
       },
       fn(error) { show_error("save-to-skill failed", error) },
@@ -5211,6 +6315,8 @@ fn main {
     fn(raw) { on_skill_save_decision(raw) },
   )
   ignore(browser_render_personal_skills())
+  ignore(browser_render_local_skill_hub())
+  ignore(browser_render_cloud_skill_hub(false))
   browser_restore_formal_verification()
   refresh_policies()
 }

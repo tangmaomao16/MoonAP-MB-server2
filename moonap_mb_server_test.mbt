@@ -43,7 +43,11 @@ test "skill routing stays generic" {
 ///|
 test "app state starts in skill-only mode until LLM is configured" {
   let encoded = @moonap_mb_server.app_state_json()
-  assert_true(encoded.contains("Tell, what APP you want to build. Or, directly use an existing SKILL."))
+  assert_true(
+    encoded.contains(
+      "Tell, what APP you want to build. Or, directly use an existing SKILL.",
+    ),
+  )
   assert_true(encoded.contains("\"llm_status\": \"not_configured\""))
   assert_true(encoded.contains("\"skill_enabled\": true"))
 }

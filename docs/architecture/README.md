@@ -8,6 +8,7 @@ Current canonical topics:
 - [Large File Runtime](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/large-file-runtime.md)
 - [Lightweight Task Runtime Abstraction](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/architecture/lightweight-task-runtime-abstraction.md)
 - [MoonAP SKILL Folder Specification](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/architecture/moonap-skill-folder-spec.md)
+- [MoonAP SKILL Hub Taxonomy And Index](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/architecture/moonap-skill-hub-taxonomy-and-index.md)
 
 Note:
 

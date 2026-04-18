@@ -2345,13 +2345,119 @@ async fn proxy_llm_post(spec : String) -> (Int, String) {
     let (response, response_body) = @http.post(url, body, headers~)
     (response.code, response_body.text())
   } catch {
-    err =>
-      proxy_error_payload(
-        502,
-        "MoonAP local LLM proxy failed before provider response.",
+    err => {
+      let (curl_ok, curl_status, curl_payload) = proxy_llm_post_via_curl(
         url,
+        headers,
+        body,
         err.to_string(),
       )
+      if curl_ok {
+        (curl_status, curl_payload)
+      } else {
+        proxy_error_payload(
+          502,
+          "MoonAP local LLM proxy failed before provider response.",
+          url,
+          err.to_string() + "\nFallback curl error: " + curl_payload,
+        )
+      }
+    }
+  }
+}
+
+///|
+async fn proxy_llm_post_via_curl(
+  url : String,
+  headers : Map[String, String],
+  body : String,
+  direct_error : String,
+) -> (Bool, Int, String) {
+  let tmp_dir = @fs.tmpdir(prefix="moonap_llm_proxy")
+  let request_body_path = tmp_dir + "/request-body.json"
+  let response_headers_path = tmp_dir + "/response-headers.txt"
+  let response_body_path = tmp_dir + "/response-body.txt"
+  @fs.write_file(request_body_path, body, create=0o644)
+  let args = [
+    "-sS",
+    "-X",
+    "POST",
+    url,
+    "-D",
+    response_headers_path,
+    "-o",
+    response_body_path,
+    "-w",
+    "\nMOONAP_HTTP_CODE:%{http_code}\n",
+    "--connect-timeout",
+    "15",
+    "--max-time",
+    "90",
+    "--data-binary",
+    "@" + request_body_path,
+  ]
+  for name, value in headers {
+    args.push("-H")
+    args.push(name + ": " + value)
+  }
+  let (exit_code, curl_output) = @process.collect_output_merged(
+    "curl.exe", args,
+  )
+  let curl_text = curl_output.text()
+  let response_text = if @fs.exists(response_body_path) {
+    @fs.read_file(response_body_path).text()
+  } else {
+    ""
+  }
+  let status = curl_http_status_from_output(curl_text)
+  ignore(try_cleanup_proxy_curl_tmpdir(tmp_dir))
+  if exit_code == 0 && status != 0 {
+    (true, status, response_text)
+  } else {
+    let detail = if response_text == "" {
+      "curl proxy request failed.\n" +
+      "direct error: " +
+      direct_error +
+      "\n" +
+      "curl exit code: " +
+      exit_code.to_string() +
+      "\n" +
+      "curl output:\n" +
+      curl_text
+    } else {
+      "curl proxy request failed.\n" +
+      "direct error: " +
+      direct_error +
+      "\n" +
+      "curl exit code: " +
+      exit_code.to_string() +
+      "\n" +
+      "curl output:\n" +
+      curl_text +
+      "\nresponse body:\n" +
+      response_text
+    }
+    (false, 0, detail)
+  }
+}
+
+///|
+fn curl_http_status_from_output(output : String) -> Int {
+  let mut status = 0
+  for line in output.split("\n") {
+    let trimmed = line.trim()
+    if trimmed.has_prefix("MOONAP_HTTP_CODE:") {
+      let value = trimmed["MOONAP_HTTP_CODE:".length():].trim()
+      status = @string.parse_int(value, base=10) catch { _ => 0 }
+    }
+  }
+  status
+}
+
+///|
+async fn try_cleanup_proxy_curl_tmpdir(path : String) -> Unit {
+  if @fs.exists(path) {
+    @fs.rmdir(path, recursive=true)
   }
 }
 

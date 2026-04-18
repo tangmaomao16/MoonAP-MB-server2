@@ -2707,6 +2707,46 @@ extern "js" fn browser_open_llm_dialog() -> Unit =
   #|       models: [
   #|         { id: "gpt-5.4", enabled: true }
   #|       ]
+  #|     },
+  #|     {
+  #|       key: "nvidia",
+  #|       enabled: false,
+  #|       baseUrl: "https://integrate.api.nvidia.com/v1",
+  #|       models: [
+  #|         { id: "meta/llama-4-maverick-17b-128e-instruct", enabled: true }
+  #|       ]
+  #|     },
+  #|     {
+  #|       key: "zai",
+  #|       enabled: false,
+  #|       baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+  #|       models: [
+  #|         { id: "glm-5.1", enabled: true }
+  #|       ]
+  #|     },
+  #|     {
+  #|       key: "gemini",
+  #|       enabled: false,
+  #|       baseUrl: "https://generativelanguage.googleapis.com",
+  #|       models: [
+  #|         { id: "gemini-2.5-flash", enabled: false }
+  #|       ]
+  #|     },
+  #|     {
+  #|       key: "siliconflow",
+  #|       enabled: false,
+  #|       baseUrl: "https://api.siliconflow.cn/v1",
+  #|       models: [
+  #|         { id: "Qwen/Qwen2.5-Coder-32B-Instruct", enabled: false }
+  #|       ]
+  #|     },
+  #|     {
+  #|       key: "openrouter",
+  #|       enabled: false,
+  #|       baseUrl: "https://openrouter.ai/api/v1",
+  #|       models: [
+  #|         { id: "openrouter/auto", enabled: false }
+  #|       ]
   #|     }
   #|   ];
   #|   const defaults = providerConfigs.flatMap((spec) =>
@@ -2787,8 +2827,13 @@ extern "js" fn browser_open_llm_dialog() -> Unit =
   #|     syncDisabled();
   #|   };
   #|   bind("openai", { enable: "routerEnableOpenAI", model: "routerModelsOpenAI", base: "routerBaseOpenAI", key: "routerKeyOpenAI" });
-  #|   document.querySelectorAll(".router-row").forEach((node, index) => {
-  #|     node.style.display = index === 0 ? "" : "none";
+  #|   bind("nvidia", { enable: "routerEnableNVIDIA", model: "routerModelsNVIDIA", base: "routerBaseNVIDIA", key: "routerKeyNVIDIA" });
+  #|   bind("zai", { enable: "routerEnableZAI", model: "routerModelsZAI", base: "routerBaseZAI", key: "routerKeyZAI" });
+  #|   bind("gemini", { enable: "routerEnableGemini", model: "routerModelsGemini", base: "routerBaseGemini", key: "routerKeyGemini" });
+  #|   bind("siliconflow", { enable: "routerEnableSiliconFlow", model: "routerModelsSiliconFlow", base: "routerBaseSiliconFlow", key: "routerKeySiliconFlow" });
+  #|   bind("openrouter", { enable: "routerEnableOpenRouter", model: "routerModelsOpenRouter", base: "routerBaseOpenRouter", key: "routerKeyOpenRouter" });
+  #|   document.querySelectorAll(".router-row").forEach((node) => {
+  #|     node.style.display = "";
   #|   });
   #|   const verification = localStorage.getItem("moonap.formalVerification") === "true";
   #|   const toggle = document.querySelector("#routerFormalVerification");

@@ -148,9 +148,14 @@ extern "js" fn browser_render_artifact_card(
   #|     const runLabel = runtimeDone
   #|       ? String(runtimeSpec?.rerun_action_label || runtimeSpec?.action_label || runtimeSpec?.primary_action_label || (runtimeMode === "interactive" ? "Run again" : "Run generator again"))
   #|       : String(runtimeSpec?.action_label || runtimeSpec?.primary_action_label || (runtimeMode === "interactive" ? "Run game" : "Run runtime step"));
+  #|     const lastSaveDecision = globalThis.__moonapLastSkillSaveDecision && typeof globalThis.__moonapLastSkillSaveDecision === "object"
+  #|       ? globalThis.__moonapLastSkillSaveDecision
+  #|       : {};
+  #|     const saveCompleted = runtimeDone && String(lastSaveDecision?.decision || "") === "accepted-save-skill";
+  #|     const saveLabel = saveCompleted ? "Save another Personal SKILL..." : "Save as Personal SKILL...";
   #|     const primaryAction = [
   #|       `<button id="recordDemoRuntimeResult" class="primary" type="button">${runLabel}</button>`,
-  #|       runtimeDone && allowSave ? '<button id="savePersonalSkill" class="secondary strong" type="button">Save to Personal-SKILL-Set</button>' : ''
+  #|       runtimeDone && allowSave ? `<button id="savePersonalSkill" class="secondary strong" type="button">${saveLabel}</button>` : ''
   #|     ].filter(Boolean).join("");
   #|     const secondaryActions = [
   #|       wasmUrl ? '<button id="downloadRuntimeWasm" class="secondary" type="button">Download wasm</button>' : '',
@@ -173,7 +178,7 @@ extern "js" fn browser_render_artifact_card(
   #|       <div class="action-card-actions">
   #|         ${allowCompile ? '<button id="compileArtifact" type="button">Run Compile Probe</button>' : ''}
   #|         ${allowRepair ? '<button id="repairArtifact" type="button">Repair with Error Summary</button>' : ''}
-  #|         ${allowSave ? '<button id="savePersonalSkill" type="button">Save to Personal-SKILL-Set</button>' : ''}
+  #|         ${allowSave ? '<button id="savePersonalSkill" type="button">Save as Personal SKILL...</button>' : ''}
   #|         ${runtimeReady && !runtimeDone ? '<button id="recordDemoRuntimeResult" type="button">Record Demo Result</button>' : ''}
   #|         ${wasmUrl ? '<button id="downloadRuntimeWasm" class="secondary" type="button">Download wasm</button>' : ''}
   #|         ${sourceUrl ? '<button id="downloadRuntimeSource" class="secondary" type="button">Download source</button>' : ''}
@@ -203,7 +208,7 @@ extern "js" fn browser_show_toast(message : String) -> Unit =
   #|   if (toast.__moonapTimer) clearTimeout(toast.__moonapTimer);
   #|   toast.__moonapTimer = setTimeout(() => {
   #|     toast.classList.remove("is-open");
-  #|   }, 2600);
+  #|   }, 5200);
   #| }
 
 ///|
@@ -1505,7 +1510,7 @@ extern "js" fn browser_open_skill_export_dialog() -> Unit =
   #|     dialog.innerHTML = `
   #|       <form method="dialog" class="skill-dialog-body">
   #|         <div class="dialog-head"><span>PERSONAL SKILL</span><strong>Save workflow as SKILL</strong></div>
-  #|         <p class="dialog-summary">Choose a SKILL name, optionally adjust the description, then pick a folder location. The browser will ask for permission to create files in the selected directory.</p>
+  #|         <p class="dialog-summary">Choose a SKILL name, optionally adjust the description, then choose where to save the SKILL folder. Nothing will be written until you click Save SKILL. When you choose a save location, the browser may ask for permission to create files in that local directory.</p>
   #|         <div class="dialog-fields">
   #|           <label><span>SKILL name</span><input id="skillExportName" type="text" /></label>
   #|           <label><span>Description</span><textarea id="skillExportDescription" rows="3"></textarea></label>
@@ -1514,7 +1519,7 @@ extern "js" fn browser_open_skill_export_dialog() -> Unit =
   #|               <span>Save location</span>
   #|               <small id="skillExportPathLabel">No folder selected yet.</small>
   #|             </div>
-  #|             <button id="skillExportChoosePath" class="dialog-button secondary" type="button">Choose save location</button>
+  #|             <button id="skillExportChoosePath" class="dialog-button secondary" type="button">Choose or change save folder</button>
   #|           </div>
   #|         </div>
   #|         <div class="dialog-actions">
@@ -4648,21 +4653,22 @@ fn on_skill_save_decision(raw : String) -> Unit {
     browser_render_artifact_card(
       "SKILL export completed",
       if reason == "" {
-        "MoonAP exported the current workflow as a Personal SKILL. You can still rerun the program from this page."
+        "MoonAP exported the current workflow as a Personal SKILL. You can still rerun the program from this page or save another copy with a different name or location."
       } else if exported_folder == "" {
-        reason + " You can still rerun the program from this page."
+        reason +
+        " You can still rerun the program from this page or save another copy with a different name or location."
       } else if exported_root == "" {
         reason +
         " Exported folder: " +
         exported_folder +
-        ". You can still rerun the program from this page."
+        ". You can still rerun the program from this page or save another copy with a different name or location."
       } else {
         reason +
         " Exported to " +
         exported_root +
         "/" +
         exported_folder +
-        ". You can still rerun the program from this page."
+        ". You can still rerun the program from this page or save another copy with a different name or location."
       },
       "[\"skill decision\",\"recorded\"]",
       false,
@@ -4820,6 +4826,7 @@ fn main {
         browser_close_skill_export_dialog()
         ignore(browser_render_personal_skills())
         browser_set_skill_panel_open(true)
+        browser_show_toast("SKILL saved. You can rerun this program, or save another copy with a different name or location.")
         on_skill_save_decision(result)
       },
       fn(error) { show_error("save-to-skill failed", error) },

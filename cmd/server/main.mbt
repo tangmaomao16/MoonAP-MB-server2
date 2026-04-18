@@ -239,8 +239,20 @@ async fn moonap_server(
     )
   } else if request.meth == Post && path == "/api/llm/proxy" {
     let spec = body.read_all().text()
-    let (status, payload) = proxy_llm_post(spec)
-    send_text(conn, status, payload, "application/json; charset=utf-8")
+    try {
+      let (status, payload) = proxy_llm_post(spec)
+      send_text(conn, status, payload, "application/json; charset=utf-8")
+    } catch {
+      err => {
+        let (status, payload) = proxy_error_payload(
+          500,
+          "MoonAP local LLM proxy crashed before sending a response.",
+          "",
+          err.to_string(),
+        )
+        send_text(conn, status, payload, "application/json; charset=utf-8")
+      }
+    }
   } else if request.meth == Post &&
     path == "/api/experiments/free-llm-moonbit/results.json" {
     let payload = body.read_all().text()
@@ -1100,10 +1112,13 @@ fn runtime_exec_request_json_from_fields(
 
 ///|
 fn runtime_mode_for_task_kind(task_kind : String) -> String {
-  if task_kind == "fastq-generator" || task_kind == "excel-generator" {
+  if task_kind == "fastq-generator" ||
+    task_kind == "excel-generator" ||
+    task_kind == "large-file-generation" {
     "form"
   } else if task_kind == "fastq-analysis" ||
-    task_kind == "finance-report-analysis" {
+    task_kind == "finance-report-analysis" ||
+    task_kind == "large-file-analysis" {
     "file"
   } else if task_kind == "browser-game" {
     "interactive"
@@ -1114,10 +1129,13 @@ fn runtime_mode_for_task_kind(task_kind : String) -> String {
 
 ///|
 fn result_mode_for_task_kind(task_kind : String) -> String {
-  if task_kind == "fastq-generator" || task_kind == "excel-generator" {
+  if task_kind == "fastq-generator" ||
+    task_kind == "excel-generator" ||
+    task_kind == "large-file-generation" {
     "download"
   } else if task_kind == "fastq-analysis" ||
-    task_kind == "finance-report-analysis" {
+    task_kind == "finance-report-analysis" ||
+    task_kind == "large-file-analysis" {
     "report"
   } else if task_kind == "browser-game" {
     "interactive"
@@ -1132,25 +1150,41 @@ fn runtime_task_kind_from_context(
   original_prompt : String,
   source_text : String,
 ) -> String {
-  let haystack = task_title + "\n" + original_prompt + "\n" + source_text
-  if haystack.contains("fastq") ||
-    haystack.contains("FastQ") ||
-    haystack.contains("FASTQ") {
+  let haystack = (task_title + "\n" + original_prompt + "\n" + source_text).to_lower()
+  let mentions_large_file = haystack.contains("1gb") ||
+    haystack.contains("large file") ||
+    haystack.contains("large-file") ||
+    haystack.contains("streaming") ||
+    haystack.contains("chunk") ||
+    haystack.contains("browser-local")
+  let mentions_generation = haystack.contains("generate") ||
+    haystack.contains("generator") ||
+    haystack.contains("create") ||
+    haystack.contains("synthetic") ||
+    haystack.contains("output") ||
+    haystack.contains("write") ||
+    haystack.contains("writing") ||
+    haystack.contains("save file") ||
+    haystack.contains("save picker")
+  let mentions_analysis = haystack.contains("analy") ||
+    haystack.contains("inspect") ||
+    haystack.contains("count") ||
+    haystack.contains("scan") ||
+    haystack.contains("parse") ||
+    haystack.contains("report")
+  if mentions_large_file && mentions_generation {
+    "large-file-generation"
+  } else if mentions_large_file && mentions_analysis {
+    "large-file-analysis"
+  } else if haystack.contains("fastq") || haystack.contains("fq") {
     "fastq-generator"
   } else if haystack.contains("financial") ||
-    haystack.contains("Financial") ||
     haystack.contains("finance") ||
-    haystack.contains("Finance") ||
-    haystack.contains("report") ||
-    haystack.contains("Report") {
+    haystack.contains("report") {
     "finance-report-analysis"
-  } else if haystack.contains("excel") ||
-    haystack.contains("Excel") ||
-    haystack.contains("EXCEL") {
+  } else if haystack.contains("excel") {
     "excel-generator"
-  } else if haystack.contains("game") ||
-    haystack.contains("Game") ||
-    haystack.contains("GAME") {
+  } else if haystack.contains("game") {
     "browser-game"
   } else {
     "generic-task"
@@ -1243,6 +1277,90 @@ fn runtime_spec_json_for_task_kind(task_kind : String) -> String {
     "    \"title\": \"Analyze FastQ file\",\n" +
     "    \"action_label\": \"Run analysis\",\n" +
     "    \"fields\": []\n" +
+    "  }"
+  } else if task_kind == "large-file-analysis" {
+    "{\n" +
+    "    \"mode\": \"file\",\n" +
+    "    \"title\": \"Analyze large browser-local file\",\n" +
+    "    \"action_label\": \"Run streaming analysis\",\n" +
+    "    \"rerun_action_label\": \"Run streaming analysis again\",\n" +
+    "    \"io_contract\": {\n" +
+    "      \"protocol\": \"moonap.large-file.v1\",\n" +
+    "      \"browser_local_only\": true,\n" +
+    "      \"llm_receives_file_contents\": false,\n" +
+    "      \"host_capability\": \"chunked-local-analysis\",\n" +
+    "      \"input_mode\": \"streaming-text\",\n" +
+    "      \"output_mode\": \"report\",\n" +
+    "      \"chunk_size_bytes\": 4194304,\n" +
+    "      \"carry_strategy\": \"line-boundary\",\n" +
+    "      \"supported_extensions\": [\"fastq\", \"fq\", \"csv\", \"tsv\", \"txt\", \"log\", \"jsonl\"]\n" +
+    "    },\n" +
+    "    \"fields\": [\n" +
+    "      {\n" +
+    "        \"name\": \"search_text\",\n" +
+    "        \"label\": \"Search text (optional)\",\n" +
+    "        \"type\": \"text\",\n" +
+    "        \"default\": \"\"\n" +
+    "      },\n" +
+    "      {\n" +
+    "        \"name\": \"max_preview_lines\",\n" +
+    "        \"label\": \"Preview lines\",\n" +
+    "        \"type\": \"int\",\n" +
+    "        \"default\": 3,\n" +
+    "        \"min\": 0,\n" +
+    "        \"max\": 20,\n" +
+    "        \"step\": 1\n" +
+    "      }\n" +
+    "    ]\n" +
+    "  }"
+  } else if task_kind == "large-file-generation" {
+    "{\n" +
+    "    \"mode\": \"form\",\n" +
+    "    \"title\": \"Generate large browser-local file\",\n" +
+    "    \"primary_action_label\": \"Generate with streaming writer\",\n" +
+    "    \"rerun_action_label\": \"Generate with streaming writer again\",\n" +
+    "    \"io_contract\": {\n" +
+    "      \"protocol\": \"moonap.large-file.v1\",\n" +
+    "      \"browser_local_only\": true,\n" +
+    "      \"llm_receives_file_contents\": false,\n" +
+    "      \"host_capability\": \"streamed-local-generation\",\n" +
+    "      \"input_mode\": \"none\",\n" +
+    "      \"output_mode\": \"browser-local-save-stream\",\n" +
+    "      \"chunk_size_bytes\": 4194304,\n" +
+    "      \"save_picker_required\": true\n" +
+    "    },\n" +
+    "    \"fields\": [\n" +
+    "      {\n" +
+    "        \"name\": \"output_name\",\n" +
+    "        \"label\": \"Output file name\",\n" +
+    "        \"type\": \"text\",\n" +
+    "        \"default\": \"moonap-large-output.txt\"\n" +
+    "      },\n" +
+    "      {\n" +
+    "        \"name\": \"target_size_mb\",\n" +
+    "        \"label\": \"Target size (MB)\",\n" +
+    "        \"type\": \"int\",\n" +
+    "        \"default\": 128,\n" +
+    "        \"min\": 1,\n" +
+    "        \"max\": 1024,\n" +
+    "        \"step\": 1\n" +
+    "      },\n" +
+    "      {\n" +
+    "        \"name\": \"line_template\",\n" +
+    "        \"label\": \"Line template\",\n" +
+    "        \"type\": \"text\",\n" +
+    "        \"default\": \"moonap-line-{index}\"\n" +
+    "      },\n" +
+    "      {\n" +
+    "        \"name\": \"line_length\",\n" +
+    "        \"label\": \"Line length\",\n" +
+    "        \"type\": \"int\",\n" +
+    "        \"default\": 120,\n" +
+    "        \"min\": 8,\n" +
+    "        \"max\": 4096,\n" +
+    "        \"step\": 1\n" +
+    "      }\n" +
+    "    ]\n" +
     "  }"
   } else if task_kind == "finance-report-analysis" {
     "{\n" +
@@ -2373,71 +2491,85 @@ async fn proxy_llm_post_via_curl(
   body : String,
   direct_error : String,
 ) -> (Bool, Int, String) {
-  let tmp_dir = @fs.tmpdir(prefix="moonap_llm_proxy")
-  let request_body_path = tmp_dir + "/request-body.json"
-  let response_headers_path = tmp_dir + "/response-headers.txt"
-  let response_body_path = tmp_dir + "/response-body.txt"
-  @fs.write_file(request_body_path, body, create=0o644)
-  let args = [
-    "-sS",
-    "-X",
-    "POST",
-    url,
-    "-D",
-    response_headers_path,
-    "-o",
-    response_body_path,
-    "-w",
-    "\nMOONAP_HTTP_CODE:%{http_code}\n",
-    "--connect-timeout",
-    "15",
-    "--max-time",
-    "90",
-    "--data-binary",
-    "@" + request_body_path,
-  ]
-  for name, value in headers {
-    args.push("-H")
-    args.push(name + ": " + value)
-  }
-  let (exit_code, curl_output) = @process.collect_output_merged(
-    "curl.exe", args,
-  )
-  let curl_text = curl_output.text()
-  let response_text = if @fs.exists(response_body_path) {
-    @fs.read_file(response_body_path).text()
-  } else {
-    ""
-  }
-  let status = curl_http_status_from_output(curl_text)
-  ignore(try_cleanup_proxy_curl_tmpdir(tmp_dir))
-  if exit_code == 0 && status != 0 {
-    (true, status, response_text)
-  } else {
-    let detail = if response_text == "" {
-      "curl proxy request failed.\n" +
-      "direct error: " +
-      direct_error +
-      "\n" +
-      "curl exit code: " +
-      exit_code.to_string() +
-      "\n" +
-      "curl output:\n" +
-      curl_text
-    } else {
-      "curl proxy request failed.\n" +
-      "direct error: " +
-      direct_error +
-      "\n" +
-      "curl exit code: " +
-      exit_code.to_string() +
-      "\n" +
-      "curl output:\n" +
-      curl_text +
-      "\nresponse body:\n" +
-      response_text
+  try {
+    let tmp_dir = @fs.tmpdir(prefix="moonap_llm_proxy")
+    let request_body_path = tmp_dir + "/request-body.json"
+    let response_headers_path = tmp_dir + "/response-headers.txt"
+    let response_body_path = tmp_dir + "/response-body.txt"
+    @fs.write_file(request_body_path, body, create=0o644)
+    let args = [
+      "-sS",
+      "-X",
+      "POST",
+      url,
+      "-D",
+      response_headers_path,
+      "-o",
+      response_body_path,
+      "-w",
+      "\nMOONAP_HTTP_CODE:%{http_code}\n",
+      "--connect-timeout",
+      "15",
+      "--max-time",
+      "90",
+      "--data-binary",
+      "@" + request_body_path,
+    ]
+    for name, value in headers {
+      args.push("-H")
+      args.push(name + ": " + value)
     }
-    (false, 0, detail)
+    let (exit_code, curl_output) = @process.collect_output_merged(
+      "curl.exe", args,
+    )
+    let curl_text = curl_output.text()
+    let response_text = if @fs.exists(response_body_path) {
+      @fs.read_file(response_body_path).text()
+    } else {
+      ""
+    }
+    let status = curl_http_status_from_output(curl_text)
+    ignore(try_cleanup_proxy_curl_tmpdir(tmp_dir))
+    if exit_code == 0 && status != 0 {
+      (true, status, response_text)
+    } else {
+      let detail = if response_text == "" {
+        "curl proxy request failed.\n" +
+        "direct error: " +
+        direct_error +
+        "\n" +
+        "curl exit code: " +
+        exit_code.to_string() +
+        "\n" +
+        "curl output:\n" +
+        curl_text
+      } else {
+        "curl proxy request failed.\n" +
+        "direct error: " +
+        direct_error +
+        "\n" +
+        "curl exit code: " +
+        exit_code.to_string() +
+        "\n" +
+        "curl output:\n" +
+        curl_text +
+        "\nresponse body:\n" +
+        response_text
+      }
+      (false, 0, detail)
+    }
+  } catch {
+    err =>
+      (
+        false,
+        0,
+        "curl fallback threw before completing.\n" +
+        "direct error: " +
+        direct_error +
+        "\n" +
+        "internal error: " +
+        err.to_string(),
+      )
   }
 }
 
@@ -2858,7 +2990,8 @@ fn web_index_html() -> String {
     "</div>", "</aside>", "<div class=\"topbar-copy-wrap\">", "<div class=\"topbar-copy\">",
     "<h1 class=\"topbar-title\">MoonAP: MoonBit Agent Playground</h1>", "<p class=\"tagline topbar-tagline\">Describe what APP you want to build.</p>",
     "<p class=\"tagline topbar-tagline secondary\">Or directly use an existing SKILL.</p>",
-    "</div>", "</div>", "<div class=\"top-actions\">", "<button id=\"detailsToggle\" class=\"details-button\" type=\"button\" aria-expanded=\"false\">Details</button>",
+    "</div>", "</div>", "<div class=\"top-actions\">", "<button id=\"experimentButton\" class=\"details-button\" type=\"button\">Experiment</button>",
+    "<button id=\"detailsToggle\" class=\"details-button\" type=\"button\" aria-expanded=\"false\">Details</button>",
     "</div>", "</header>", "<section class=\"conversation\" aria-label=\"Chat conversation\">",
     "<div class=\"welcome\">", "<label class=\"verify-option\"><input id=\"formalVerification\" type=\"checkbox\" /> Formal verification before Wasm compile</label>",
     "<div class=\"privacy-strip\" id=\"privacyStrip\">File contents stay in this browser. Uploaded bytes: 0. LLM receives metadata only.</div>",
@@ -2938,7 +3071,7 @@ fn web_style_css() -> String {
     ".topbar-title { margin: 0; font-size: clamp(20px, 2vw, 30px); line-height: 1.08; font-weight: 720; letter-spacing: -0.028em; color: #111111; text-wrap: balance; }",
     ".topbar-tagline { margin: 0; color: #4d4d4d; font-size: clamp(14px, 1.18vw, 18px); line-height: 1.2; font-weight: 430; text-wrap: balance; }",
     ".topbar-tagline.secondary { font-size: clamp(13px, 1.05vw, 16px); color: #626262; }",
-    ".topbar-actions { justify-content: flex-start; align-self: start; }", ".top-actions { position: relative; z-index: 40; flex: 0 0 auto; padding-top: 4px; }",
+    ".topbar-actions { justify-content: flex-start; align-self: start; }", ".top-actions { position: relative; z-index: 40; flex: 0 0 auto; display: flex; gap: 10px; align-items: center; padding-top: 4px; }",
     ".details-button { border: 1px solid #dedede; border-radius: 999px; padding: 8px 14px; color: #555555; background: #ffffff; cursor: pointer; user-select: none; }",
     ".details-button:hover { background: #f5f5f5; }", ".details-drawer { position: fixed; right: 0; top: 0; bottom: 0; z-index: 80; width: min(420px, calc(100vw - 48px)); overflow: auto; padding: 12px 16px 16px; border-left: 1px solid #e6e6e6; background: #ffffff; box-shadow: -10px 0 30px rgba(0,0,0,0.08); transform: translateX(100%); transition: transform 160ms ease; }",
     ".app-shell.details-open .details-drawer { transform: translateX(0); }", ".details-drawer-body { min-height: calc(100vh - 104px); display: grid; grid-auto-rows: min-content; gap: 16px; }",

@@ -279,6 +279,9 @@ extern "js" fn browser_record_demo_runtime_result(
   #|     const runtimeSpec = runtimeRequest?.runtime_spec && typeof runtimeRequest.runtime_spec === "object"
   #|       ? runtimeRequest.runtime_spec
   #|       : (runtimeRequest?.runtime_ui && typeof runtimeRequest.runtime_ui === "object" ? runtimeRequest.runtime_ui : {});
+  #|     const ioContract = runtimeSpec?.io_contract && typeof runtimeSpec.io_contract === "object"
+  #|       ? runtimeSpec.io_contract
+  #|       : {};
   #|     const runtimeFields = Array.isArray(runtimeSpec.fields) ? runtimeSpec.fields : [];
   #|     const runtimeInputs = {};
   #|     for (const field of runtimeFields) {
@@ -294,6 +297,237 @@ extern "js" fn browser_record_demo_runtime_result(
   #|           ? Number.parseFloat(text)
   #|           : text;
   #|     }
+  #|     const chunkSize = Math.max(256 * 1024, Number(ioContract.chunk_size_bytes) || (4 * 1024 * 1024));
+  #|     const emitProgress = (data) => {
+  #|       try {
+  #|         const payload = Object.assign({
+  #|           uploaded_bytes: 0,
+  #|           llm_receives_file_contents: false
+  #|         }, data || {});
+  #|         const text = JSON.stringify(payload, null, 2);
+  #|         const stateNode = document.querySelector("#state");
+  #|         if (stateNode) stateNode.textContent = text;
+  #|         const panel = document.querySelector("#resultPanel");
+  #|         panel?.classList.add("is-open");
+  #|         const setText = (selector, value) => {
+  #|           const node = document.querySelector(selector);
+  #|           if (node) node.textContent = String(value);
+  #|         };
+  #|         const formatBytes = (value) => {
+  #|           const n = Number(value || 0);
+  #|           if (n >= 1073741824) return `${(n / 1073741824).toFixed(2)} GB`;
+  #|           if (n >= 1048576) return `${(n / 1048576).toFixed(2)} MB`;
+  #|           if (n >= 1024) return `${(n / 1024).toFixed(1)} KB`;
+  #|           return `${n} B`;
+  #|         };
+  #|         const fill = document.querySelector("#progressFill");
+  #|         const progress = Math.max(0, Math.min(100, Number(payload.progress_percent ?? 0)));
+  #|         if (fill) fill.style.width = `${progress}%`;
+  #|         setText("#resultStatus", payload.status || "running");
+  #|         setText("#resultTitle",
+  #|           String(payload.result_kind || "") === "streamed-file"
+  #|             ? "Browser-local large-file generation"
+  #|             : "Browser-local large-file analysis"
+  #|         );
+  #|         setText("#metricFile", payload.file_name || payload.download_name || "-");
+  #|         setText("#metricProcessed", formatBytes(payload.bytes_processed ?? payload.file_size_bytes ?? 0));
+  #|         setText("#metricReads", payload.line_count ?? payload.chunk_count ?? 0);
+  #|         setText("#metricTarget", payload.matching_line_count ?? payload.bytes_written ?? 0);
+  #|         setText("#metricBases", payload.total_characters ?? payload.summary ?? "0");
+  #|         setText("#metricUploaded", formatBytes(payload.uploaded_bytes ?? 0));
+  #|       } catch {}
+  #|     };
+  #|     const runLargeFileAnalysisPayload = async () => {
+  #|       const file = document.querySelector("#fileInput")?.files?.[0];
+  #|       if (!file) {
+  #|         throw new Error("Choose a local file first. MoonAP large-file analysis runs browser-locally in chunks.");
+  #|       }
+  #|       const searchText = String(runtimeInputs.search_text || "");
+  #|       const maxPreviewLines = Math.max(0, Math.min(20, Number(runtimeInputs.max_preview_lines) || 3));
+  #|       let offset = 0;
+  #|       let carry = "";
+  #|       let lineCount = 0;
+  #|       let matchingLineCount = 0;
+  #|       let totalCharacters = 0;
+  #|       let chunkCount = 0;
+  #|       const previewLines = [];
+  #|       const started = performance.now();
+  #|       while (offset < file.size) {
+  #|         const end = Math.min(offset + chunkSize, file.size);
+  #|         const text = await file.slice(offset, end).text();
+  #|         const merged = carry + text;
+  #|         const hasFinalNewline = merged.endsWith("\n") || merged.endsWith("\r");
+  #|         const lines = merged.split(/\r?\n/);
+  #|         carry = hasFinalNewline ? "" : String(lines.pop() || "");
+  #|         for (const line of lines) {
+  #|           lineCount += 1;
+  #|           totalCharacters += line.length;
+  #|           if (searchText !== "" && line.includes(searchText)) matchingLineCount += 1;
+  #|           if (previewLines.length < maxPreviewLines) previewLines.push(line.slice(0, 240));
+  #|         }
+  #|         offset = end;
+  #|         chunkCount += 1;
+  #|         emitProgress({
+  #|           status: "streaming-read",
+  #|           result_kind: "large-file-report",
+  #|           file_name: file.name,
+  #|           file_size_bytes: file.size,
+  #|           chunk_size_bytes: chunkSize,
+  #|           chunk_count: chunkCount,
+  #|           bytes_processed: offset,
+  #|           progress_percent: file.size === 0 ? 100 : Math.floor((offset / file.size) * 100),
+  #|           line_count: lineCount,
+  #|           matching_line_count: matchingLineCount,
+  #|           total_characters: totalCharacters
+  #|         });
+  #|         await new Promise((resolve) => setTimeout(resolve, 0));
+  #|       }
+  #|       if (carry !== "") {
+  #|         lineCount += 1;
+  #|         totalCharacters += carry.length;
+  #|         if (searchText !== "" && carry.includes(searchText)) matchingLineCount += 1;
+  #|         if (previewLines.length < maxPreviewLines) previewLines.push(carry.slice(0, 240));
+  #|       }
+  #|       const elapsedMs = Math.round(performance.now() - started);
+  #|       const summary = searchText === ""
+  #|         ? `Streamed ${file.name} locally in ${chunkCount} chunk(s).`
+  #|         : `Streamed ${file.name} locally and counted lines containing "${searchText}".`;
+  #|       const reportText = [
+  #|         "MoonAP Large File Analysis",
+  #|         `request_id: ${requestId}`,
+  #|         `file_name: ${file.name}`,
+  #|         `file_size_bytes: ${file.size}`,
+  #|         `chunk_size_bytes: ${chunkSize}`,
+  #|         `chunk_count: ${chunkCount}`,
+  #|         `line_count: ${lineCount}`,
+  #|         `matching_line_count: ${matchingLineCount}`,
+  #|         `total_characters: ${totalCharacters}`,
+  #|         `elapsed_ms: ${elapsedMs}`,
+  #|         `search_text: ${searchText === "" ? "(none)" : searchText}`,
+  #|         "",
+  #|         "Preview lines:",
+  #|         ...(previewLines.length === 0 ? ["(none captured)"] : previewLines)
+  #|       ].join("\n");
+  #|       return {
+  #|         run_id: String(runtimeRequest.run_id || ""),
+  #|         request_id: requestId,
+  #|         status: "runtime-succeeded",
+  #|         result_kind: "large-file-report",
+  #|         runtime_inputs: runtimeInputs,
+  #|         summary,
+  #|         display_text: reportText,
+  #|         stdout_text: `Browser-local chunked analysis completed for ${requestId}.`,
+  #|         download_name: "moonap-large-file-analysis.txt",
+  #|         download_content: reportText,
+  #|         file_name: file.name,
+  #|         file_size_bytes: file.size,
+  #|         bytes_processed: file.size,
+  #|         chunk_size_bytes: chunkSize,
+  #|         chunk_count: chunkCount,
+  #|         line_count: lineCount,
+  #|         matching_line_count: matchingLineCount,
+  #|         total_characters: totalCharacters,
+  #|         progress_percent: 100,
+  #|         llm_receives_file_contents: false,
+  #|         accepted_for_skill: false
+  #|       };
+  #|     };
+  #|     const runLargeFileGenerationPayload = async () => {
+  #|       if (typeof window.showSaveFilePicker !== "function") {
+  #|         throw new Error("This browser does not support streamed save-file output yet.");
+  #|       }
+  #|       const encoder = new TextEncoder();
+  #|       const outputNameRaw = String(runtimeInputs.output_name || "moonap-large-output.txt").trim() || "moonap-large-output.txt";
+  #|       const outputName = outputNameRaw.replace(/[\\/:*?\"<>|]+/g, "_");
+  #|       const targetSizeMb = Math.max(1, Math.min(1024, Number(runtimeInputs.target_size_mb) || 128));
+  #|       const targetBytes = targetSizeMb * 1024 * 1024;
+  #|       const lineTemplate = String(runtimeInputs.line_template || "moonap-line-{index}");
+  #|       const lineLength = Math.max(8, Math.min(4096, Number(runtimeInputs.line_length) || 120));
+  #|       const fileHandle = await window.showSaveFilePicker({
+  #|         suggestedName: outputName,
+  #|         types: [{ description: "Text files", accept: { "text/plain": [".txt", ".log", ".csv", ".tsv", ".jsonl"] } }]
+  #|       });
+  #|       const writable = await fileHandle.createWritable();
+  #|       let bytesWritten = 0;
+  #|       let lineIndex = 0;
+  #|       let chunkCount = 0;
+  #|       const started = performance.now();
+  #|       const materializeLine = (index) => {
+  #|         const raw = lineTemplate.replace(/\{index\}/g, String(index));
+  #|         const body = raw.length >= lineLength - 1
+  #|           ? raw.slice(0, Math.max(1, lineLength - 1))
+  #|           : raw + " ".repeat(Math.max(0, lineLength - 1 - raw.length));
+  #|         return `${body}\n`;
+  #|       };
+  #|       while (bytesWritten < targetBytes) {
+  #|         const lines = [];
+  #|         let chunkBytes = 0;
+  #|         while (chunkBytes < chunkSize && bytesWritten + chunkBytes < targetBytes) {
+  #|           const line = materializeLine(lineIndex);
+  #|           const bytes = encoder.encode(line);
+  #|           const remaining = targetBytes - bytesWritten - chunkBytes;
+  #|           if (bytes.length > remaining) {
+  #|             const prefix = line.slice(0, Math.max(0, remaining));
+  #|             lines.push(prefix);
+  #|             chunkBytes += encoder.encode(prefix).length;
+  #|             break;
+  #|           }
+  #|           lines.push(line);
+  #|           chunkBytes += bytes.length;
+  #|           lineIndex += 1;
+  #|         }
+  #|         const chunkText = lines.join("");
+  #|         await writable.write(chunkText);
+  #|         bytesWritten += encoder.encode(chunkText).length;
+  #|         chunkCount += 1;
+  #|         emitProgress({
+  #|           status: "streaming-write",
+  #|           result_kind: "streamed-file",
+  #|           file_name: outputName,
+  #|           chunk_size_bytes: chunkSize,
+  #|           chunk_count: chunkCount,
+  #|           bytes_written: bytesWritten,
+  #|           bytes_processed: bytesWritten,
+  #|           progress_percent: targetBytes === 0 ? 100 : Math.floor((bytesWritten / targetBytes) * 100),
+  #|           total_characters: bytesWritten
+  #|         });
+  #|         await new Promise((resolve) => setTimeout(resolve, 0));
+  #|       }
+  #|       await writable.close();
+  #|       const elapsedMs = Math.round(performance.now() - started);
+  #|       const displayText = [
+  #|         "MoonAP Large File Generation",
+  #|         `request_id: ${requestId}`,
+  #|         `output_name: ${outputName}`,
+  #|         `target_size_mb: ${targetSizeMb}`,
+  #|         `bytes_written: ${bytesWritten}`,
+  #|         `chunk_size_bytes: ${chunkSize}`,
+  #|         `chunk_count: ${chunkCount}`,
+  #|         `elapsed_ms: ${elapsedMs}`,
+  #|         `line_template: ${lineTemplate}`,
+  #|         `line_length: ${lineLength}`
+  #|       ].join("\n");
+  #|       return {
+  #|         run_id: String(runtimeRequest.run_id || ""),
+  #|         request_id: requestId,
+  #|         status: "runtime-succeeded",
+  #|         result_kind: "streamed-file",
+  #|         runtime_inputs: runtimeInputs,
+  #|         summary: `Generated ${outputName} locally with browser streaming output.`,
+  #|         display_text: displayText,
+  #|         stdout_text: `Browser-local streamed generation completed for ${requestId}.`,
+  #|         download_name: "",
+  #|         download_content: "",
+  #|         file_name: outputName,
+  #|         bytes_written: bytesWritten,
+  #|         bytes_processed: bytesWritten,
+  #|         chunk_size_bytes: chunkSize,
+  #|         chunk_count: chunkCount,
+  #|         progress_percent: 100,
+  #|         llm_receives_file_contents: false,
+  #|         accepted_for_skill: false
+  #|       };
+  #|     };
   #|     const buildFastqPayload = () => {
   #|       const readCount = Math.max(1, Math.min(1000000, Number(runtimeInputs.read_count) || 10000));
   #|       const readLength = Math.max(1, Math.min(10000, Number(runtimeInputs.read_length) || 150));
@@ -360,7 +594,11 @@ extern "js" fn browser_record_demo_runtime_result(
   #|       };
   #|     };
   #|     let payload;
-  #|     if (taskKind === "fastq-generator") {
+  #|     if (String(ioContract.host_capability || "") === "chunked-local-analysis" || taskKind === "large-file-analysis") {
+  #|       payload = await runLargeFileAnalysisPayload();
+  #|     } else if (String(ioContract.host_capability || "") === "streamed-local-generation" || taskKind === "large-file-generation") {
+  #|       payload = await runLargeFileGenerationPayload();
+  #|     } else if (taskKind === "fastq-generator") {
   #|       payload = buildFastqPayload();
   #|     } else if (taskKind === "excel-generator") {
   #|       payload = buildGenericPayload(
@@ -699,65 +937,23 @@ extern "js" fn browser_repair_last_artifact_with_system_assessment(
   #|     try { preserveConstraints = JSON.parse(String(assessment?.preserve_constraints_json || "[]")); } catch {}
   #|     const originalTask = String(artifact?.prompt || "Generate MoonBit code for the requested task.");
   #|     const buildQualityRepairPrompts = (llm) => {
-  #|       const modelName = String(llm?.model || "");
-  #|       const isGpt54 = modelName.toLowerCase().includes("gpt-5.4");
-  #|       if (isGpt54) {
-  #|         const systemPrompt = [
-  #|           "You are an AI coder.",
-  #|           "You only write MoonBit code.",
-  #|           "Your job is to improve MoonBit code for the user's task after compile already succeeded.",
-  #|           "Return only the full contents of cmd/main/main.mbt."
-  #|         ].join("\\n");
-  #|         const userPrompt = [
-  #|           `Original task: ${originalTask}`,
-  #|           "",
-  #|           "System assessment:",
-  #|           `- task_kind: ${String(assessment?.task_kind || "general-moonbit")}`,
-  #|           `- title: ${String(assessment?.title || "System assessment failed")}`,
-  #|           `- summary: ${String(assessment?.summary || "")}`,
-  #|           `- repair_hint: ${String(assessment?.repair_hint || "")}`,
-  #|           "",
-  #|           "Missing signals:",
-  #|           ...(Array.isArray(missingSignals) && missingSignals.length > 0 ? missingSignals.map((item) => `- ${String(item)}`) : ["- none listed; improve conservatively"]),
-  #|           "",
-  #|           "Constraints to preserve:",
-  #|           ...(Array.isArray(preserveConstraints) && preserveConstraints.length > 0 ? preserveConstraints.map((item) => `- ${String(item)}`) : ["- preserve the original task goal", "- keep wasm-gc compatibility"]),
-  #|           "",
-  #|           "Current source:",
-  #|           source,
-  #|           "",
-  #|           "Revise the source so it still compiles and better satisfies the system assessment.",
-  #|           "Return the full corrected cmd/main/main.mbt file and nothing else."
-  #|         ].join("\\n");
-  #|         return {
-  #|           modeText: "quality-repair / frontier-direct",
-  #|           systemPrompt,
-  #|           userPrompt
-  #|         };
-  #|       }
   #|       const systemPrompt = [
-  #|         "You are improving MoonBit code for MoonAP after the native compile probe already succeeded.",
-  #|         "Target language: MoonBit 0.9.",
-  #|         "Return ONLY the revised contents of cmd/main/main.mbt.",
-  #|         "Do NOT return markdown fences, explanations, bullet lists, moon.pkg, or moon.mod.json.",
-  #|         "Any non-code text is a failed repair.",
-  #|         "Preserve compilability under wasm-gc while improving the task-specific quality signals.",
-  #|         "Preserve the original task goal."
+  #|         "You are an AI coder.",
+  #|         "You only write MoonBit code.",
+  #|         "Your job is to improve MoonBit code for the user's task after compile already succeeded.",
+  #|         "Return only the full contents of cmd/main/main.mbt."
   #|       ].join("\\n");
   #|       const userPrompt = [
-  #|         "Read this MoonBit 0.9 primer first and follow it strictly:",
-  #|         String(knowledgePack || ""),
-  #|         "",
   #|         `Original task: ${originalTask}`,
   #|         "",
-  #|         "System assessment after a successful compile:",
+  #|         "System assessment:",
   #|         `- task_kind: ${String(assessment?.task_kind || "general-moonbit")}`,
   #|         `- title: ${String(assessment?.title || "System assessment failed")}`,
   #|         `- summary: ${String(assessment?.summary || "")}`,
   #|         `- repair_hint: ${String(assessment?.repair_hint || "")}`,
   #|         "",
-  #|         "Machine-detected missing signals:",
-  #|         ...(Array.isArray(missingSignals) && missingSignals.length > 0 ? missingSignals.map((item) => `- ${String(item)}`) : ["- none listed; improve task structure conservatively"]),
+  #|         "Missing signals:",
+  #|         ...(Array.isArray(missingSignals) && missingSignals.length > 0 ? missingSignals.map((item) => `- ${String(item)}`) : ["- none listed; improve conservatively"]),
   #|         "",
   #|         "Constraints to preserve:",
   #|         ...(Array.isArray(preserveConstraints) && preserveConstraints.length > 0 ? preserveConstraints.map((item) => `- ${String(item)}`) : ["- preserve the original task goal", "- keep wasm-gc compatibility"]),
@@ -765,11 +961,11 @@ extern "js" fn browser_repair_last_artifact_with_system_assessment(
   #|         "Current source:",
   #|         source,
   #|         "",
-  #|         "Please revise the source so it still compiles and better satisfies the system assessment.",
+  #|         "Revise the source so it still compiles and better satisfies the system assessment.",
   #|         "Return the full corrected cmd/main/main.mbt file and nothing else."
   #|       ].join("\\n");
   #|       return {
-  #|         modeText: "quality-repair / full",
+  #|         modeText: "quality-repair / frontier-direct",
   #|         systemPrompt,
   #|         userPrompt
   #|       };
@@ -1003,79 +1199,30 @@ extern "js" fn browser_repair_last_artifact_with_compile_summary(
   #|           .map((item) => ({ role: String(item.role), content: String(item.content) }))
   #|       : [{ role: "user", content: originalTask }, { role: "assistant", content: source }];
   #|     const buildRepairPrompts = (llm) => {
-  #|       const modelName = String(llm?.model || "");
-  #|       const isGpt54 = modelName.toLowerCase().includes("gpt-5.4");
-  #|       if (isGpt54) {
-  #|         const systemPrompt = [
-  #|           "You are an AI coder.",
-  #|           "You only write MoonBit code.",
-  #|           "Your job is to repair MoonBit code for the user's task.",
-  #|           "Return only the full contents of cmd/main/main.mbt."
-  #|         ].join("\\n");
-  #|         const repairUserPrompt = [
-  #|           "The previous MoonBit file failed to compile under wasm-gc.",
-  #|           "",
-  #|           "Compiler error:",
-  #|           compilerExcerpt,
-  #|           "",
-  #|           "Fix the file and return the full corrected cmd/main/main.mbt only."
-  #|         ].join("\\n");
-  #|         return {
-  #|           modeText: "repair / frontier-conversation",
-  #|           systemPrompt,
-  #|           userPrompt: `${priorConversation.map((item) => `${String(item.role).toUpperCase()}:\n${String(item.content)}`).join("\\n\\n---\\n\\n")}\\n\\n---\\n\\nUSER:\\n${repairUserPrompt}`,
-  #|           openaiMessages: [
-  #|             { role: "system", content: systemPrompt },
-  #|             ...priorConversation,
-  #|             { role: "user", content: repairUserPrompt }
-  #|           ],
-  #|           geminiUserPrompt: `${priorConversation.map((item) => `${String(item.role).toUpperCase()}:\n${String(item.content)}`).join("\\n\\n---\\n\\n")}\\n\\n---\\n\\nUSER:\\n${repairUserPrompt}`
-  #|         };
-  #|       }
   #|       const systemPrompt = [
-  #|         "You are repairing MoonBit code for MoonAP.",
-  #|         "Target language: MoonBit 0.9.",
-  #|         "Return ONLY the repaired contents of cmd/main/main.mbt.",
-  #|         "Do NOT return markdown fences, explanations, bullet lists, quoted compiler messages, moon.pkg, or moon.mod.json.",
-  #|         "Do NOT describe the errors before writing code.",
-  #|         "Do NOT think aloud. Do NOT say 'Okay', 'I need to', 'Let me', or similar phrases.",
-  #|         "Any non-code text is a failed repair.",
-  #|         "Keep the task behavior and default parameters unchanged.",
-  #|         "Preserve the original task goal, not just compilability.",
-  #|         "",
-  #|         "Follow the MoonBit primer in the user prompt before using any stale prior memory."
+  #|         "You are an AI coder.",
+  #|         "You only write MoonBit code.",
+  #|         "Your job is to repair MoonBit code for the user's task.",
+  #|         "Return only the full contents of cmd/main/main.mbt."
   #|       ].join("\\n");
-  #|       const userPrompt = [
-  #|         "Read this MoonBit 0.9 primer first and follow it strictly:",
-  #|         String(knowledgePack || ""),
+  #|       const repairUserPrompt = [
+  #|         "The previous MoonBit file failed to compile under wasm-gc.",
   #|         "",
-  #|         `Original task: ${originalTask}`,
-  #|         "",
-  #|         "Current compile summary:",
-  #|         `- error_kind: ${String(report.summary_kind || report.stage || "compiler-error")}`,
-  #|         `- primary_file: ${String(report.primary_file || "cmd/main/main.mbt")}`,
-  #|         `- primary_line: ${String(report.primary_line || 0)}`,
-  #|         `- likely_cause: ${String(report.likely_cause || "")}`,
-  #|         `- repair_hint: ${String(report.repair_hint || "")}`,
-  #|         "",
-  #|         repairMode === "raw" ? "Raw compiler output:" : "Trimmed compiler output:",
+  #|         "Compiler error:",
   #|         compilerExcerpt,
   #|         "",
-  #|         "Current source:",
-  #|         source,
-  #|         "",
-  #|         "Please repair only what is needed to make this compile under wasm-gc.",
-  #|         "Return the full corrected cmd/main/main.mbt file and nothing else."
+  #|         "Fix the file and return the full corrected cmd/main/main.mbt only."
   #|       ].join("\\n");
   #|       return {
-  #|         modeText: "repair / guided-summary",
+  #|         modeText: "repair / frontier-conversation",
   #|         systemPrompt,
-  #|         userPrompt,
+  #|         userPrompt: `${priorConversation.map((item) => `${String(item.role).toUpperCase()}:\n${String(item.content)}`).join("\\n\\n---\\n\\n")}\\n\\n---\\n\\nUSER:\\n${repairUserPrompt}`,
   #|         openaiMessages: [
   #|           { role: "system", content: systemPrompt },
-  #|           { role: "user", content: userPrompt }
+  #|           ...priorConversation,
+  #|           { role: "user", content: repairUserPrompt }
   #|         ],
-  #|         geminiUserPrompt: userPrompt
+  #|         geminiUserPrompt: `${priorConversation.map((item) => `${String(item.role).toUpperCase()}:\n${String(item.content)}`).join("\\n\\n---\\n\\n")}\\n\\n---\\n\\nUSER:\\n${repairUserPrompt}`
   #|       };
   #|     };
   #|     const requestJson = async (llm) => {
@@ -1277,9 +1424,14 @@ extern "js" fn browser_update_result_panel(raw : String) -> Unit =
   #|   if (fill) fill.style.width = `${pct}%`;
   #|   setText("#resultStatus", data.status || "ready");
   #|   const isRuntime = String(data.status || "").startsWith("runtime") || String(data.status || "").includes("ready-for-runtime");
+  #|   const resultKind = String(data.result_kind || "");
   #|   setText("#resultTitle", isRuntime
   #|     ? (data.status === "ready-for-runtime" ? "MoonAP runtime request is ready" : "MoonAP runtime result")
-  #|     : (data.status === "generated" ? "Synthetic FastQ generated locally" : "Browser-local FastQ analysis"));
+  #|     : resultKind === "streamed-file"
+  #|       ? "Browser-local large-file generation"
+  #|       : resultKind === "large-file-report"
+  #|         ? "Browser-local large-file analysis"
+  #|         : (data.status === "generated" ? "Synthetic FastQ generated locally" : "Browser-local FastQ analysis"));
   #|   setText("#metricFile", data.file_name || data.download_name || "-");
   #|   setText("#metricProcessed", bytes(data.bytes_processed ?? data.file_size_bytes ?? 0));
   #|   setText("#metricReads", data.reads_seen ?? data.read_count ?? "0");
@@ -1579,6 +1731,8 @@ extern "js" fn browser_request_skill_save(
   #|     const descriptionMap = {
   #|       "fastq-generator": "Generate a synthetic FastQ file for testing, demos, or pipeline validation.",
   #|       "fastq-analysis": "Analyze a FastQ file and report summary metrics.",
+  #|       "large-file-analysis": "Analyze a large browser-local file with chunked local streaming and report summary metrics.",
+  #|       "large-file-generation": "Generate a large browser-local file with chunked streaming output instead of buffering the whole artifact in memory.",
   #|       "excel-generator": "Generate a synthetic financial spreadsheet file.",
   #|       "finance-report-analysis": "Analyze a financial report file and produce a browser-local report.",
   #|       "browser-game": "Run a browser-local interactive game skill."
@@ -1823,6 +1977,8 @@ extern "js" fn browser_open_skill_export_dialog() -> Unit =
   #|   const defaultDescriptionMap = {
   #|     "fastq-generator": "Generate a synthetic FastQ file for testing, demos, or pipeline validation.",
   #|     "fastq-analysis": "Analyze a FastQ file and report summary metrics.",
+  #|     "large-file-analysis": "Analyze a large browser-local file with chunked local streaming and report summary metrics.",
+  #|     "large-file-generation": "Generate a large browser-local file with chunked streaming output instead of buffering the whole artifact in memory.",
   #|     "excel-generator": "Generate a synthetic financial spreadsheet file.",
   #|     "finance-report-analysis": "Analyze a financial report file and produce a browser-local report.",
   #|     "browser-game": "Run a browser-local interactive game skill."
@@ -2467,9 +2623,9 @@ extern "js" fn browser_open_skill_dialog(skill_id : String) -> Unit =
   #|     addField("benchmarkLevel", "Benchmark level (1-5)", "1");
   #|   } else if (skillId.includes("free-llm-eval")) {
   #|     set(scope, "SKILL-Hub / Experiments");
-  #|     set(title, "Free LLM MoonBit Eval");
-  #|     set(summary, "Run L1-L3 MoonBit experiments against every enabled provider/model, then persist raw JSON plus a readable markdown summary.");
-  #|     addField("evalMaxLevel", "Max benchmark level (1-3)", "3");
+  #|     set(title, "Free LLM FastQ Eval");
+  #|     set(summary, "Run the single task 'Generate a FastQ file generator.' against every enabled provider/model using the minimal prompt plus direct compile-repair strategy, then persist raw JSON plus a readable markdown summary.");
+  #|     addField("evalRepairRounds", "Max repair rounds (1-3)", "2");
   #|   } else if (skillId.includes("fastq-base-counter")) {
   #|     set(scope, "SKILL-Hub / Research / FastQ");
   #|     set(title, "FastQ Base Counter");
@@ -3428,54 +3584,16 @@ extern "js" fn browser_generate_moonbit_artifact(
   #|       setText("#promptUser", userPromptText || "No LLM prompt captured yet.");
   #|     };
   #|     const buildCodegenPrompts = (llm) => {
-  #|       const modelName = String(llm?.model || "");
-  #|       const isGpt54 = modelName.toLowerCase().includes("gpt-5.4");
   #|       const taskKind = inferTaskKind();
-  #|       const adapter = taskAdapterLines(taskKind);
-  #|       if (isGpt54) {
-  #|         const systemPrompt = [
-  #|           "You are an AI coder.",
-  #|           "You only write MoonBit code.",
-  #|           "Your job is to write MoonBit code for the user's task.",
-  #|           "Return only the full contents of cmd/main/main.mbt."
-  #|         ].join("\\n");
-  #|         return {
-  #|           modeText: "codegen / frontier-direct",
-  #|           systemPrompt,
-  #|           userPrompt: String(prompt || "")
-  #|         };
-  #|       }
-  #|       const systemPrompt = simpleMode
-  #|         ? [
-  #|             "You write MoonBit code.",
-  #|             "Return ONLY cmd/main/main.mbt.",
-  #|             "No markdown fences.",
-  #|             "No explanations.",
-  #|             "Use valid MoonBit syntax only."
-  #|           ].join("\\n")
-  #|         : [
-  #|             "You are generating MoonBit code for MoonAP.",
-  #|             "Target language: MoonBit 0.9.",
-  #|             "Output contract:",
-  #|             "- Return ONLY the contents of cmd/main/main.mbt.",
-  #|             "- Do NOT return markdown fences.",
-  #|             "- Do NOT return explanations.",
-  #|             "- Do NOT return moon.pkg or moon.mod.json.",
-  #|             "- Use valid MoonBit syntax only.",
-  #|             "- The MoonBit primer in the user prompt overrides stale prior memory."
-  #|           ].join("\\n");
-  #|       const userPrompt = [
-  #|         "Read this MoonBit 0.9 primer first and follow it strictly:",
-  #|         String(knowledgePack || ""),
-  #|         "",
-  #|         `MoonAP task title: ${String(taskTitle || "MoonBit task")}`,
-  #|         "",
-  #|         String(prompt),
-  #|         "",
-  #|         "Again: return ONLY cmd/main/main.mbt source."
+  #|       const systemPrompt = [
+  #|         "You are an AI coder.",
+  #|         "You only write MoonBit code.",
+  #|         "Your job is to write MoonBit code for the user's task.",
+  #|         "Return only the full contents of cmd/main/main.mbt."
   #|       ].join("\\n");
+  #|       const userPrompt = String(prompt || "");
   #|       return {
-  #|         modeText: simpleMode ? "codegen / simple" : "codegen / guided",
+  #|         modeText: "codegen / frontier-direct",
   #|         systemPrompt,
   #|         userPrompt
   #|       };
@@ -3833,26 +3951,55 @@ extern "js" fn browser_run_free_llm_moonbit_eval(
   #|       const text = await response.text();
   #|       return JSON.parse(text);
   #|     };
+  #|     const assessFastqSource = (sourceText) => {
+  #|       const source = String(sourceText || "");
+  #|       const lower = source.toLowerCase();
+  #|       const hasImport = /\bimport\b/.test(lower);
+  #|       const hasMain = /\bfn\s+main\b/.test(source);
+  #|       const fnNames = Array.from(source.matchAll(/\bfn\s+([A-Za-z_][A-Za-z0-9_]*)/g)).map((item) => String(item[1] || ""));
+  #|       const helperNames = fnNames.filter((item) => item !== "main");
+  #|       const hasFastqHeader = source.includes("@SEQ") || source.includes("@moonap") || source.includes("\"@\"") || source.includes("@read");
+  #|       const hasFastqPlus = source.includes("\\n+\\n") || source.includes("\"+\"") || source.includes("+\\n");
+  #|       const hasQuality = source.includes("IIII") || lower.includes("qual");
+  #|       const hasSequenceLogic = /A|C|G|T|N/.test(source) && (/\bif\b|\bmatch\b|\bfor\b|\bwhile\b/.test(source) || helperNames.length > 0);
+  #|       const missingSignals = [];
+  #|       if (!hasMain) missingSignals.push("define fn main");
+  #|       if (hasImport) missingSignals.push("remove import usage");
+  #|       if (!hasFastqHeader) missingSignals.push("emit a visible FastQ header such as @SEQ or @moonap");
+  #|       if (!hasFastqPlus) missingSignals.push("emit a plus line between sequence and quality");
+  #|       if (!hasQuality) missingSignals.push("generate an explicit quality string such as IIII or qual");
+  #|       if (!hasSequenceLogic) missingSignals.push("include visible sequence-generation logic over A/C/G/T/N");
+  #|       const pass = hasMain && !hasImport && hasFastqHeader && hasFastqPlus && hasQuality && hasSequenceLogic;
+  #|       return {
+  #|         pass,
+  #|         title: pass ? "FastQ Generator task passed" : "Compile succeeded, but FastQ Generator task failed",
+  #|         summary: pass
+  #|           ? "Compile succeeded and the generated MoonBit source shows the expected FastQ structure: a header, sequence logic, plus line, and quality generation without imports."
+  #|           : "Compile succeeded, but the generated MoonBit source does not yet look like a usable FastQ generator. MoonAP expected visible FastQ structure, sequence-generation logic, and a quality line without imports.",
+  #|         repairHint: "Keep the program compiling, but make the MoonBit source visibly look like a FastQ generator with header, sequence, plus line, and quality generation.",
+  #|         missingSignals
+  #|       };
+  #|     };
   #|     const buildMarkdown = (results) => {
   #|       const models = Array.isArray(results?.models) ? results.models : [];
   #|       const formatCell = (benchmark) => {
   #|         if (!benchmark?.attempted) return "not-run";
-  #|         if (benchmark?.raw_codegen_pass) return "raw-pass";
-  #|         if (benchmark?.assisted_pass) return `assist-pass (${Number(benchmark?.repair_attempts_used || 0)} repairs)`;
+  #|         if (benchmark?.raw_codegen_pass) return benchmark?.raw_quality_pass ? "raw-pass+quality" : "raw-compile-only";
+  #|         if (benchmark?.assisted_pass) return benchmark?.final_quality_pass ? `assist-pass+quality (${Number(benchmark?.repair_attempts_used || 0)} repairs)` : `assist-compile-only (${Number(benchmark?.repair_attempts_used || 0)} repairs)`;
   #|         return "fail";
   #|       };
   #|       return [
-  #|         "# Free LLM models ability of generating MoonBit code",
+  #|         "# Free LLM FastQ generator ability of generating MoonBit code",
   #|         "",
   #|         `Last updated: ${nowIso()}`,
   #|         "",
   #|         "## Current summary",
   #|         "",
-  #|         "| Provider | Model | API | API ms | L1 | L2 | L3 | Notes |",
-  #|         "| --- | --- | --- | ---: | --- | --- | --- | --- |",
+  #|         "| Provider | Model | API | API ms | FQ1 | Notes |",
+  #|         "| --- | --- | --- | ---: | --- | --- |",
   #|         ...models.map((item) => {
   #|           const note = item?.notes?.final_recommendation_note || item?.api_test?.message || "";
-  #|           return `| ${String(item?.provider || "")} | ${String(item?.model || "")} | ${String(item?.api_test?.status || "")} | ${String(item?.api_test?.latency_ms ?? "")} | ${formatCell(item?.benchmarks?.L1)} | ${formatCell(item?.benchmarks?.L2)} | ${formatCell(item?.benchmarks?.L3)} | ${String(note).replace(/\|/g, "/")} |`;
+  #|           return `| ${String(item?.provider || "")} | ${String(item?.model || "")} | ${String(item?.api_test?.status || "")} | ${String(item?.api_test?.latency_ms ?? "")} | ${formatCell(item?.benchmarks?.FQ1)} | ${String(note).replace(/\|/g, "/")} |`;
   #|         }),
   #|         "",
   #|         "## Raw JSON",
@@ -3861,16 +4008,38 @@ extern "js" fn browser_run_free_llm_moonbit_eval(
   #|       ].join("\n");
   #|     };
   #|     const persistResults = async (results) => {
-  #|       await fetch("/api/experiments/free-llm-moonbit/results.json", {
-  #|         method: "POST",
-  #|         headers: { "Content-Type": "application/json; charset=utf-8" },
-  #|         body: JSON.stringify(results, null, 2)
-  #|       });
-  #|       await fetch("/api/experiments/free-llm-moonbit/results.md", {
-  #|         method: "POST",
-  #|         headers: { "Content-Type": "text/markdown; charset=utf-8" },
-  #|         body: buildMarkdown(results)
-  #|       });
+  #|       const warnings = Array.isArray(results?.persistence_warnings) ? results.persistence_warnings : [];
+  #|       const pushWarning = (message) => {
+  #|         const text = String(message || "").trim();
+  #|         if (!text) return;
+  #|         if (!warnings.includes(text)) warnings.push(text);
+  #|         results.persistence_warnings = warnings;
+  #|         console.warn("MoonAP experiment persistence warning:", text);
+  #|       };
+  #|       try {
+  #|         const jsonResponse = await fetch("/api/experiments/free-llm-moonbit/results.json", {
+  #|           method: "POST",
+  #|           headers: { "Content-Type": "application/json; charset=utf-8" },
+  #|           body: JSON.stringify(results, null, 2)
+  #|         });
+  #|         if (!jsonResponse.ok) {
+  #|           pushWarning(`results.json persist failed (${jsonResponse.status})`);
+  #|         }
+  #|       } catch (error) {
+  #|         pushWarning(`results.json persist failed: ${error instanceof Error ? error.message : String(error)}`);
+  #|       }
+  #|       try {
+  #|         const markdownResponse = await fetch("/api/experiments/free-llm-moonbit/results.md", {
+  #|           method: "POST",
+  #|           headers: { "Content-Type": "text/markdown; charset=utf-8" },
+  #|           body: buildMarkdown(results)
+  #|         });
+  #|         if (!markdownResponse.ok) {
+  #|           pushWarning(`results.md persist failed (${markdownResponse.status})`);
+  #|         }
+  #|       } catch (error) {
+  #|         pushWarning(`results.md persist failed: ${error instanceof Error ? error.message : String(error)}`);
+  #|       }
   #|     };
   #|     const requestMoonBit = async (llm, systemPrompt, userPrompt, timeoutMs, maxTokens = 512, mode = "eval / raw-codegen") => {
   #|       updatePrompts(mode, systemPrompt, userPrompt);
@@ -3912,23 +4081,14 @@ extern "js" fn browser_run_free_llm_moonbit_eval(
   #|       }), timeoutMs);
   #|       return { source: cleanSource(String(json?.choices?.[0]?.message?.content || "")), latencyMs };
   #|     };
+  #|     const repairRounds = Math.max(1, Math.min(3, Number(maxLevel || 2)));
   #|     const benchmarks = [
   #|       {
-  #|         id: "L1",
-  #|         title: "Smallest valid MoonBit program",
-  #|         userPrompt: "Write cmd/main/main.mbt only. main must return the string \"hello moonbit\". No imports. No helper functions."
-  #|       },
-  #|       {
-  #|         id: "L2",
-  #|         title: "One helper plus main",
-  #|         userPrompt: "Write cmd/main/main.mbt only. Define exactly one helper that returns \"hello moonbit\". main must call the helper and return its result. No imports."
-  #|       },
-  #|       {
-  #|         id: "L3",
-  #|         title: "Simple control flow",
-  #|         userPrompt: "Write cmd/main/main.mbt only. main must return exactly \"ABC\" using compact deterministic control flow. No imports. No randomness."
+  #|         id: "FQ1",
+  #|         title: "FastQ generator",
+  #|         userPrompt: "Generate a FastQ file generator."
   #|       }
-  #|     ].slice(0, clampLevel(maxLevel));
+  #|     ];
   #|     const codegenSystemPrompt = [
   #|       "You write MoonBit code.",
   #|       "Return only cmd/main/main.mbt.",
@@ -3951,29 +4111,36 @@ extern "js" fn browser_run_free_llm_moonbit_eval(
   #|     const blankBenchmark = () => ({
   #|       attempted: false,
   #|       raw_codegen_pass: false,
+  #|       raw_quality_pass: false,
   #|       raw_codegen_compile_exit_code: null,
   #|       raw_codegen_compile_summary_kind: "",
   #|       repair_attempts_used: 0,
   #|       assisted_pass: false,
+  #|       final_quality_pass: false,
   #|       final_compile_exit_code: null,
   #|       final_compile_summary_kind: "",
+  #|       final_quality_title: "",
+  #|       final_quality_summary: "",
+  #|       final_quality_missing_signals_json: "[]",
   #|       final_source_bytes: null,
   #|       first_codegen_response_latency_ms: null,
   #|       total_time_to_first_compile_success_ms: null
   #|     });
   #|     const results = {
-  #|       experiment_name: "Free LLM models ability of generating MoonBit code",
+  #|       experiment_name: "Free LLM FastQ generator ability of generating MoonBit code",
   #|       status: "running",
   #|       generated_at: nowIso(),
   #|       prompt_protocol: {
   #|         system_prompt: codegenSystemPrompt,
-  #|         user_prompt_mode: "task-only"
+  #|         user_prompt_mode: "task-only",
+  #|         repair_mode: "frontier-conversation",
+  #|         repair_rounds: repairRounds
   #|       },
   #|       benchmarks: benchmarks.map((item) => ({ id: item.id, title: item.title, goal: item.userPrompt })),
   #|       models: []
   #|     };
   #|     const routerSummary = `${providers.length} provider(s): ${providers.map((item) => `${item.key}/${item.model}`).join(", ")}`;
-  #|     updateProcess(routerSummary, "moonbit-eval", "running", `Starting Free LLM MoonBit Eval across ${providers.length} enabled provider/model entries.`);
+  #|     updateProcess(routerSummary, "moonbit-eval", "running", `Starting Free LLM FastQ Eval across ${providers.length} enabled provider/model entries.`);
   #|     for (const provider of providers) {
   #|       const providerLabel = `${provider.key}/${provider.model}`;
   #|       const modelRecord = {
@@ -3988,7 +4155,7 @@ extern "js" fn browser_run_free_llm_moonbit_eval(
   #|           timeout: false,
   #|           non_json_response: false
   #|         },
-  #|         benchmarks: { L1: blankBenchmark(), L2: blankBenchmark(), L3: blankBenchmark() },
+  #|         benchmarks: { FQ1: blankBenchmark() },
   #|         notes: {
   #|           stalled_or_long_no_response: false,
   #|           parser_drift_notes: "",
@@ -4000,7 +4167,7 @@ extern "js" fn browser_run_free_llm_moonbit_eval(
   #|       await persistResults(results);
   #|       updateProcess(providerLabel, "llm-api-test", "running", `Testing API reachability for ${providerLabel}.`);
   #|       try {
-  #|         const ping = await requestMoonBit(provider, "Reply with OK.", "Reply with OK.", 8000, 8, "eval / api-test");
+  #|         const ping = await requestMoonBit(provider, "Reply with OK.", "Reply with OK.", 15000, 8, "eval / api-test");
   #|         modelRecord.api_test.status = "ok";
   #|         modelRecord.api_test.message = ping.source || "OK";
   #|         modelRecord.api_test.latency_ms = ping.latencyMs;
@@ -4022,7 +4189,7 @@ extern "js" fn browser_run_free_llm_moonbit_eval(
   #|         bench.attempted = true;
   #|         updateProcess(providerLabel, `moonbit-eval-${benchmark.id.toLowerCase()}`, "running", `Running ${benchmark.id} for ${providerLabel}.`);
   #|         try {
-  #|           const generated = await requestMoonBit(provider, codegenSystemPrompt, benchmark.userPrompt, 30000, 512, "eval / raw-codegen");
+  #|           const generated = await requestMoonBit(provider, codegenSystemPrompt, benchmark.userPrompt, 60000, 1024, "eval / raw-codegen");
   #|           bench.first_codegen_response_latency_ms = generated.latencyMs;
   #|           updateProcess(providerLabel, `moonbit-eval-${benchmark.id.toLowerCase()}`, "running", `Compiling raw output for ${benchmark.id}.`, generated.source);
   #|           let compile = await compileSource(generated.source);
@@ -4031,28 +4198,68 @@ extern "js" fn browser_run_free_llm_moonbit_eval(
   #|           bench.final_compile_exit_code = Number.isFinite(compile?.exit_code) ? Number(compile.exit_code) : null;
   #|           bench.final_compile_summary_kind = String(compile?.summary_kind || "");
   #|           bench.final_source_bytes = Number.isFinite(compile?.source_bytes) ? Number(compile.source_bytes) : generated.source.length;
+  #|           let quality = null;
   #|           if (compile?.ok === true) {
   #|             bench.raw_codegen_pass = true;
-  #|             bench.assisted_pass = true;
-  #|             bench.total_time_to_first_compile_success_ms = Math.round(performance.now() - benchStart);
-  #|             await persistResults(results);
-  #|             continue;
+  #|             quality = assessFastqSource(generated.source);
+  #|             bench.raw_quality_pass = Boolean(quality?.pass);
+  #|             bench.final_quality_pass = Boolean(quality?.pass);
+  #|             bench.final_quality_title = String(quality?.title || "");
+  #|             bench.final_quality_summary = String(quality?.summary || "");
+  #|             bench.final_quality_missing_signals_json = JSON.stringify(Array.isArray(quality?.missingSignals) ? quality.missingSignals : []);
+  #|             if (quality?.pass) {
+  #|               bench.assisted_pass = true;
+  #|               bench.total_time_to_first_compile_success_ms = Math.round(performance.now() - benchStart);
+  #|               await persistResults(results);
+  #|               continue;
+  #|             }
   #|           }
   #|           let repairedSource = generated.source;
-  #|           for (let repairRound = 1; repairRound <= 2; repairRound += 1) {
+  #|           for (let repairRound = 1; repairRound <= repairRounds; repairRound += 1) {
   #|             bench.repair_attempts_used = repairRound;
-  #|             const repairUserPrompt = [
-  #|               `Benchmark task: ${benchmark.userPrompt}`,
-  #|               "",
-  #|               "Current source:",
-  #|               repairedSource,
-  #|               "",
-  #|               "Compiler output:",
-  #|               String(compile?.output || compile?.trimmed_output || ""),
-  #|               "",
-  #|               "Repair the file so it compiles. Return only cmd/main/main.mbt."
-  #|             ].join("\n");
-  #|             const repaired = await requestMoonBit(provider, repairSystemPrompt, repairUserPrompt, 30000, 512, "eval / repair");
+  #|             const repairUserPrompt = quality && compile?.ok === true
+  #|               ? [
+  #|                   "USER:",
+  #|                   benchmark.userPrompt,
+  #|                   "",
+  #|                   "---",
+  #|                   "",
+  #|                   "ASSISTANT:",
+  #|                   repairedSource,
+  #|                   "",
+  #|                   "---",
+  #|                   "",
+  #|                   "USER:",
+  #|                   "The previous MoonBit file compiled under wasm-gc, but it does not yet look like a usable FastQ generator.",
+  #|                   "",
+  #|                   "System assessment:",
+  #|                   String(quality?.summary || ""),
+  #|                   "",
+  #|                   "Missing signals:",
+  #|                   ...(Array.isArray(quality?.missingSignals) && quality.missingSignals.length > 0 ? quality.missingSignals.map((item) => `- ${String(item)}`) : ["- none listed"]),
+  #|                   "",
+  #|                   "Fix the file and return the full corrected cmd/main/main.mbt only."
+  #|                 ].join("\n")
+  #|               : [
+  #|                   "USER:",
+  #|                   benchmark.userPrompt,
+  #|                   "",
+  #|                   "---",
+  #|                   "",
+  #|                   "ASSISTANT:",
+  #|                   repairedSource,
+  #|                   "",
+  #|                   "---",
+  #|                   "",
+  #|                   "USER:",
+  #|                   "The previous MoonBit file failed to compile under wasm-gc.",
+  #|                   "",
+  #|                   "Compiler error:",
+  #|                   String(compile?.output || compile?.trimmed_output || ""),
+  #|                   "",
+  #|                   "Fix the file and return the full corrected cmd/main/main.mbt only."
+  #|                 ].join("\n");
+  #|             const repaired = await requestMoonBit(provider, repairSystemPrompt, repairUserPrompt, 90000, 1024, "eval / repair");
   #|             repairedSource = repaired.source;
   #|             updateProcess(providerLabel, `moonbit-eval-${benchmark.id.toLowerCase()}`, "running", `Compile-checking repair round ${repairRound} for ${benchmark.id}.`, repairedSource);
   #|             compile = await compileSource(repairedSource);
@@ -4060,9 +4267,16 @@ extern "js" fn browser_run_free_llm_moonbit_eval(
   #|             bench.final_compile_summary_kind = String(compile?.summary_kind || "");
   #|             bench.final_source_bytes = Number.isFinite(compile?.source_bytes) ? Number(compile.source_bytes) : repairedSource.length;
   #|             if (compile?.ok === true) {
-  #|               bench.assisted_pass = true;
-  #|               bench.total_time_to_first_compile_success_ms = Math.round(performance.now() - benchStart);
-  #|               break;
+  #|               quality = assessFastqSource(repairedSource);
+  #|               bench.final_quality_pass = Boolean(quality?.pass);
+  #|               bench.final_quality_title = String(quality?.title || "");
+  #|               bench.final_quality_summary = String(quality?.summary || "");
+  #|               bench.final_quality_missing_signals_json = JSON.stringify(Array.isArray(quality?.missingSignals) ? quality.missingSignals : []);
+  #|               if (quality?.pass) {
+  #|                 bench.assisted_pass = true;
+  #|                 bench.total_time_to_first_compile_success_ms = Math.round(performance.now() - benchStart);
+  #|                 break;
+  #|               }
   #|             }
   #|           }
   #|           if (!bench.assisted_pass && String(bench.final_compile_summary_kind || "").includes("parse")) {
@@ -4077,21 +4291,23 @@ extern "js" fn browser_run_free_llm_moonbit_eval(
   #|           }
   #|         }
   #|         await persistResults(results);
-  #|         updateProcess(providerLabel, `moonbit-eval-${benchmark.id.toLowerCase()}`, bench.assisted_pass ? "succeeded" : "failed", `${benchmark.id} result for ${providerLabel}: raw=${bench.raw_codegen_pass ? "pass" : "fail"}, assisted=${bench.assisted_pass ? "pass" : "fail"}, repairs=${Number(bench.repair_attempts_used || 0)}.`);
+  #|         updateProcess(providerLabel, `moonbit-eval-${benchmark.id.toLowerCase()}`, bench.assisted_pass ? "succeeded" : "failed", `${benchmark.id} result for ${providerLabel}: raw=${bench.raw_codegen_pass ? "compile-pass" : "compile-fail"}, raw-quality=${bench.raw_quality_pass ? "pass" : "fail"}, assisted=${bench.assisted_pass ? "quality-pass" : "fail"}, repairs=${Number(bench.repair_attempts_used || 0)}.`);
   #|       }
-  #|       const l3 = modelRecord.benchmarks.L3;
-  #|       if (l3?.raw_codegen_pass) {
-  #|         modelRecord.notes.final_recommendation_note = "Strong first-pass MoonBit candidate.";
-  #|       } else if (l3?.assisted_pass) {
-  #|         modelRecord.notes.final_recommendation_note = "Usable with compiler-guided repair.";
+  #|       const fq1 = modelRecord.benchmarks.FQ1;
+  #|       if (fq1?.raw_codegen_pass && fq1?.raw_quality_pass) {
+  #|         modelRecord.notes.final_recommendation_note = "Strong first-pass FastQ MoonBit candidate.";
+  #|       } else if (fq1?.assisted_pass && fq1?.final_quality_pass) {
+  #|         modelRecord.notes.final_recommendation_note = "Usable for FastQ generator after compiler/quality-guided repair.";
+  #|       } else if (fq1?.raw_codegen_pass || fq1?.final_compile_exit_code === 0) {
+  #|         modelRecord.notes.final_recommendation_note = "Can compile, but still does not reliably satisfy the FastQ generator structure checks.";
   #|       } else {
-  #|         modelRecord.notes.final_recommendation_note = "Not yet reliable for MoonBit benchmark L3.";
+  #|         modelRecord.notes.final_recommendation_note = "Not yet reliable for the FastQ generator task.";
   #|       }
   #|       await persistResults(results);
   #|     }
   #|     results.status = "completed";
   #|     await persistResults(results);
-  #|     updateProcess(routerSummary, "moonbit-eval", "succeeded", "Free LLM MoonBit Eval completed. Results were written to artifacts/moonbit-eval-results.json and docs/experiments/free-llm-moonbit/results.md.");
+  #|     updateProcess(routerSummary, "moonbit-eval", "succeeded", "Free LLM FastQ Eval completed. Results were written to artifacts/moonbit-eval-results.json and docs/experiments/free-llm-moonbit/results.md.");
   #|     onDone(JSON.stringify(results, null, 2));
   #|   } catch (error) {
   #|     onError(error instanceof Error ? error.message : String(error));
@@ -5219,6 +5435,14 @@ fn show_skill_entry() -> Unit {
 
 ///|
 #cfg(target="js")
+fn show_experiment_entry() -> Unit {
+  browser_set_mode_panel("MoonAP Experiments")
+  browser_set_skill_panel_open(false)
+  show_skill_run_plan("free-llm-eval")
+}
+
+///|
+#cfg(target="js")
 fn show_skill_run_plan(skill_id : String) -> Unit {
   if skill_id.contains("personal.") {
     browser_load_personal_skill(
@@ -5321,7 +5545,7 @@ fn execute_dialog_skill() -> Unit {
     return
   }
   if skill_id.contains("free-llm-eval") {
-    run_free_llm_moonbit_eval(browser_dialog_param_int("evalMaxLevel", 3))
+    run_free_llm_moonbit_eval(browser_dialog_param_int("evalRepairRounds", 2))
     return
   }
   if skill_id.contains("moonbit.fastq-generator") {
@@ -5369,7 +5593,7 @@ fn run_llm_moonbit_codegen(
     browser_llm_summary(),
     "llm-codegen",
     "running",
-    "Submitting prompt to the next enabled provider in the router with the MoonBit primer injected into the user prompt.",
+    "Submitting the minimal MoonBit codegen prompt to the next enabled provider in the router.",
     "",
   )
   browser_generate_moonbit_artifact(
@@ -5398,7 +5622,7 @@ fn run_llm_moonbit_codegen(
         },
         "llm-codegen",
         "succeeded",
-        "Real LLM response received. MoonBit source captured after the MoonBit primer injection. Compile/run remains pending until the next implementation step.",
+        "Real LLM response received. MoonBit source captured from the minimal prompt flow. Compile/run remains pending until the next implementation step.",
         if source == "" {
           "No generated source returned."
         } else {
@@ -5545,9 +5769,9 @@ fn run_free_llm_moonbit_eval(max_level : Int) -> Unit {
   }
   browser_append_message(
     "assistant",
-    "Starting Free LLM MoonBit Eval. We will run the enabled provider/model entries against benchmark levels L1-L" +
+    "Starting Free LLM FastQ Eval. We will run the enabled provider/model entries against the single task 'Generate a FastQ file generator.' with the minimal prompt and up to " +
     current.to_string() +
-    " with minimal prompts, then persist raw JSON plus a markdown summary.",
+    " repair rounds, then persist raw JSON plus a markdown summary.",
   )
   browser_update_process(
     browser_llm_summary(),
@@ -5561,12 +5785,12 @@ fn run_free_llm_moonbit_eval(max_level : Int) -> Unit {
     fn(result) {
       browser_set_state(browser_pretty_json(result))
       browser_render_artifact_card(
-        "Free LLM MoonBit Eval finished", "MoonAP completed the current experiment pass and wrote both raw JSON and a markdown summary file.",
+        "Free LLM FastQ Eval finished", "MoonAP completed the current FastQ experiment pass and wrote both raw JSON and a markdown summary file.",
         "[\"experiment complete\",\"json persisted\",\"markdown persisted\"]", false,
         false, false,
       )
     },
-    fn(error) { show_error("Free LLM MoonBit Eval failed", error) },
+    fn(error) { show_error("Free LLM FastQ Eval failed", error) },
   )
 }
 
@@ -5912,7 +6136,7 @@ fn run_repair_from_compile_summary() -> Unit {
     browser_llm_summary(),
     "compile-repair",
     "running",
-    "Submitting the captured compiler failure back to the next enabled provider together with the MoonBit primer.",
+    "Submitting the captured compiler failure back to the next enabled provider with direct appended repair context.",
     "",
   )
   browser_repair_last_artifact_with_compile_summary(
@@ -6289,6 +6513,7 @@ fn main {
   browser_enable_minimal_shell()
   browser_prepare_message_input("Generate a FastQ file generator.")
   browser_on_submit(fn() { submit_message() })
+  browser_on_click("#experimentButton", fn() { show_experiment_entry() })
   browser_on_click("#detailsToggle", fn() { browser_toggle_details() })
   browser_on_click("#llmButton", fn() { show_llm_entry() })
   browser_on_click("#skillButton", fn() { show_skill_entry() })

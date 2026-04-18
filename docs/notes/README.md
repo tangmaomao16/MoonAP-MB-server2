@@ -9,6 +9,7 @@ Current canonical topics:
 - [Developer-2 SKILL Hub ZIP Handoff](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/notes/2026-04-18-developer-2-skill-hub-zip-handoff.md)
 - [Developer-2 Path Normalization Handoff](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/notes/2026-04-18-developer-2-path-normalization-handoff.md)
 - [Developer-3 Real LLM API Environment Note](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/notes/2026-04-18-developer-3-real-llm-api-environment-note.md)
+- [Developer-3 Large-File Runtime Handoff](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/notes/2026-04-19-developer-3-large-file-runtime-handoff.md)
 - [Three-Thread Simulation Notes](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/three-thread-codex-simulation-notes.md)
 - [Free LLM MoonBit Results](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/free-llm-moonbit-results.md)
 

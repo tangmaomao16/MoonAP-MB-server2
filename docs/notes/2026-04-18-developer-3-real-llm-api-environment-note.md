@@ -329,3 +329,106 @@ If `NVIDIA` and `ZAI` suddenly stop working while `Simulated GPT-5.4` still work
 the first question should now be:
 
 `What environment did the current MoonAP server process inherit?`
+
+## Follow-up recurrence on 2026-04-18 night
+
+Later on the same day, the same category of problem appeared again after another
+server restart while adding the new top-right `Experiment` button.
+
+The browser-visible symptom changed slightly:
+
+- `openai/gpt-5.4` (`llm-sim`) still passed `llm-api-test`
+- real providers such as `NVIDIA`, `ZAI`, `SiliconFlow`, and `OpenRouter`
+  started showing browser-side `Failed to fetch`
+
+At first glance this looked different from the earlier:
+
+- `TlsError("No credentials are available in the security package")`
+
+But the underlying cause was still in the same family: the real-provider proxy path
+was again running in an environment where outbound real HTTPS/TLS calls were not
+healthy.
+
+### What was re-verified
+
+The important re-check sequence was:
+
+1. `GET /api/health` still worked
+2. `POST /api/llm/proxy` with `moonap://llm-sim` still worked
+3. `POST /api/llm/proxy` with real provider URLs failed
+
+That proved:
+
+- MoonAP server itself was alive
+- the `/api/llm/proxy` route itself was alive
+- only the real external HTTPS path was broken
+
+### Why the browser showed `Failed to fetch`
+
+During this recurrence, the browser was not receiving a normal JSON error payload.
+Instead, the local connection for `/api/llm/proxy` was being closed unexpectedly.
+
+To make this diagnosable, an additional defensive wrapper was added around the
+server-side `/api/llm/proxy` route so that unexpected internal failures are
+returned as JSON instead of silently terminating the connection.
+
+That exposed a more precise combined error:
+
+- direct MoonBit HTTP path still hit:
+  - `TlsError("No credentials are available in the security package")`
+- `curl.exe` fallback itself could also fail while decoding output:
+  - `moonbitlang/core/encoding/utf8.Malformed.Malformed`
+
+### Critical proof: this was still environment-level, not provider config
+
+After restarting MoonAP server outside the restricted Codex execution environment
+again, the same minimal invalid-token probes recovered immediately:
+
+- NVIDIA proxy returned a real provider response:
+  - `401 Unauthorized`
+- ZAI proxy returned a real provider response:
+  - `401 令牌已过期或验证不正确`
+
+This is the most important repeated conclusion:
+
+- the provider route was valid
+- the local proxy logic was basically valid
+- the observed browser failure was caused by how the server process was started,
+  not by wrong model IDs or broken router configuration
+
+### Practical operator takeaway
+
+If this happens again:
+
+1. do not first rewrite router config
+2. do not first change prompt strategy
+3. first restart MoonAP server outside the restricted environment
+4. then re-check `/api/llm/proxy` with intentionally invalid provider credentials
+
+Expected interpretation:
+
+- if invalid credentials now produce provider `401`, networking is restored
+- once that is true, browser testing can continue normally
+
+### Important related operational detail
+
+This recurrence also reconfirmed a Windows build/runtime annoyance:
+
+- `server.exe` in the release build can stay locked while still running
+- attempts to rebuild then fail with `LNK1104`
+
+The safe sequence is:
+
+1. stop the running `server.exe`
+2. rebuild the release target
+3. restart server in the clean environment
+
+### Bottom line
+
+Yes, this recurrence used essentially the **same solution pattern** as the earlier
+incident:
+
+- avoid the restricted / contaminated execution environment
+- restart MoonAP server in a cleaner environment
+- confirm recovery by checking for real provider `401` responses instead of local
+  transport failures

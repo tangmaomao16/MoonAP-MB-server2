@@ -125,9 +125,9 @@ extern "js" fn browser_render_artifact_card(
   #|     const isFastqRuntime = taskKind === "fastq-generator";
   #|     const eyebrow = runtimeDone ? "Runtime result" : "Runtime ready";
   #|     const statusHtml = runtimeDone
-  #|       ? '<span>result recorded</span><span>ready to save</span>'
+  #|       ? '<span>result recorded</span><span>ready to rerun</span><span>ready to save</span>'
   #|       : '<span>wasm prepared</span><span>awaiting local execution</span>';
-  #|     const paramsHtml = runtimeReady && !runtimeDone && runtimeFields.length
+  #|     const paramsHtml = runtimeFields.length
   #|       ? `<div class="action-card-params">${runtimeFields.map((field) => {
   #|           const name = String(field?.name || "");
   #|           const label = String(field?.label || name || "Parameter");
@@ -145,9 +145,13 @@ extern "js" fn browser_render_artifact_card(
   #|           return `<label><span>${label}</span><input ${attrs} /></label>`;
   #|         }).join("")}</div>`
   #|       : "";
-  #|     const primaryAction = runtimeDone
-  #|       ? (allowSave ? '<button id="savePersonalSkill" class="primary" type="button">Save to Personal-SKILL-Set</button>' : '')
-  #|       : `<button id="recordDemoRuntimeResult" class="primary" type="button">${String(runtimeSpec?.action_label || runtimeSpec?.primary_action_label || (runtimeMode === "interactive" ? "Run game" : "Run runtime step"))}</button>`;
+  #|     const runLabel = runtimeDone
+  #|       ? String(runtimeSpec?.rerun_action_label || runtimeSpec?.action_label || runtimeSpec?.primary_action_label || (runtimeMode === "interactive" ? "Run again" : "Run generator again"))
+  #|       : String(runtimeSpec?.action_label || runtimeSpec?.primary_action_label || (runtimeMode === "interactive" ? "Run game" : "Run runtime step"));
+  #|     const primaryAction = [
+  #|       `<button id="recordDemoRuntimeResult" class="primary" type="button">${runLabel}</button>`,
+  #|       runtimeDone && allowSave ? '<button id="savePersonalSkill" class="secondary strong" type="button">Save to Personal-SKILL-Set</button>' : ''
+  #|     ].filter(Boolean).join("");
   #|     const secondaryActions = [
   #|       wasmUrl ? '<button id="downloadRuntimeWasm" class="secondary" type="button">Download wasm</button>' : '',
   #|       sourceUrl ? '<button id="downloadRuntimeSource" class="secondary" type="button">Download source</button>' : '',
@@ -179,6 +183,27 @@ extern "js" fn browser_render_artifact_card(
   #|       </div>`;
   #|   }
   #|   root.append(card);
+  #| }
+
+///|
+#cfg(target="js")
+extern "js" fn browser_show_toast(message : String) -> Unit =
+  #| (message) => {
+  #|   const text = String(message || "").trim();
+  #|   if (!text) return;
+  #|   let toast = document.querySelector("#moonapToast");
+  #|   if (!toast) {
+  #|     toast = document.createElement("div");
+  #|     toast.id = "moonapToast";
+  #|     toast.className = "moonap-toast";
+  #|     document.body.append(toast);
+  #|   }
+  #|   toast.textContent = text;
+  #|   toast.classList.add("is-open");
+  #|   if (toast.__moonapTimer) clearTimeout(toast.__moonapTimer);
+  #|   toast.__moonapTimer = setTimeout(() => {
+  #|     toast.classList.remove("is-open");
+  #|   }, 2600);
   #| }
 
 ///|
@@ -1308,30 +1333,294 @@ extern "js" fn browser_request_skill_save(
   #| async (onDone, onError) => {
   #|   try {
   #|     const runtimeResult = globalThis.__moonapLastRuntimeResult;
+  #|     const runtimeRequest = globalThis.__moonapLastRuntimeRequest;
+  #|     const artifact = globalThis.__moonapLastArtifact;
   #|     if (!runtimeResult || typeof runtimeResult !== "object") {
   #|       throw new Error("No runtime result is available yet.");
+  #|     }
+  #|     if (!runtimeRequest || typeof runtimeRequest !== "object") {
+  #|       throw new Error("No runtime request is available yet.");
+  #|     }
+  #|     if (!artifact || typeof artifact !== "object") {
+  #|       throw new Error("No generated MoonBit artifact is available yet.");
   #|     }
   #|     const requestId = String(runtimeResult.request_id || "");
   #|     const status = String(runtimeResult.status || "");
   #|     if (!requestId || !status.includes("succeeded")) {
   #|       throw new Error("MoonAP requires a successful runtime result before saving as a SKILL.");
   #|     }
+  #|     const rootHandle = globalThis.__moonapSkillExportRootHandle;
+  #|     if (!rootHandle || typeof rootHandle.getDirectoryHandle !== "function") {
+  #|       throw new Error("Choose a save location before exporting this SKILL.");
+  #|     }
+  #|     const taskKind = String(runtimeRequest.task_kind || "generic");
+  #|     const runtimeMode = String(runtimeRequest.runtime_mode || "form");
+  #|     const resultMode = String(runtimeRequest.result_mode || "text");
+  #|     const runtimeSpec = runtimeRequest?.runtime_spec && typeof runtimeRequest.runtime_spec === "object"
+  #|       ? runtimeRequest.runtime_spec
+  #|       : (runtimeRequest?.runtime_ui && typeof runtimeRequest.runtime_ui === "object" ? runtimeRequest.runtime_ui : {});
+  #|     const fields = Array.isArray(runtimeSpec.fields) ? runtimeSpec.fields : [];
+  #|     const descriptionMap = {
+  #|       "fastq-generator": "Generate a synthetic FastQ file for testing, demos, or pipeline validation.",
+  #|       "fastq-analysis": "Analyze a FastQ file and report summary metrics.",
+  #|       "excel-generator": "Generate a synthetic financial spreadsheet file.",
+  #|       "finance-report-analysis": "Analyze a financial report file and produce a browser-local report.",
+  #|       "browser-game": "Run a browser-local interactive game skill."
+  #|     };
+  #|     const enteredName = String(globalThis.__moonapSkillExportName || "").trim();
+  #|     if (!enteredName) {
+  #|       throw new Error("Enter a SKILL name before exporting.");
+  #|     }
+  #|     if (/[\\/:*?"<>|]/.test(enteredName)) {
+  #|       throw new Error("SKILL name contains characters that cannot be used in a folder name on this computer.");
+  #|     }
+  #|     if (enteredName.endsWith(".") || enteredName.endsWith(" ")) {
+  #|       throw new Error("SKILL name cannot end with a dot or space.");
+  #|     }
+  #|     const folderName = enteredName;
+  #|     const defaultDescription = String(descriptionMap[taskKind] || `Run a reusable MoonAP workflow for ${taskKind}.`);
+  #|     const description = String(globalThis.__moonapSkillExportDescription || "").trim() || defaultDescription;
+  #|     const sourceText = String(artifact?.moonbit_source || "");
+  #|     const wasmUrl = String(runtimeRequest?.wasm_url || "");
+  #|     if (!wasmUrl) {
+  #|       throw new Error("MoonAP runtime request does not include a wasm_url.");
+  #|     }
+  #|     const fetchBinary = async (path) => {
+  #|       const response = await fetch(path);
+  #|       if (!response.ok) throw new Error(`Failed to fetch ${path} (${response.status})`);
+  #|       return new Uint8Array(await response.arrayBuffer());
+  #|     };
+  #|     const wasmBytes = await fetchBinary(wasmUrl);
+  #|     const writeText = async (dirHandle, fileName, text) => {
+  #|       const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
+  #|       const writable = await fileHandle.createWritable();
+  #|       await writable.write(String(text || ""));
+  #|       await writable.close();
+  #|     };
+  #|     const writeBinary = async (dirHandle, fileName, bytes) => {
+  #|       const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
+  #|       const writable = await fileHandle.createWritable();
+  #|       await writable.write(bytes);
+  #|       await writable.close();
+  #|     };
+  #|     const skillDir = await rootHandle.getDirectoryHandle(folderName, { create: true });
+  #|     const programDir = await skillDir.getDirectoryHandle("program", { create: true });
+  #|     const inputLines = fields.length === 0
+  #|       ? ["- none"]
+  #|       : fields.map((field) => {
+  #|           const name = String(field?.name || "input");
+  #|           const label = String(field?.label || name);
+  #|           const kind = String(field?.type || field?.kind || "text");
+  #|           const defaultValue = field?.default;
+  #|           const suffix = defaultValue === undefined ? "" : ` (default: ${String(defaultValue)})`;
+  #|           return `- ${name}: ${label} [${kind}]${suffix}`;
+  #|         });
+  #|     const outputText = resultMode === "download"
+  #|       ? `A downloadable artifact. Latest result summary: ${String(runtimeResult.summary || "")}`
+  #|       : resultMode === "report"
+  #|         ? `A browser-visible report. Latest result summary: ${String(runtimeResult.summary || "")}`
+  #|         : resultMode === "interactive"
+  #|           ? `An interactive browser-local result. Latest result summary: ${String(runtimeResult.summary || "")}`
+  #|           : String(runtimeResult.summary || "A browser-visible runtime result.");
+  #|     const keyAttributes = [
+  #|       `- task kind: ${taskKind}`,
+  #|       `- runtime mode: ${runtimeMode}`,
+  #|       `- result mode: ${resultMode}`,
+  #|       "- wasm path: program/main.wasm"
+  #|     ];
+  #|     if (sourceText.trim()) keyAttributes.push("- moonbit source path: program/main.mbt");
+  #|     const skillMd = [
+  #|       "---",
+  #|       `name: ${folderName}`,
+  #|       `description: ${description}`,
+  #|       "---",
+  #|       "",
+  #|       "# Key Attributes",
+  #|       ...keyAttributes,
+  #|       "",
+  #|       "# Inputs",
+  #|       ...inputLines,
+  #|       "",
+  #|       "# Output",
+  #|       outputText,
+  #|       "",
+  #|       "# Runtime Spec",
+  #|       "```json",
+  #|       JSON.stringify(runtimeSpec, null, 2),
+  #|       "```"
+  #|     ].join("\n");
+  #|     await writeText(skillDir, "SKILL.md", skillMd);
+  #|     await writeBinary(programDir, "main.wasm", wasmBytes);
+  #|     if (sourceText.trim()) {
+  #|       await writeText(programDir, "main.mbt", sourceText);
+  #|     }
+  #|     let skills = [];
+  #|     try {
+  #|       const parsed = JSON.parse(localStorage.getItem("moonap.personal.skills") || "[]");
+  #|       skills = Array.isArray(parsed) ? parsed : [];
+  #|     } catch {}
+  #|     const skillRecord = {
+  #|       id: `personal.${folderName}`,
+  #|       name: enteredName,
+  #|       description,
+  #|       task_kind: taskKind,
+  #|       runtime_mode: runtimeMode,
+  #|       result_mode: resultMode,
+  #|       runtime_ready: true,
+  #|       export_root_name: String(rootHandle.name || ""),
+  #|       saved_at: new Date().toISOString()
+  #|     };
+  #|     skills = skills.filter((item) => String(item?.id || "") !== skillRecord.id);
+  #|     skills.unshift(skillRecord);
+  #|     try { localStorage.setItem("moonap.personal.skills", JSON.stringify(skills)); } catch {}
   #|     const response = await fetch("/api/skill-export/save-decision", {
   #|       method: "POST",
   #|       headers: { "Content-Type": "application/json; charset=utf-8" },
   #|       body: JSON.stringify({
   #|         request_id: requestId,
   #|         decision: "accepted-save-skill",
-  #|         reason: "User accepted the runtime result and wants to reuse this workflow as a SKILL."
+  #|         reason: `User accepted the runtime result and exported this workflow as a SKILL folder named ${folderName}.`
   #|       })
   #|     });
   #|     const text = await response.text();
   #|     if (!response.ok) throw new Error(text || `Skill save decision failed (${response.status})`);
-  #|     onDone(String(text));
+  #|     const parsed = (() => { try { return JSON.parse(String(text || "{}")); } catch { return {}; } })();
+  #|     parsed.exported_folder_name = folderName;
+  #|     parsed.exported_root_name = String(rootHandle.name || "");
+  #|     onDone(JSON.stringify(parsed, null, 2));
   #|   } catch (error) {
   #|     onError(error instanceof Error ? error.message : String(error));
   #|   }
   #| }
+
+///|
+#cfg(target="js")
+extern "js" fn browser_open_skill_export_dialog() -> Unit =
+  #| () => {
+  #|   let dialog = document.querySelector("#skillExportDialog");
+  #|   if (!dialog) {
+  #|     dialog = document.createElement("dialog");
+  #|     dialog.id = "skillExportDialog";
+  #|     dialog.className = "skill-dialog skill-export-dialog";
+  #|     dialog.innerHTML = `
+  #|       <form method="dialog" class="skill-dialog-body">
+  #|         <div class="dialog-head"><span>PERSONAL SKILL</span><strong>Save workflow as SKILL</strong></div>
+  #|         <p class="dialog-summary">Choose a SKILL name, optionally adjust the description, then pick a folder location. The browser will ask for permission to create files in the selected directory.</p>
+  #|         <div class="dialog-fields">
+  #|           <label><span>SKILL name</span><input id="skillExportName" type="text" /></label>
+  #|           <label><span>Description</span><textarea id="skillExportDescription" rows="3"></textarea></label>
+  #|           <div class="skill-export-path">
+  #|             <div class="skill-export-path-meta">
+  #|               <span>Save location</span>
+  #|               <small id="skillExportPathLabel">No folder selected yet.</small>
+  #|             </div>
+  #|             <button id="skillExportChoosePath" class="dialog-button secondary" type="button">Choose save location</button>
+  #|           </div>
+  #|         </div>
+  #|         <div class="dialog-actions">
+  #|           <button id="skillExportCancel" class="dialog-button" type="button">Cancel</button>
+  #|           <button id="skillExportConfirm" class="dialog-button primary" type="button">Save SKILL</button>
+  #|         </div>
+  #|       </form>`;
+  #|     document.body.append(dialog);
+  #|   }
+  #|   const runtimeRequest = globalThis.__moonapLastRuntimeRequest || {};
+  #|   const artifact = globalThis.__moonapLastArtifact || {};
+  #|   const taskKind = String(runtimeRequest.task_kind || "generic");
+  #|   const defaultDescriptionMap = {
+  #|     "fastq-generator": "Generate a synthetic FastQ file for testing, demos, or pipeline validation.",
+  #|     "fastq-analysis": "Analyze a FastQ file and report summary metrics.",
+  #|     "excel-generator": "Generate a synthetic financial spreadsheet file.",
+  #|     "finance-report-analysis": "Analyze a financial report file and produce a browser-local report.",
+  #|     "browser-game": "Run a browser-local interactive game skill."
+  #|   };
+  #|   const defaultName = String(globalThis.__moonapSkillExportName || artifact?.name || artifact?.skill?.folder_name || taskKind || "moonap-skill").trim() || "moonap-skill";
+  #|   const defaultDescription = String(globalThis.__moonapSkillExportDescription || defaultDescriptionMap[taskKind] || `Run a reusable MoonAP workflow for ${taskKind}.`);
+  #|   const nameInput = document.querySelector("#skillExportName");
+  #|   const descriptionInput = document.querySelector("#skillExportDescription");
+  #|   const pathLabel = document.querySelector("#skillExportPathLabel");
+  #|   if (nameInput) nameInput.value = defaultName;
+  #|   if (descriptionInput) descriptionInput.value = defaultDescription;
+  #|   const rootHandle = globalThis.__moonapSkillExportRootHandle;
+  #|   if (pathLabel) {
+  #|     pathLabel.textContent = rootHandle && rootHandle.name
+  #|       ? `Selected folder: ${String(rootHandle.name)}`
+  #|       : "No folder selected yet.";
+  #|   }
+  #|   dialog.showModal();
+  #| }
+
+///|
+#cfg(target="js")
+extern "js" fn browser_close_skill_export_dialog() -> Unit =
+  #| () => document.querySelector("#skillExportDialog")?.close()
+
+///|
+#cfg(target="js")
+extern "js" fn browser_choose_skill_export_path(
+  on_done : (String) -> Unit,
+  on_error : (String) -> Unit,
+) -> Unit =
+  #| async (onDone, onError) => {
+  #|   try {
+  #|     if (typeof window.showDirectoryPicker !== "function") {
+  #|       throw new Error("This browser does not support directory selection for SKILL export.");
+  #|     }
+  #|     const handle = await window.showDirectoryPicker({ mode: "readwrite" });
+  #|     globalThis.__moonapSkillExportRootHandle = handle;
+  #|     const label = document.querySelector("#skillExportPathLabel");
+  #|     if (label) label.textContent = `Selected folder: ${String(handle?.name || "")}`;
+  #|     onDone(String(handle?.name || ""));
+  #|   } catch (error) {
+  #|     onError(error instanceof Error ? error.message : String(error));
+  #|   }
+  #| }
+
+///|
+#cfg(target="js")
+extern "js" fn browser_on_skill_export_choose_path(
+  handler : () -> Unit,
+) -> Unit =
+  #| (handler) => document.addEventListener("click", (event) => {
+  #|   if (event.target?.id !== "skillExportChoosePath") return;
+  #|   event.preventDefault();
+  #|   event.stopPropagation();
+  #|   try {
+  #|     handler();
+  #|   } catch (error) {
+  #|     alert(`MoonAP skill export path selection failed: ${error instanceof Error ? error.message : String(error)}`);
+  #|   }
+  #| })
+
+///|
+#cfg(target="js")
+extern "js" fn browser_on_skill_export_confirm(handler : () -> Unit) -> Unit =
+  #| (handler) => document.addEventListener("click", (event) => {
+  #|   if (event.target?.id !== "skillExportConfirm") return;
+  #|   event.preventDefault();
+  #|   event.stopPropagation();
+  #|   try {
+  #|     globalThis.__moonapSkillExportName = String(document.querySelector("#skillExportName")?.value || "").trim();
+  #|     globalThis.__moonapSkillExportDescription = String(document.querySelector("#skillExportDescription")?.value || "").trim();
+  #|     handler();
+  #|   } catch (error) {
+  #|     alert(`MoonAP skill export failed: ${error instanceof Error ? error.message : String(error)}`);
+  #|   }
+  #| })
+
+///|
+#cfg(target="js")
+extern "js" fn browser_on_skill_export_cancel(handler : () -> Unit) -> Unit =
+  #| (handler) => document.addEventListener("click", (event) => {
+  #|   if (event.target?.id !== "skillExportCancel") return;
+  #|   event.preventDefault();
+  #|   event.stopPropagation();
+  #|   try {
+  #|     handler();
+  #|   } catch (error) {
+  #|     console.error("MoonAP skill export cancel failed:", error);
+  #|   }
+  #| })
 
 ///|
 #cfg(target="js")
@@ -3338,7 +3627,7 @@ extern "js" fn browser_render_personal_skills() -> Int =
   #|   if (skills.length === 0) {
   #|     const empty = document.createElement("div");
   #|     empty.className = "personal-skill-empty";
-  #|     empty.textContent = "No runnable Personal SKILL yet. MoonAP source capture is working; real compile and runtime wiring are the next step before Personal-SKILL-Set becomes reusable.";
+  #|     empty.textContent = "No Personal SKILL has been exported yet.";
   #|     root.append(empty);
   #|     return 0;
   #|   }
@@ -3347,7 +3636,11 @@ extern "js" fn browser_render_personal_skills() -> Int =
   #|     card.className = "skill-card personal";
   #|     card.type = "button";
   #|     card.dataset.skillId = skill.id || "personal.fastq-generator";
-  #|     card.innerHTML = `<span>Local / Generated</span><strong>${skill.name || "Personal FastQ Generator"}</strong><small>Saved locally in this browser. Reusable without LLM.</small>`;
+  #|     const rootName = String(skill.export_root_name || "");
+  #|     const subtitle = rootName
+  #|       ? `Saved in ${rootName}. Reusable without LLM.`
+  #|       : "Saved locally. Reusable without LLM.";
+  #|     card.innerHTML = `<span>Local / Exported</span><strong>${skill.name || "Personal FastQ Generator"}</strong><small>${subtitle}</small>`;
   #|     root.append(card);
   #|   }
   #|   return skills.length;
@@ -4328,6 +4621,8 @@ fn on_skill_save_decision(raw : String) -> Unit {
   let request_id = browser_artifact_field(raw, "request_id")
   let decision = browser_artifact_field(raw, "decision")
   let reason = browser_artifact_field(raw, "reason")
+  let exported_folder = browser_artifact_field(raw, "exported_folder_name")
+  let exported_root = browser_artifact_field(raw, "exported_root_name")
   if !browser_has_last_artifact_source() {
     return
   }
@@ -4351,16 +4646,43 @@ fn on_skill_save_decision(raw : String) -> Unit {
       "",
     )
     browser_render_artifact_card(
-      "SKILL save decision recorded",
+      "SKILL export completed",
       if reason == "" {
-        "MoonAP recorded the current save-to-SKILL decision."
+        "MoonAP exported the current workflow as a Personal SKILL. You can still rerun the program from this page."
+      } else if exported_folder == "" {
+        reason + " You can still rerun the program from this page."
+      } else if exported_root == "" {
+        reason +
+        " Exported folder: " +
+        exported_folder +
+        ". You can still rerun the program from this page."
       } else {
-        reason
+        reason +
+        " Exported to " +
+        exported_root +
+        "/" +
+        exported_folder +
+        ". You can still rerun the program from this page."
       },
       "[\"skill decision\",\"recorded\"]",
       false,
       false,
-      false,
+      true,
+    )
+    browser_show_toast(
+      if exported_folder == "" {
+        "SKILL saved. You can rerun the program or save another copy with a different name."
+      } else if exported_root == "" {
+        "SKILL saved as " +
+        exported_folder +
+        ". You can rerun the program or save another copy."
+      } else {
+        "SKILL saved to " +
+        exported_root +
+        "/" +
+        exported_folder +
+        ". You can rerun the program or save another copy."
+      },
     )
   }
 }
@@ -4486,9 +4808,16 @@ fn main {
       false,
     )
   })
-  browser_on_save_personal_skill(fn() {
+  browser_on_save_personal_skill(fn() { browser_open_skill_export_dialog() })
+  browser_on_skill_export_choose_path(fn() {
+    browser_choose_skill_export_path(fn(_folder_name) { () }, fn(error) {
+      show_error("skill-export path selection failed", error)
+    })
+  })
+  browser_on_skill_export_confirm(fn() {
     browser_request_skill_save(
       fn(result) {
+        browser_close_skill_export_dialog()
         ignore(browser_render_personal_skills())
         browser_set_skill_panel_open(true)
         on_skill_save_decision(result)
@@ -4496,6 +4825,7 @@ fn main {
       fn(error) { show_error("save-to-skill failed", error) },
     )
   })
+  browser_on_skill_export_cancel(fn() { browser_close_skill_export_dialog() })
   browser_watch_runtime_protocol(
     fn(raw) { on_runtime_request_ready(raw) },
     fn(raw) { on_runtime_result_ready(raw) },

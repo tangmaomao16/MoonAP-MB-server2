@@ -1102,7 +1102,8 @@ fn runtime_exec_request_json_from_fields(
 fn runtime_mode_for_task_kind(task_kind : String) -> String {
   if task_kind == "fastq-generator" || task_kind == "excel-generator" {
     "form"
-  } else if task_kind == "fastq-analysis" || task_kind == "finance-report-analysis" {
+  } else if task_kind == "fastq-analysis" ||
+    task_kind == "finance-report-analysis" {
     "file"
   } else if task_kind == "browser-game" {
     "interactive"
@@ -1115,7 +1116,8 @@ fn runtime_mode_for_task_kind(task_kind : String) -> String {
 fn result_mode_for_task_kind(task_kind : String) -> String {
   if task_kind == "fastq-generator" || task_kind == "excel-generator" {
     "download"
-  } else if task_kind == "fastq-analysis" || task_kind == "finance-report-analysis" {
+  } else if task_kind == "fastq-analysis" ||
+    task_kind == "finance-report-analysis" {
     "report"
   } else if task_kind == "browser-game" {
     "interactive"
@@ -2842,13 +2844,13 @@ fn web_style_css() -> String {
     ".tagline { margin: 0; color: #5f5f5f; font-size: 15px; text-align: center; line-height: 1.45; }",
     ".entry-actions { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }",
     ".entry-button { min-width: 110px; height: 42px; border: 1px solid #d8d8d8; border-radius: 999px; background: #ffffff; color: #111111; font-weight: 650; }",
-    ".entry-button.primary { background: #111111; color: #ffffff; border-color: #111111; }",
-    ".entry-button:hover { background: #f4f4f4; }", ".entry-button.primary:hover { background: #2a2a2a; }",
+    ".entry-button.primary { background: #1f7a5b; color: #ffffff; border-color: #1f7a5b; }",
+    ".entry-button:hover { background: #f4f4f4; }", ".entry-button.primary:hover { background: #195f47; }",
     ".verify-option { display: none; align-items: center; justify-content: center; gap: 8px; color: #6a6a6a; font-size: 13px; }",
     ".onboarding-card { max-width: 720px; margin: 0 auto; display: none; gap: 12px; padding: 16px; border: 1px solid #dfe7e3; border-radius: 14px; background: #f7fbf9; }",
     ".onboarding-card.is-open { display: grid; }", ".onboarding-card strong { font-size: 15px; }",
     ".onboarding-card small { color: #555555; line-height: 1.5; }", ".onboarding-actions { display: flex; flex-wrap: wrap; gap: 10px; }",
-    ".onboarding-actions button { height: 38px; border: 1px solid #111111; border-radius: 999px; padding: 0 16px; background: #111111; color: #ffffff; cursor: pointer; }",
+    ".onboarding-actions button { height: 38px; border: 1px solid #1f7a5b; border-radius: 999px; padding: 0 16px; background: #1f7a5b; color: #ffffff; cursor: pointer; }",
     ".onboarding-actions button.secondary { border-color: #d8d8d8; background: #ffffff; color: #111111; }",
     ".verify-option input { width: 14px; height: 14px; accent-color: #111111; }",
     ".privacy-strip { display: none; width: 100%; padding: 10px 12px; border: 1px solid #cde4da; border-radius: 12px; background: #f7fbf9; color: #225c46; font-size: 13px; text-align: center; }",
@@ -2880,7 +2882,7 @@ fn web_style_css() -> String {
     ".action-card-params label { display: grid; gap: 6px; font-size: 12px; color: #335748; }",
     ".action-card-params label span { font-weight: 600; }", ".action-card-params input { width: 100%; min-height: 38px; border: 1px solid #d0ddd6; border-radius: 10px; padding: 0 12px; background: #ffffff; color: #14261d; font: inherit; }",
     ".action-card-primary, .action-card-secondary { display: flex; flex-wrap: wrap; gap: 10px; }",
-    ".action-card-primary button.primary { background: #111111; color: #ffffff; border-color: #111111; }",
+    ".action-card-primary button.primary { background: #1f7a5b; color: #ffffff; border-color: #1f7a5b; }",
     ".action-card-secondary { padding-top: 2px; }", ".action-card-secondary button.secondary { background: rgba(255,255,255,0.84); border-color: #d4dfd8; color: #193529; }",
     ".result-panel { width: 100%; display: none; gap: 12px; padding: 16px; border: 1px solid #e0e0e0; border-radius: 14px; background: #ffffff; box-shadow: 0 12px 36px rgba(0,0,0,0.06); }",
     ".result-panel.is-open { display: grid; }", ".result-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }",
@@ -2908,9 +2910,10 @@ fn web_style_css() -> String {
     ".dialog-toggle input { width: 14px; height: 14px; accent-color: #111111; }",
     ".router-test-status { min-height: 88px; max-height: 180px; overflow: auto; white-space: pre-wrap; padding: 12px; border: 1px solid #e5e5e5; border-radius: 12px; background: #fafafa; color: #222222; font-size: 12px; line-height: 1.5; }",
     ".dialog-actions { display: flex; justify-content: flex-end; gap: 10px; }", ".dialog-button { height: 38px; border: 1px solid #d8d8d8; border-radius: 999px; padding: 0 16px; background: #ffffff; }",
-    ".dialog-button.primary { border-color: #111111; background: #111111; color: #ffffff; }",
-    ".dialog-button:hover { background: #f3f3f3; }", ".dialog-button.primary:hover { background: #2a2a2a; }",
-    ".messages { width: min(920px, calc(100vw - 48px - var(--details-space))); margin: 0 auto; display: grid; gap: 18px; transition: width 160ms ease; }",
+    ".dialog-button.primary { border-color: #1f7a5b; background: #1f7a5b; color: #ffffff; }",
+    ".dialog-button:hover { background: #f3f3f3; }", ".dialog-button.primary:hover { background: #195f47; }",
+    ".moonap-toast { position: fixed; right: 24px; bottom: 26px; max-width: min(420px, calc(100vw - 48px)); padding: 12px 16px; border-radius: 14px; border: 1px solid #cde4da; background: rgba(247, 251, 249, 0.98); color: #194433; box-shadow: 0 18px 44px rgba(24, 48, 37, 0.14); font-size: 14px; line-height: 1.45; opacity: 0; transform: translateY(10px); pointer-events: none; transition: opacity 140ms ease, transform 140ms ease; z-index: 1200; }",
+    ".moonap-toast.is-open { opacity: 1; transform: translateY(0); }", ".messages { width: min(920px, calc(100vw - 48px - var(--details-space))); margin: 0 auto; display: grid; gap: 18px; transition: width 160ms ease; }",
     ".message { max-width: 720px; padding: 16px 18px; border-radius: 18px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }",
     ".message.user { justify-self: end; background: #f4f4f4; color: #111111; }",
     ".message.assistant { justify-self: start; background: transparent; color: #111111; }",

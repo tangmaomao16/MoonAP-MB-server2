@@ -1044,7 +1044,7 @@ pub fn skill_registry() -> Array[SkillSummary] {
 ///|
 pub fn app_state() -> MoonApAppState {
   {
-    tagline: "MoonAP: MoonBit Agent Playground. Set LLM API and chat, or use SKILL.",
+    tagline: "MoonAP: MoonBit Agent Playground.\nTell, what APP you want to build. Or, directly use an existing SKILL.",
     llm_status: "not_configured",
     work_mode: "skill_only_until_llm_is_valid",
     chat_enabled: false,

@@ -152,7 +152,7 @@ extern "js" fn browser_render_artifact_card(
   #|       ? globalThis.__moonapLastSkillSaveDecision
   #|       : {};
   #|     const saveCompleted = runtimeDone && String(lastSaveDecision?.decision || "") === "accepted-save-skill";
-  #|     const saveLabel = saveCompleted ? "Save another Personal SKILL..." : "Save as Personal SKILL...";
+  #|     const saveLabel = "Save APP into SKILL";
   #|     const primaryAction = [
   #|       `<button id="recordDemoRuntimeResult" class="primary" type="button">${runLabel}</button>`,
   #|       runtimeDone && allowSave ? `<button id="savePersonalSkill" class="secondary strong" type="button">${saveLabel}</button>` : ''
@@ -178,7 +178,7 @@ extern "js" fn browser_render_artifact_card(
   #|       <div class="action-card-actions">
   #|         ${allowCompile ? '<button id="compileArtifact" type="button">Run Compile Probe</button>' : ''}
   #|         ${allowRepair ? '<button id="repairArtifact" type="button">Repair with Error Summary</button>' : ''}
-  #|         ${allowSave ? '<button id="savePersonalSkill" type="button">Save as Personal SKILL...</button>' : ''}
+  #|         ${allowSave ? '<button id="savePersonalSkill" type="button">Save APP into SKILL</button>' : ''}
   #|         ${runtimeReady && !runtimeDone ? '<button id="recordDemoRuntimeResult" type="button">Record Demo Result</button>' : ''}
   #|         ${wasmUrl ? '<button id="downloadRuntimeWasm" class="secondary" type="button">Download wasm</button>' : ''}
   #|         ${sourceUrl ? '<button id="downloadRuntimeSource" class="secondary" type="button">Download source</button>' : ''}
@@ -1408,6 +1408,56 @@ extern "js" fn browser_request_skill_save(
   #|       await writable.write(bytes);
   #|       await writable.close();
   #|     };
+  #|     const ensurePersonalSkillRuntime = () => {
+  #|       if (globalThis.__moonapPersonalSkillRuntime) return globalThis.__moonapPersonalSkillRuntime;
+  #|       const DB_NAME = "moonap.personal.skill.handles.v1";
+  #|       const STORE_NAME = "handles";
+  #|       const openDb = () => new Promise((resolve, reject) => {
+  #|         const request = indexedDB.open(DB_NAME, 1);
+  #|         request.onupgradeneeded = () => {
+  #|           const db = request.result;
+  #|           if (!db.objectStoreNames.contains(STORE_NAME)) {
+  #|             db.createObjectStore(STORE_NAME);
+  #|           }
+  #|         };
+  #|         request.onsuccess = () => resolve(request.result);
+  #|         request.onerror = () => reject(request.error || new Error("Failed to open Personal SKILL database."));
+  #|       });
+  #|       const withStore = async (mode, work) => {
+  #|         const db = await openDb();
+  #|         return await new Promise((resolve, reject) => {
+  #|           const transaction = db.transaction(STORE_NAME, mode);
+  #|           const store = transaction.objectStore(STORE_NAME);
+  #|           let settled = false;
+  #|           const finishResolve = (value) => {
+  #|             if (settled) return;
+  #|             settled = true;
+  #|             resolve(value);
+  #|           };
+  #|           const finishReject = (error) => {
+  #|             if (settled) return;
+  #|             settled = true;
+  #|             reject(error);
+  #|           };
+  #|           transaction.oncomplete = () => finishResolve(undefined);
+  #|           transaction.onerror = () => finishReject(transaction.error || new Error("Personal SKILL database transaction failed."));
+  #|           transaction.onabort = () => finishReject(transaction.error || new Error("Personal SKILL database transaction was aborted."));
+  #|           Promise.resolve(work(store, finishResolve, finishReject)).catch(finishReject);
+  #|         }).finally(() => db.close());
+  #|       };
+  #|       const runtime = {
+  #|         cache: {},
+  #|         putHandle: async (id, handle) => {
+  #|           await withStore("readwrite", (store, resolve, reject) => {
+  #|             const request = store.put(handle, String(id || ""));
+  #|             request.onsuccess = () => resolve(true);
+  #|             request.onerror = () => reject(request.error || new Error("Failed to save Personal SKILL handle."));
+  #|           });
+  #|         }
+  #|       };
+  #|       globalThis.__moonapPersonalSkillRuntime = runtime;
+  #|       return runtime;
+  #|     };
   #|     const skillDir = await rootHandle.getDirectoryHandle(folderName, { create: true });
   #|     const programDir = await skillDir.getDirectoryHandle("program", { create: true });
   #|     const inputLines = fields.length === 0
@@ -1471,6 +1521,7 @@ extern "js" fn browser_request_skill_save(
   #|       task_kind: taskKind,
   #|       runtime_mode: runtimeMode,
   #|       result_mode: resultMode,
+  #|       folder_name: folderName,
   #|       runtime_ready: true,
   #|       export_root_name: String(rootHandle.name || ""),
   #|       saved_at: new Date().toISOString()
@@ -1478,6 +1529,7 @@ extern "js" fn browser_request_skill_save(
   #|     skills = skills.filter((item) => String(item?.id || "") !== skillRecord.id);
   #|     skills.unshift(skillRecord);
   #|     try { localStorage.setItem("moonap.personal.skills", JSON.stringify(skills)); } catch {}
+  #|     await ensurePersonalSkillRuntime().putHandle(skillRecord.id, skillDir);
   #|     const response = await fetch("/api/skill-export/save-decision", {
   #|       method: "POST",
   #|       headers: { "Content-Type": "application/json; charset=utf-8" },
@@ -1573,8 +1625,12 @@ extern "js" fn browser_choose_skill_export_path(
   #|     }
   #|     const handle = await window.showDirectoryPicker({ mode: "readwrite" });
   #|     globalThis.__moonapSkillExportRootHandle = handle;
-  #|     const label = document.querySelector("#skillExportPathLabel");
-  #|     if (label) label.textContent = `Selected folder: ${String(handle?.name || "")}`;
+  #|     const exportLabel = document.querySelector("#skillExportPathLabel");
+  #|     if (exportLabel) exportLabel.textContent = `Selected folder: ${String(handle?.name || "")}`;
+  #|     const panelLabel = document.querySelector("#personalSkillRootLabel");
+  #|     if (panelLabel) panelLabel.textContent = handle && handle.name
+  #|       ? `Selected folder: ${String(handle.name)}`
+  #|       : "No local Personal SKILL folder selected yet.";
   #|     onDone(String(handle?.name || ""));
   #|   } catch (error) {
   #|     onError(error instanceof Error ? error.message : String(error));
@@ -1594,6 +1650,22 @@ extern "js" fn browser_on_skill_export_choose_path(
   #|     handler();
   #|   } catch (error) {
   #|     alert(`MoonAP skill export path selection failed: ${error instanceof Error ? error.message : String(error)}`);
+  #|   }
+  #| })
+
+///|
+#cfg(target="js")
+extern "js" fn browser_on_personal_skill_choose_path(
+  handler : () -> Unit,
+) -> Unit =
+  #| (handler) => document.addEventListener("click", (event) => {
+  #|   if (event.target?.id !== "personalSkillChoosePath") return;
+  #|   event.preventDefault();
+  #|   event.stopPropagation();
+  #|   try {
+  #|     handler();
+  #|   } catch (error) {
+  #|     alert(`MoonAP local Personal SKILL folder selection failed: ${error instanceof Error ? error.message : String(error)}`);
   #|   }
   #| })
 
@@ -1980,17 +2052,53 @@ extern "js" fn browser_open_skill_dialog(skill_id : String) -> Unit =
   #|   if (!dialog || !fields) return;
   #|   fields.innerHTML = "";
   #|   dialog.dataset.skillId = String(skillId);
-  #|   const addField = (id, label, value, mode = "numeric") => {
+  #|   dialog.dataset.taskKind = "";
+  #|   const addField = (id, label, value, mode = "numeric", fieldName = "") => {
   #|     const item = document.createElement("label");
   #|     item.textContent = label;
   #|     const input = document.createElement("input");
   #|     input.id = `param-${id}`;
   #|     input.value = value;
   #|     input.inputMode = mode;
+  #|     if (fieldName) input.dataset.paramName = String(fieldName);
   #|     item.append(input);
   #|     fields.append(item);
   #|   };
-  #|   if (skillId.includes("moonbit.fastq-generator")) {
+  #|   const loadedPersonal = globalThis.__moonapPersonalSkillCache && typeof globalThis.__moonapPersonalSkillCache === "object"
+  #|     ? globalThis.__moonapPersonalSkillCache[String(skillId)]
+  #|     : null;
+  #|   if (loadedPersonal && typeof loadedPersonal === "object") {
+  #|     const runtimeSpec = loadedPersonal.runtime_spec && typeof loadedPersonal.runtime_spec === "object"
+  #|       ? loadedPersonal.runtime_spec
+  #|       : {};
+  #|     const runtimeFields = Array.isArray(runtimeSpec.fields) ? runtimeSpec.fields : [];
+  #|     const mapFieldId = (name) => {
+  #|       const normalized = String(name || "").trim().toLowerCase();
+  #|       if (normalized === "read_count") return "readCount";
+  #|       if (normalized === "read_length") return "readLength";
+  #|       if (normalized === "random_seed") return "seed";
+  #|       if (normalized === "n_rate") return "nRate";
+  #|       if (normalized === "n_rate_per_mille") return "nRatePerMille";
+  #|       if (normalized === "target_base") return "targetBase";
+  #|       return normalized.replace(/[^a-z0-9]+([a-z0-9])/g, (_, char) => String(char || "").toUpperCase()) || "input";
+  #|     };
+  #|     set(scope, "1.1 Personal-SKILL-Set");
+  #|     set(title, String(loadedPersonal.name || "Personal SKILL"));
+  #|     set(summary, String(loadedPersonal.description || runtimeSpec.title || "Run this saved Personal SKILL locally without asking the LLM again."));
+  #|     dialog.dataset.taskKind = String(loadedPersonal.task_kind || "");
+  #|     for (const field of runtimeFields) {
+  #|       const name = String(field?.name || "input");
+  #|       const labelText = String(field?.label || name);
+  #|       const defaultValue = field?.default == null ? "" : String(field.default);
+  #|       const kind = String(field?.kind || field?.type || "text").toLowerCase();
+  #|       const inputMode = kind === "float" || kind === "decimal"
+  #|         ? "decimal"
+  #|         : kind === "text"
+  #|           ? "text"
+  #|           : "numeric";
+  #|       addField(mapFieldId(name), labelText, defaultValue, inputMode, name);
+  #|     }
+  #|   } else if (skillId.includes("moonbit.fastq-generator")) {
   #|     set(scope, "SKILL-Hub / MoonBit");
   #|     set(title, "MoonBit FastQ Generator");
   #|     set(summary, "Ask the active LLM router to generate a MoonBit FastQ generator program, then run a real compile probe automatically.");
@@ -2047,16 +2155,29 @@ extern "js" fn browser_dialog_skill_id() -> String =
 ///|
 #cfg(target="js")
 extern "js" fn browser_dialog_param(name : String) -> String =
-  #| (name) => String(document.querySelector(`#param-${String(name)}`)?.value || "")
+  #| (name) => {
+  #|   const direct = document.querySelector(`#param-${String(name)}`);
+  #|   if (direct) return String(direct.value || "");
+  #|   const byDataName = document.querySelector(`[data-param-name="${String(name)}"]`);
+  #|   return String(byDataName?.value || "");
+  #| }
 
 ///|
 #cfg(target="js")
 extern "js" fn browser_dialog_param_int(name : String, fallback : Int) -> Int =
   #| (name, fallback) => {
-  #|   const raw = document.querySelector(`#param-${String(name)}`)?.value;
+  #|   const direct = document.querySelector(`#param-${String(name)}`);
+  #|   const raw = direct
+  #|     ? direct.value
+  #|     : document.querySelector(`[data-param-name="${String(name)}"]`)?.value;
   #|   const value = Number.parseInt(String(raw || ""), 10);
   #|   return Number.isFinite(value) && value > 0 ? value : fallback;
   #| }
+
+///|
+#cfg(target="js")
+extern "js" fn browser_dialog_skill_task_kind() -> String =
+  #| () => String(document.querySelector("#skillDialog")?.dataset?.taskKind || "")
 
 ///|
 #cfg(target="js")
@@ -3617,38 +3738,235 @@ extern "js" fn browser_on_repair_artifact(handler : () -> Unit) -> Unit =
 #cfg(target="js")
 extern "js" fn browser_render_personal_skills() -> Int =
   #| () => {
+  #|   const ensurePersonalSkillRuntime = () => {
+  #|     if (globalThis.__moonapPersonalSkillRuntime) return globalThis.__moonapPersonalSkillRuntime;
+  #|     const DB_NAME = "moonap.personal.skill.handles.v1";
+  #|     const STORE_NAME = "handles";
+  #|     const openDb = () => new Promise((resolve, reject) => {
+  #|       const request = indexedDB.open(DB_NAME, 1);
+  #|       request.onupgradeneeded = () => {
+  #|         const db = request.result;
+  #|         if (!db.objectStoreNames.contains(STORE_NAME)) {
+  #|           db.createObjectStore(STORE_NAME);
+  #|         }
+  #|       };
+  #|       request.onsuccess = () => resolve(request.result);
+  #|       request.onerror = () => reject(request.error || new Error("Failed to open Personal SKILL database."));
+  #|     });
+  #|     const withStore = async (mode, work) => {
+  #|       const db = await openDb();
+  #|       return await new Promise((resolve, reject) => {
+  #|         const transaction = db.transaction(STORE_NAME, mode);
+  #|         const store = transaction.objectStore(STORE_NAME);
+  #|         let settled = false;
+  #|         const finishResolve = (value) => {
+  #|           if (settled) return;
+  #|           settled = true;
+  #|           resolve(value);
+  #|         };
+  #|         const finishReject = (error) => {
+  #|           if (settled) return;
+  #|           settled = true;
+  #|           reject(error);
+  #|         };
+  #|         transaction.oncomplete = () => finishResolve(undefined);
+  #|         transaction.onerror = () => finishReject(transaction.error || new Error("Personal SKILL database transaction failed."));
+  #|         transaction.onabort = () => finishReject(transaction.error || new Error("Personal SKILL database transaction was aborted."));
+  #|         Promise.resolve(work(store, finishResolve, finishReject)).catch(finishReject);
+  #|       }).finally(() => db.close());
+  #|     };
+  #|     const parseFrontmatter = (text) => {
+  #|       const source = String(text || "");
+  #|       if (!source.startsWith("---\n") && !source.startsWith("---\r\n")) return {};
+  #|       const lines = source.replace(/\r/g, "").split("\n");
+  #|       const fields = {};
+  #|       for (let index = 1; index < lines.length; index += 1) {
+  #|         const line = String(lines[index] || "");
+  #|         if (line.trim() === "---") break;
+  #|         const colon = line.indexOf(":");
+  #|         if (colon < 0) continue;
+  #|         const key = line.slice(0, colon).trim();
+  #|         const value = line.slice(colon + 1).trim();
+  #|         if (key) fields[key] = value;
+  #|       }
+  #|       return fields;
+  #|     };
+  #|     const parseKeyAttributes = (text) => {
+  #|       const source = String(text || "").replace(/\r/g, "");
+  #|       const match = source.match(/# Key Attributes\s+([\s\S]*?)(?:\n# |\n```|$)/);
+  #|       const result = {};
+  #|       const block = match?.[1] || "";
+  #|       for (const line of block.split("\n")) {
+  #|         const trimmed = String(line || "").trim();
+  #|         if (!trimmed.startsWith("- ")) continue;
+  #|         const content = trimmed.slice(2);
+  #|         const colon = content.indexOf(":");
+  #|         if (colon < 0) continue;
+  #|         const key = content.slice(0, colon).trim().toLowerCase().replace(/\s+/g, "_");
+  #|         const value = content.slice(colon + 1).trim();
+  #|         if (key) result[key] = value;
+  #|       }
+  #|       return result;
+  #|     };
+  #|     const parseRuntimeSpec = (text) => {
+  #|       const source = String(text || "").replace(/\r/g, "");
+  #|       const match = source.match(/# Runtime Spec\s+```json\s*([\s\S]*?)\s*```/);
+  #|       if (!match) return {};
+  #|       try { return JSON.parse(match[1]); } catch { return {}; }
+  #|     };
+  #|     const readTextFile = async (dirHandle, fileName) => {
+  #|       const handle = await dirHandle.getFileHandle(String(fileName || ""));
+  #|       const file = await handle.getFile();
+  #|       return await file.text();
+  #|     };
+  #|     const loadFromHandle = async (id, dirHandle, fallback) => {
+  #|       const skillMd = await readTextFile(dirHandle, "SKILL.md");
+  #|       const frontmatter = parseFrontmatter(skillMd);
+  #|       const keyAttributes = parseKeyAttributes(skillMd);
+  #|       const runtimeSpec = parseRuntimeSpec(skillMd);
+  #|       const data = {
+  #|         ...(fallback || {}),
+  #|         id: String(id || fallback?.id || ""),
+  #|         name: String(frontmatter.name || fallback?.name || "Personal SKILL"),
+  #|         description: String(frontmatter.description || fallback?.description || ""),
+  #|         task_kind: String(keyAttributes.task_kind || fallback?.task_kind || "generic"),
+  #|         runtime_mode: String(keyAttributes.runtime_mode || fallback?.runtime_mode || "form"),
+  #|         result_mode: String(keyAttributes.result_mode || fallback?.result_mode || "text"),
+  #|         wasm_path: String(keyAttributes.wasm_path || "program/main.wasm"),
+  #|         source_path: String(keyAttributes.moonbit_source_path || ""),
+  #|         runtime_spec: runtimeSpec && typeof runtimeSpec === "object" ? runtimeSpec : {},
+  #|         skill_md: skillMd,
+  #|         handle_name: String(dirHandle?.name || fallback?.folder_name || ""),
+  #|         available: true
+  #|       };
+  #|       globalThis.__moonapPersonalSkillCache = globalThis.__moonapPersonalSkillCache || {};
+  #|       globalThis.__moonapPersonalSkillCache[data.id] = data;
+  #|       return data;
+  #|     };
+  #|     const runtime = {
+  #|       cache: globalThis.__moonapPersonalSkillCache || {},
+  #|       putHandle: async (id, handle) => {
+  #|         await withStore("readwrite", (store, resolve, reject) => {
+  #|           const request = store.put(handle, String(id || ""));
+  #|           request.onsuccess = () => resolve(true);
+  #|           request.onerror = () => reject(request.error || new Error("Failed to save Personal SKILL handle."));
+  #|         });
+  #|       },
+  #|       getHandle: async (id) => {
+  #|         return await withStore("readonly", (store, resolve, reject) => {
+  #|           const request = store.get(String(id || ""));
+  #|           request.onsuccess = () => resolve(request.result || null);
+  #|           request.onerror = () => reject(request.error || new Error("Failed to read Personal SKILL handle."));
+  #|         });
+  #|       },
+  #|       loadFromHandle,
+  #|       listFromIndex: async () => {
+  #|         let skills = [];
+  #|         try {
+  #|           const parsed = JSON.parse(localStorage.getItem("moonap.personal.skills") || "[]");
+  #|           skills = Array.isArray(parsed) ? parsed : [];
+  #|         } catch (error) {
+  #|           console.warn("MoonAP reset invalid personal skill storage:", error);
+  #|           try { localStorage.removeItem("moonap.personal.skills"); } catch {}
+  #|         }
+  #|         const results = [];
+  #|         for (const fallback of skills.filter((skill) => Boolean(skill?.runtime_ready))) {
+  #|           try {
+  #|             const handle = await runtime.getHandle(fallback.id);
+  #|             if (!handle) {
+  #|               results.push({ ...(fallback || {}), available: false });
+  #|               continue;
+  #|             }
+  #|             results.push(await loadFromHandle(fallback.id, handle, fallback));
+  #|           } catch (error) {
+  #|             results.push({
+  #|               ...(fallback || {}),
+  #|               available: false,
+  #|               load_error: error instanceof Error ? error.message : String(error)
+  #|             });
+  #|           }
+  #|         }
+  #|         return results;
+  #|       }
+  #|     };
+  #|     globalThis.__moonapPersonalSkillCache = runtime.cache;
+  #|     globalThis.__moonapPersonalSkillRuntime = runtime;
+  #|     return runtime;
+  #|   };
   #|   const root = document.querySelector("#personalSkillCards");
   #|   if (!root) return 0;
-  #|   let skills = [];
-  #|   try {
-  #|     const parsed = JSON.parse(localStorage.getItem("moonap.personal.skills") || "[]");
-  #|     skills = Array.isArray(parsed) ? parsed : [];
-  #|   } catch (error) {
-  #|     console.warn("MoonAP reset invalid personal skill storage:", error);
-  #|     try { localStorage.removeItem("moonap.personal.skills"); } catch {}
-  #|   }
   #|   root.innerHTML = "";
-  #|   skills = skills.filter((skill) => Boolean(skill?.runtime_ready));
-  #|   if (skills.length === 0) {
+  #|   const loading = document.createElement("div");
+  #|   loading.className = "personal-skill-empty";
+  #|   loading.textContent = "Loading Personal SKILLs...";
+  #|   root.append(loading);
+  #|   (async () => {
+  #|     const runtime = ensurePersonalSkillRuntime();
+  #|     const skills = await runtime.listFromIndex();
+  #|     root.innerHTML = "";
+  #|     if (skills.length === 0) {
+  #|       const empty = document.createElement("div");
+  #|       empty.className = "personal-skill-empty";
+  #|       empty.textContent = "No Personal SKILL has been exported yet.";
+  #|       root.append(empty);
+  #|       return;
+  #|     }
+  #|     for (const skill of skills) {
+  #|       const card = document.createElement("button");
+  #|       card.className = "skill-card personal";
+  #|       card.type = "button";
+  #|       card.dataset.skillId = skill.id || "personal.skill";
+  #|       if (skill.available === false) card.dataset.skillUnavailable = "true";
+  #|       const rootName = String(skill.export_root_name || "");
+  #|       const subtitle = skill.available === false
+  #|         ? (skill.load_error
+  #|           ? `Saved locally, but MoonAP could not reopen it yet: ${String(skill.load_error)}`
+  #|           : "Saved locally, but MoonAP needs this browser to regain access before reopening it.")
+  #|         : (rootName
+  #|           ? `Saved in ${rootName}. Reusable without LLM.`
+  #|           : "Saved locally. Reusable without LLM.");
+  #|       card.innerHTML = `<span>Local / Exported</span><strong>${skill.name || "Personal SKILL"}</strong><small>${subtitle}</small>`;
+  #|       root.append(card);
+  #|     }
+  #|   })().catch((error) => {
+  #|     root.innerHTML = "";
   #|     const empty = document.createElement("div");
   #|     empty.className = "personal-skill-empty";
-  #|     empty.textContent = "No Personal SKILL has been exported yet.";
+  #|     empty.textContent = `Failed to load Personal SKILLs: ${error instanceof Error ? error.message : String(error)}`;
   #|     root.append(empty);
-  #|     return 0;
+  #|   });
+  #|   return 0;
+  #| }
+
+///|
+#cfg(target="js")
+extern "js" fn browser_load_personal_skill(
+  skill_id : String,
+  on_done : (String) -> Unit,
+  on_error : (String) -> Unit,
+) -> Unit =
+  #| async (skillId, onDone, onError) => {
+  #|   try {
+  #|     const runtime = globalThis.__moonapPersonalSkillRuntime;
+  #|     if (!runtime || typeof runtime.getHandle !== "function") {
+  #|       throw new Error("Personal SKILL runtime is not ready yet. Open the SKILL tab again and retry.");
+  #|     }
+  #|     let fallback = null;
+  #|     try {
+  #|       const parsed = JSON.parse(localStorage.getItem("moonap.personal.skills") || "[]");
+  #|       if (Array.isArray(parsed)) {
+  #|         fallback = parsed.find((item) => String(item?.id || "") === String(skillId || "")) || null;
+  #|       }
+  #|     } catch {}
+  #|     const handle = await runtime.getHandle(skillId);
+  #|     if (!handle) {
+  #|       throw new Error("MoonAP could not find a saved local folder handle for this Personal SKILL.");
+  #|     }
+  #|     const loaded = await runtime.loadFromHandle(skillId, handle, fallback || {});
+  #|     onDone(JSON.stringify(loaded, null, 2));
+  #|   } catch (error) {
+  #|     onError(error instanceof Error ? error.message : String(error));
   #|   }
-  #|   for (const skill of skills) {
-  #|     const card = document.createElement("button");
-  #|     card.className = "skill-card personal";
-  #|     card.type = "button";
-  #|     card.dataset.skillId = skill.id || "personal.fastq-generator";
-  #|     const rootName = String(skill.export_root_name || "");
-  #|     const subtitle = rootName
-  #|       ? `Saved in ${rootName}. Reusable without LLM.`
-  #|       : "Saved locally. Reusable without LLM.";
-  #|     card.innerHTML = `<span>Local / Exported</span><strong>${skill.name || "Personal FastQ Generator"}</strong><small>${subtitle}</small>`;
-  #|     root.append(card);
-  #|   }
-  #|   return skills.length;
   #| }
 
 ///|
@@ -3663,8 +3981,24 @@ extern "js" fn browser_set_mode_panel(text : String) -> Unit =
 #cfg(target="js")
 extern "js" fn browser_set_skill_panel_open(open : Bool) -> Unit =
   #| (open) => {
-  #|   document.querySelector("#modePanel")?.classList.toggle("is-open", Boolean(open));
-  #|   document.querySelector("#privacyStrip")?.classList.toggle("is-open", Boolean(open));
+  #|   const panel = document.querySelector("#modePanel");
+  #|   const privacy = document.querySelector("#privacyStrip");
+  #|   if (panel) panel.style.display = "";
+  #|   if (privacy) privacy.style.display = "";
+  #|   panel?.classList.toggle("is-open", Boolean(open));
+  #|   privacy?.classList.toggle("is-open", Boolean(open));
+  #| }
+
+///|
+#cfg(target="js")
+extern "js" fn browser_refresh_personal_skill_root_label() -> Unit =
+  #| () => {
+  #|   const panelLabel = document.querySelector("#personalSkillRootLabel");
+  #|   if (!panelLabel) return;
+  #|   const rootHandle = globalThis.__moonapSkillExportRootHandle;
+  #|   panelLabel.textContent = rootHandle && rootHandle.name
+  #|     ? `Selected folder: ${String(rootHandle.name)}`
+  #|     : "No local Personal SKILL folder selected yet.";
   #| }
 
 ///|
@@ -3786,6 +4120,7 @@ fn show_llm_entry() -> Unit {
 fn show_skill_entry() -> Unit {
   browser_set_mode_panel("MoonAP SKILL Hub")
   browser_set_skill_panel_open(true)
+  browser_refresh_personal_skill_root_label()
   ignore(browser_render_personal_skills())
   browser_fetch_text(
     "/api/skills",
@@ -3797,14 +4132,43 @@ fn show_skill_entry() -> Unit {
 ///|
 #cfg(target="js")
 fn show_skill_run_plan(skill_id : String) -> Unit {
-  browser_open_skill_dialog(skill_id)
+  if skill_id.contains("personal.") {
+    browser_load_personal_skill(
+      skill_id,
+      fn(raw) {
+        browser_set_state(browser_pretty_json(raw))
+        browser_open_skill_dialog(skill_id)
+      },
+      fn(error) { show_error("Personal SKILL load failed", error) },
+    )
+  } else {
+    browser_open_skill_dialog(skill_id)
+  }
 }
 
 ///|
 #cfg(target="js")
 fn execute_dialog_skill() -> Unit {
   let skill_id = browser_dialog_skill_id()
+  let personal_task_kind = browser_dialog_skill_task_kind()
   browser_close_skill_dialog()
+  if skill_id.contains("personal.") {
+    if personal_task_kind == "fastq-generator" {
+      run_fastq_generator()
+      return
+    }
+    if personal_task_kind == "fastq-analysis" {
+      run_fastq_counter()
+      return
+    }
+    show_error(
+      "Personal SKILL run not implemented",
+      "MoonAP loaded this Personal SKILL, but rerun support for task kind `" +
+      personal_task_kind +
+      "` is not wired yet.",
+    )
+    return
+  }
   if skill_id.contains("moonbit-benchmark") {
     run_moonbit_benchmark(browser_dialog_param_int("benchmarkLevel", 1))
     return
@@ -4819,6 +5183,14 @@ fn main {
     browser_choose_skill_export_path(fn(_folder_name) { () }, fn(error) {
       show_error("skill-export path selection failed", error)
     })
+  })
+  browser_on_personal_skill_choose_path(fn() {
+    browser_choose_skill_export_path(
+      fn(_folder_name) {
+        browser_refresh_personal_skill_root_label()
+      },
+      fn(error) { show_error("personal skill directory selection failed", error) },
+    )
   })
   browser_on_skill_export_confirm(fn() {
     browser_request_skill_save(

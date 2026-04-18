@@ -1,5 +1,6 @@
 import {
   "moonbitlang/core/json",
+  "illusory0x0/path" @path,
   "moonbitlang/core/string",
   "moonbitlang/async" @async,
   "moonbitlang/async/fs" @fs,

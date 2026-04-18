@@ -29,6 +29,8 @@ pub fn builtin_skill_manifests() -> Array[SkillManifest]
 
 pub fn choose_skill(String, String) -> String
 
+pub fn extract_moonbit_source(String) -> String
+
 pub fn file_preview_policy() -> FilePreviewPolicy
 
 pub fn formal_verification_policy() -> FormalVerificationPolicy
@@ -50,6 +52,10 @@ pub fn llm_router_policy() -> LlmRouterPolicy
 pub fn normalize_agent_context(String, String, String, String, Int, String, String) -> AgentSessionContext
 
 pub fn normalize_agent_context_json(String, String, String, String, Int, String, String) -> String
+
+pub fn normalize_virtual_path(String) -> String
+
+pub fn path_last_segment(String) -> String
 
 pub fn personal_skill_set_json() -> String
 

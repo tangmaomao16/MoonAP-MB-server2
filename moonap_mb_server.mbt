@@ -214,6 +214,112 @@ pub struct ServerPolicies {
 } derive(Eq, Debug, ToJson, FromJson)
 
 ///|
+fn is_path_separator_char(ch : Char) -> Bool {
+  ch == '/' || ch == '\\'
+}
+
+///|
+fn string_has_path_separator_at(path : String, index : Int) -> Bool {
+  match path.get_char(index) {
+    Some(ch) => is_path_separator_char(ch)
+    None => false
+  }
+}
+
+///|
+fn legacy_last_path_segment(path : String) -> String {
+  let mut end = path.length()
+  while end > 0 && string_has_path_separator_at(path, end - 1) {
+    end = end - 1
+  }
+  if end == 0 {
+    return ""
+  }
+  let mut start = end
+  while start > 0 && !string_has_path_separator_at(path, start - 1) {
+    start = start - 1
+  }
+  path[start:end].to_string()
+}
+
+///|
+fn legacy_normalize_virtual_path(path : String) -> String {
+  let mut normalized = ""
+  let mut previous_was_separator = false
+  for ch in path {
+    if is_path_separator_char(ch) {
+      if !previous_was_separator {
+        normalized = normalized + "/"
+        previous_was_separator = true
+      }
+    } else {
+      normalized = normalized + ch.to_string()
+      previous_was_separator = false
+    }
+  }
+  let mut start = 0
+  let mut end = normalized.length()
+  while start < end && string_has_path_separator_at(normalized, start) {
+    start = start + 1
+  }
+  while end > start && string_has_path_separator_at(normalized, end - 1) {
+    end = end - 1
+  }
+  normalized[start:end].to_string()
+}
+
+///|
+pub fn normalize_virtual_path(path : String) -> String {
+  let trimmed = path.trim().to_string()
+  if trimmed == "" {
+    return ""
+  }
+  let parsed = @path.Path::parse(trimmed) catch {
+    _ => return legacy_normalize_virtual_path(trimmed)
+  }
+  let parts : Array[String] = []
+  for part in parsed.directory() {
+    parts.push(part)
+  }
+  match parsed.file() {
+    Some(file) => parts.push(file.to_string())
+    None => ()
+  }
+  let normalized = parts.join("/")
+  if parsed.prefix() == "/" {
+    if normalized == "" {
+      "/"
+    } else {
+      "/" + normalized
+    }
+  } else {
+    normalized
+  }
+}
+
+///|
+pub fn path_last_segment(path : String) -> String {
+  let trimmed = path.trim().to_string()
+  if trimmed == "" {
+    return ""
+  }
+  let parsed = @path.Path::parse(trimmed) catch {
+    _ => return legacy_last_path_segment(trimmed)
+  }
+  match parsed.file() {
+    Some(file) => file.to_string()
+    None => {
+      let directory = parsed.directory()
+      if directory.length() == 0 {
+        legacy_last_path_segment(trimmed)
+      } else {
+        directory[directory.length() - 1]
+      }
+    }
+  }
+}
+
+///|
 pub struct AgentMessage {
   role : String
   content : String

@@ -151,3 +151,41 @@ test "moonbit extractor falls back to fenced moonbit code" {
   let extracted = @moonap_mb_server.extract_moonbit_source(response)
   assert_eq(extracted, "fn main {\n  \"hello moonbit\"\n}")
 }
+
+///|
+test "path last segment handles unix and windows separators" {
+  assert_eq(
+    @moonap_mb_server.path_last_segment(
+      "C:\\my_work\\MoonBit_Competition\\logs\\run-12345",
+    ),
+    "run-12345",
+  )
+  assert_eq(
+    @moonap_mb_server.path_last_segment(
+      "/tmp/moonap/runtime/browser-runtime-42/",
+    ),
+    "browser-runtime-42",
+  )
+}
+
+///|
+test "normalize virtual path uses forward slashes" {
+  assert_eq(
+    @moonap_mb_server.normalize_virtual_path(
+      "bioinformatics\\sequencing\\fastq-generator",
+    ),
+    "bioinformatics/sequencing/fastq-generator",
+  )
+  assert_eq(
+    @moonap_mb_server.normalize_virtual_path(
+      "bioinformatics/sequencing/fastq-generator.zip",
+    ),
+    "bioinformatics/sequencing/fastq-generator.zip",
+  )
+  assert_eq(
+    @moonap_mb_server.normalize_virtual_path(
+      "\\bioinformatics\\\\sequencing///fastq-generator\\",
+    ),
+    "bioinformatics/sequencing/fastq-generator",
+  )
+}

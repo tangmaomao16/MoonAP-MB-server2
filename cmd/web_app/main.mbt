@@ -1331,9 +1331,32 @@ extern "js" fn browser_watch_runtime_protocol(
 
 ///|
 #cfg(target="js")
+extern "js" fn browser_ensure_virtual_path_runtime() -> Unit =
+  #| () => {
+  #|   if (globalThis.__moonapVirtualPathRuntime) return;
+  #|   const normalize = (value) => String(value == null ? "" : value)
+  #|     .trim()
+  #|     .replace(/\\/g, "/")
+  #|     .replace(/^\/+/, "")
+  #|     .replace(/\/+/g, "/")
+  #|     .replace(/\/$/, "");
+  #|   const split = (value) => normalize(value).split("/").filter(Boolean);
+  #|   const lastSegment = (value) => {
+  #|     const parts = split(value);
+  #|     return parts.length === 0 ? "" : String(parts[parts.length - 1] || "");
+  #|   };
+  #|   globalThis.__moonapVirtualPathRuntime = { normalize, split, lastSegment };
+  #| }
+
+///|
+#cfg(target="js")
 extern "js" fn browser_ensure_skill_zip_runtime() -> Unit =
   #| () => {
   #|   if (globalThis.__moonapSkillZipRuntime) return;
+  #|   const pathRuntime = globalThis.__moonapVirtualPathRuntime;
+  #|   if (!pathRuntime || typeof pathRuntime.normalize !== "function") {
+  #|     throw new Error("MoonAP virtual path runtime is not ready yet.");
+  #|   }
   #|   const encoder = new TextEncoder();
   #|   const decoder = new TextDecoder();
   #|   const crcTable = new Uint32Array(256);
@@ -1368,7 +1391,7 @@ extern "js" fn browser_ensure_skill_zip_runtime() -> Unit =
   #|     return merged;
   #|   };
   #|   const zipName = (path, isDir) => {
-  #|     const clean = String(path || "").replace(/\\/g, "/").replace(/^\/+/, "");
+  #|     const clean = pathRuntime.normalize(path || "");
   #|     return isDir ? (clean.endsWith("/") ? clean : `${clean}/`) : clean.replace(/\/+$/, "");
   #|   };
   #|   const getDosDateTime = (value) => {
@@ -1484,7 +1507,9 @@ extern "js" fn browser_ensure_skill_zip_runtime() -> Unit =
   #|       const commentLength = centralView.getUint16(32, true);
   #|       const localOffset = centralView.getUint32(42, true);
   #|       const nameBytes = bytes.subarray(cursor + 46, cursor + 46 + nameLength);
-  #|       const path = decoder.decode(nameBytes).replace(/\\/g, "/");
+  #|       const rawPath = decoder.decode(nameBytes);
+  #|       const directory = /[\\/]$/.test(rawPath);
+  #|       const path = pathRuntime.normalize(rawPath);
   #|       const localView = new DataView(bytes.buffer, bytes.byteOffset + localOffset, 30);
   #|       if (localView.getUint32(0, true) !== 0x04034b50) {
   #|         throw new Error(`ZIP local file header is invalid for ${path}.`);
@@ -1494,7 +1519,7 @@ extern "js" fn browser_ensure_skill_zip_runtime() -> Unit =
   #|       const dataStart = localOffset + 30 + localNameLength + localExtraLength;
   #|       const compressedBytes = bytes.subarray(dataStart, dataStart + compressedSize);
   #|       let data = new Uint8Array(0);
-  #|       if (!path.endsWith("/")) {
+  #|       if (!directory) {
   #|         if (method === 0) {
   #|           data = new Uint8Array(compressedBytes);
   #|         } else if (method === 8) {
@@ -1503,7 +1528,11 @@ extern "js" fn browser_ensure_skill_zip_runtime() -> Unit =
   #|           throw new Error(`ZIP compression method ${method} is not supported for ${path}.`);
   #|         }
   #|       }
-  #|       results.push({ path, directory: path.endsWith("/"), bytes: data });
+  #|       if (!path) {
+  #|         cursor += 46 + nameLength + extraLength + commentLength;
+  #|         continue;
+  #|       }
+  #|       results.push({ path, directory, bytes: data });
   #|       cursor += 46 + nameLength + extraLength + commentLength;
   #|     }
   #|     return results;
@@ -2296,6 +2325,7 @@ extern "js" fn browser_on_onboarding_action(
 #cfg(target="js")
 extern "js" fn browser_open_skill_dialog(skill_id : String) -> Unit =
   #| (skillId) => {
+  #|   const pathRuntime = globalThis.__moonapVirtualPathRuntime;
   #|   let dialog = document.querySelector("#skillDialog");
   #|   if (!dialog) {
   #|     dialog = document.createElement("dialog");
@@ -2384,7 +2414,9 @@ extern "js" fn browser_open_skill_dialog(skill_id : String) -> Unit =
   #|       ? "1.2 Local-SKILL-Hub"
   #|       : "1.3 Cloud-SKILL-Hub";
   #|     const versionText = String(loadedHubSkill.version || "");
-  #|     const pathText = String(loadedHubSkill.relative_path || loadedHubSkill.folder_path || "");
+  #|     const pathText = pathRuntime && typeof pathRuntime.normalize === "function"
+  #|       ? pathRuntime.normalize(loadedHubSkill.relative_path || loadedHubSkill.folder_path || "")
+  #|       : String(loadedHubSkill.relative_path || loadedHubSkill.folder_path || "");
   #|     const metaLine = [versionText ? `version ${versionText}` : "", pathText ? `path ${pathText}` : ""].filter(Boolean).join(" | ");
   #|     set(scope, scopeLabel);
   #|     set(title, String(loadedHubSkill.name || "SKILL"));
@@ -2395,7 +2427,7 @@ extern "js" fn browser_open_skill_dialog(skill_id : String) -> Unit =
   #|     dialog.dataset.skillSource = sourceKind;
   #|     dialog.dataset.externalUrl = String(loadedHubSkill.external_url || loadedHubSkill.folder_url || loadedHubSkill.repository_url || "");
   #|     dialog.dataset.downloadUrl = String(loadedHubSkill.download_url || "");
-  #|     dialog.dataset.folderPath = String(loadedHubSkill.folder_path || loadedHubSkill.relative_path || "");
+  #|     dialog.dataset.folderPath = pathText;
   #|     for (const field of runtimeFields) {
   #|       const name = String(field?.name || "input");
   #|       const labelText = String(field?.label || name);
@@ -4094,6 +4126,106 @@ extern "js" fn browser_on_repair_artifact(handler : () -> Unit) -> Unit =
 
 ///|
 #cfg(target="js")
+extern "js" fn browser_ensure_skill_folder_runtime() -> Unit =
+  #| () => {
+  #|   if (globalThis.__moonapSkillFolderRuntime) return;
+  #|   const pathRuntime = globalThis.__moonapVirtualPathRuntime;
+  #|   if (!pathRuntime || typeof pathRuntime.normalize !== "function") {
+  #|     throw new Error("MoonAP virtual path runtime is not ready yet.");
+  #|   }
+  #|   const parseFrontmatter = (text) => {
+  #|     const source = String(text || "");
+  #|     if (!source.startsWith("---\n") && !source.startsWith("---\r\n")) return {};
+  #|     const lines = source.replace(/\r/g, "").split("\n");
+  #|     const fields = {};
+  #|     for (let index = 1; index < lines.length; index += 1) {
+  #|       const line = String(lines[index] || "");
+  #|       if (line.trim() === "---") break;
+  #|       const colon = line.indexOf(":");
+  #|       if (colon < 0) continue;
+  #|       const key = line.slice(0, colon).trim();
+  #|       const value = line.slice(colon + 1).trim();
+  #|       if (key) fields[key] = value;
+  #|     }
+  #|     return fields;
+  #|   };
+  #|   const parseKeyAttributes = (text) => {
+  #|     const source = String(text || "").replace(/\r/g, "");
+  #|     const match = source.match(/# Key Attributes\s+([\s\S]*?)(?:\n# |\n```|$)/);
+  #|     const result = {};
+  #|     const block = match?.[1] || "";
+  #|     for (const line of block.split("\n")) {
+  #|       const trimmed = String(line || "").trim();
+  #|       if (!trimmed.startsWith("- ")) continue;
+  #|       const content = trimmed.slice(2);
+  #|       const colon = content.indexOf(":");
+  #|       if (colon < 0) continue;
+  #|       const key = content.slice(0, colon).trim().toLowerCase().replace(/\s+/g, "_");
+  #|       const value = content.slice(colon + 1).trim();
+  #|       if (key) result[key] = value;
+  #|     }
+  #|     return result;
+  #|   };
+  #|   const parseRuntimeSpec = (text) => {
+  #|     const source = String(text || "").replace(/\r/g, "");
+  #|     const match = source.match(/# Runtime Spec\s+```json\s*([\s\S]*?)\s*```/);
+  #|     if (!match) return {};
+  #|     try { return JSON.parse(match[1]); } catch { return {}; }
+  #|   };
+  #|   const readTextFile = async (dirHandle, fileName) => {
+  #|     const handle = await dirHandle.getFileHandle(String(fileName || ""));
+  #|     const file = await handle.getFile();
+  #|     return await file.text();
+  #|   };
+  #|   const ensurePermission = async (handle, mode = "read", request = false) => {
+  #|     if (!handle) return false;
+  #|     if (typeof handle.queryPermission !== "function") return true;
+  #|     try {
+  #|       let state = await handle.queryPermission({ mode });
+  #|       if (state === "granted") return true;
+  #|       if (request && typeof handle.requestPermission === "function") {
+  #|         state = await handle.requestPermission({ mode });
+  #|         if (state === "granted") return true;
+  #|       }
+  #|     } catch {}
+  #|     return false;
+  #|   };
+  #|   const readSkillFolder = async (dirHandle, options = {}) => {
+  #|     const fallback = options?.fallback && typeof options.fallback === "object" ? options.fallback : {};
+  #|     const skillMd = await readTextFile(dirHandle, "SKILL.md");
+  #|     const frontmatter = parseFrontmatter(skillMd);
+  #|     const keyAttributes = parseKeyAttributes(skillMd);
+  #|     const runtimeSpec = parseRuntimeSpec(skillMd);
+  #|     const relativePath = pathRuntime.normalize(options?.relativePath || fallback?.relative_path || dirHandle?.name || "");
+  #|     return {
+  #|       ...(fallback || {}),
+  #|       id: String(options?.id || fallback?.id || ""),
+  #|       name: String(frontmatter.name || fallback?.name || options?.defaultName || "SKILL"),
+  #|       description: String(frontmatter.description || fallback?.description || ""),
+  #|       task_kind: String(keyAttributes.task_kind || fallback?.task_kind || "generic"),
+  #|       runtime_mode: String(keyAttributes.runtime_mode || fallback?.runtime_mode || "form"),
+  #|       result_mode: String(keyAttributes.result_mode || fallback?.result_mode || "text"),
+  #|       wasm_path: String(keyAttributes.wasm_path || fallback?.wasm_path || "program/main.wasm"),
+  #|       source_path: String(keyAttributes.moonbit_source_path || fallback?.source_path || ""),
+  #|       runtime_spec: runtimeSpec && typeof runtimeSpec === "object" ? runtimeSpec : {},
+  #|       skill_md: skillMd,
+  #|       handle_name: String(dirHandle?.name || fallback?.folder_name || ""),
+  #|       relative_path: relativePath,
+  #|       available: true
+  #|     };
+  #|   };
+  #|   globalThis.__moonapSkillFolderRuntime = {
+  #|     parseFrontmatter,
+  #|     parseKeyAttributes,
+  #|     parseRuntimeSpec,
+  #|     readTextFile,
+  #|     ensurePermission,
+  #|     readSkillFolder
+  #|   };
+  #| }
+
+///|
+#cfg(target="js")
 extern "js" fn browser_render_personal_skills() -> Int =
   #| () => {
   #|   const ensurePersonalSkillRuntime = () => {
@@ -4134,83 +4266,17 @@ extern "js" fn browser_render_personal_skills() -> Int =
   #|         Promise.resolve(work(store, finishResolve, finishReject)).catch(finishReject);
   #|       }).finally(() => db.close());
   #|     };
-  #|     const parseFrontmatter = (text) => {
-  #|       const source = String(text || "");
-  #|       if (!source.startsWith("---\n") && !source.startsWith("---\r\n")) return {};
-  #|       const lines = source.replace(/\r/g, "").split("\n");
-  #|       const fields = {};
-  #|       for (let index = 1; index < lines.length; index += 1) {
-  #|         const line = String(lines[index] || "");
-  #|         if (line.trim() === "---") break;
-  #|         const colon = line.indexOf(":");
-  #|         if (colon < 0) continue;
-  #|         const key = line.slice(0, colon).trim();
-  #|         const value = line.slice(colon + 1).trim();
-  #|         if (key) fields[key] = value;
-  #|       }
-  #|       return fields;
-  #|     };
-  #|     const parseKeyAttributes = (text) => {
-  #|       const source = String(text || "").replace(/\r/g, "");
-  #|       const match = source.match(/# Key Attributes\s+([\s\S]*?)(?:\n# |\n```|$)/);
-  #|       const result = {};
-  #|       const block = match?.[1] || "";
-  #|       for (const line of block.split("\n")) {
-  #|         const trimmed = String(line || "").trim();
-  #|         if (!trimmed.startsWith("- ")) continue;
-  #|         const content = trimmed.slice(2);
-  #|         const colon = content.indexOf(":");
-  #|         if (colon < 0) continue;
-  #|         const key = content.slice(0, colon).trim().toLowerCase().replace(/\s+/g, "_");
-  #|         const value = content.slice(colon + 1).trim();
-  #|         if (key) result[key] = value;
-  #|       }
-  #|       return result;
-  #|     };
-  #|     const parseRuntimeSpec = (text) => {
-  #|       const source = String(text || "").replace(/\r/g, "");
-  #|       const match = source.match(/# Runtime Spec\s+```json\s*([\s\S]*?)\s*```/);
-  #|       if (!match) return {};
-  #|       try { return JSON.parse(match[1]); } catch { return {}; }
-  #|     };
-  #|     const readTextFile = async (dirHandle, fileName) => {
-  #|       const handle = await dirHandle.getFileHandle(String(fileName || ""));
-  #|       const file = await handle.getFile();
-  #|       return await file.text();
-  #|     };
-  #|     const ensurePermission = async (handle, mode = "read", request = false) => {
-  #|       if (!handle) return false;
-  #|       if (typeof handle.queryPermission !== "function") return true;
-  #|       try {
-  #|         let state = await handle.queryPermission({ mode });
-  #|         if (state === "granted") return true;
-  #|         if (request && typeof handle.requestPermission === "function") {
-  #|           state = await handle.requestPermission({ mode });
-  #|           if (state === "granted") return true;
-  #|         }
-  #|       } catch {}
-  #|       return false;
-  #|     };
+  #|     const folderRuntime = globalThis.__moonapSkillFolderRuntime;
+  #|     if (!folderRuntime || typeof folderRuntime.readSkillFolder !== "function" || typeof folderRuntime.ensurePermission !== "function") {
+  #|       throw new Error("MoonAP skill folder runtime is not ready yet.");
+  #|     }
   #|     const loadFromHandle = async (id, dirHandle, fallback) => {
-  #|       const skillMd = await readTextFile(dirHandle, "SKILL.md");
-  #|       const frontmatter = parseFrontmatter(skillMd);
-  #|       const keyAttributes = parseKeyAttributes(skillMd);
-  #|       const runtimeSpec = parseRuntimeSpec(skillMd);
-  #|       const data = {
-  #|         ...(fallback || {}),
+  #|       const data = await folderRuntime.readSkillFolder(dirHandle, {
   #|         id: String(id || fallback?.id || ""),
-  #|         name: String(frontmatter.name || fallback?.name || "Personal SKILL"),
-  #|         description: String(frontmatter.description || fallback?.description || ""),
-  #|         task_kind: String(keyAttributes.task_kind || fallback?.task_kind || "generic"),
-  #|         runtime_mode: String(keyAttributes.runtime_mode || fallback?.runtime_mode || "form"),
-  #|         result_mode: String(keyAttributes.result_mode || fallback?.result_mode || "text"),
-  #|         wasm_path: String(keyAttributes.wasm_path || "program/main.wasm"),
-  #|         source_path: String(keyAttributes.moonbit_source_path || ""),
-  #|         runtime_spec: runtimeSpec && typeof runtimeSpec === "object" ? runtimeSpec : {},
-  #|         skill_md: skillMd,
-  #|         handle_name: String(dirHandle?.name || fallback?.folder_name || ""),
-  #|         available: true
-  #|       };
+  #|         fallback,
+  #|         defaultName: "Personal SKILL",
+  #|         relativePath: String(fallback?.folder_name || dirHandle?.name || "")
+  #|       });
   #|       globalThis.__moonapPersonalSkillCache = globalThis.__moonapPersonalSkillCache || {};
   #|       globalThis.__moonapPersonalSkillCache[data.id] = data;
   #|       return data;
@@ -4297,6 +4363,11 @@ extern "js" fn browser_render_personal_skills() -> Int =
   #|       },
   #|       listFromRoot: async (rootHandle) => {
   #|         if (!rootHandle || typeof rootHandle.entries !== "function") return [];
+  #|         if (!await folderRuntime.ensurePermission(rootHandle, "read", false)) {
+  #|           const error = new Error("MoonAP needs this browser to regain access to the selected Personal SKILL directory.");
+  #|           error.code = "permission-denied";
+  #|           throw error;
+  #|         }
   #|         let fallbackMap = new Map();
   #|         try {
   #|           const parsed = JSON.parse(localStorage.getItem("moonap.personal.skills") || "[]");
@@ -4405,7 +4476,10 @@ extern "js" fn browser_render_personal_skills() -> Int =
   #|     root.innerHTML = "";
   #|     const empty = document.createElement("div");
   #|     empty.className = "personal-skill-empty";
-  #|     empty.textContent = `Failed to load Personal SKILLs: ${error instanceof Error ? error.message : String(error)}`;
+  #|     const message = error instanceof Error ? error.message : String(error);
+  #|     empty.textContent = error && error.code === "permission-denied"
+  #|       ? message
+  #|       : `Failed to load Personal SKILLs: ${message}`;
   #|     root.append(empty);
   #|   });
   #|   return 0;
@@ -4415,6 +4489,10 @@ extern "js" fn browser_render_personal_skills() -> Int =
 #cfg(target="js")
 extern "js" fn browser_render_local_skill_hub() -> Int =
   #| () => {
+  #|   const pathRuntime = globalThis.__moonapVirtualPathRuntime;
+  #|   if (!pathRuntime || typeof pathRuntime.normalize !== "function") {
+  #|     throw new Error("MoonAP virtual path runtime is not ready yet.");
+  #|   }
   #|   const ensureLocalSkillHubRuntime = () => {
   #|     if (globalThis.__moonapLocalSkillHubRuntime) return globalThis.__moonapLocalSkillHubRuntime;
   #|     const DB_NAME = "moonap.local.skill.hub.handles.v1";
@@ -4453,78 +4531,17 @@ extern "js" fn browser_render_local_skill_hub() -> Int =
   #|         Promise.resolve(work(store, finishResolve, finishReject)).catch(finishReject);
   #|       }).finally(() => db.close());
   #|     };
-  #|     const parseFrontmatter = (text) => {
-  #|       const source = String(text || "");
-  #|       if (!source.startsWith("---\n") && !source.startsWith("---\r\n")) return {};
-  #|       const lines = source.replace(/\r/g, "").split("\n");
-  #|       const fields = {};
-  #|       for (let index = 1; index < lines.length; index += 1) {
-  #|         const line = String(lines[index] || "");
-  #|         if (line.trim() === "---") break;
-  #|         const colon = line.indexOf(":");
-  #|         if (colon < 0) continue;
-  #|         const key = line.slice(0, colon).trim();
-  #|         const value = line.slice(colon + 1).trim();
-  #|         if (key) fields[key] = value;
-  #|       }
-  #|       return fields;
-  #|     };
-  #|     const parseKeyAttributes = (text) => {
-  #|       const source = String(text || "").replace(/\r/g, "");
-  #|       const match = source.match(/# Key Attributes\s+([\s\S]*?)(?:\n# |\n```|$)/);
-  #|       const result = {};
-  #|       const block = match?.[1] || "";
-  #|       for (const line of block.split("\n")) {
-  #|         const trimmed = String(line || "").trim();
-  #|         if (!trimmed.startsWith("- ")) continue;
-  #|         const content = trimmed.slice(2);
-  #|         const colon = content.indexOf(":");
-  #|         if (colon < 0) continue;
-  #|         const key = content.slice(0, colon).trim().toLowerCase().replace(/\s+/g, "_");
-  #|         const value = content.slice(colon + 1).trim();
-  #|         if (key) result[key] = value;
-  #|       }
-  #|       return result;
-  #|     };
-  #|     const parseRuntimeSpec = (text) => {
-  #|       const source = String(text || "").replace(/\r/g, "");
-  #|       const match = source.match(/# Runtime Spec\s+```json\s*([\s\S]*?)\s*```/);
-  #|       if (!match) return {};
-  #|       try { return JSON.parse(match[1]); } catch { return {}; }
-  #|     };
-  #|     const readTextFile = async (dirHandle, fileName) => {
-  #|       const handle = await dirHandle.getFileHandle(String(fileName || ""));
-  #|       const file = await handle.getFile();
-  #|       return await file.text();
-  #|     };
-  #|     const ensurePermission = async (handle, mode = "read", request = false) => {
-  #|       if (!handle) return false;
-  #|       if (typeof handle.queryPermission !== "function") return true;
-  #|       try {
-  #|         let state = await handle.queryPermission({ mode });
-  #|         if (state === "granted") return true;
-  #|         if (request && typeof handle.requestPermission === "function") {
-  #|           state = await handle.requestPermission({ mode });
-  #|           if (state === "granted") return true;
-  #|         }
-  #|       } catch {}
-  #|       return false;
-  #|     };
+  #|     const folderRuntime = globalThis.__moonapSkillFolderRuntime;
+  #|     if (!folderRuntime || typeof folderRuntime.readSkillFolder !== "function" || typeof folderRuntime.ensurePermission !== "function") {
+  #|       throw new Error("MoonAP skill folder runtime is not ready yet.");
+  #|     }
   #|     const loadSkillFolder = async (dirHandle, relativePath) => {
-  #|       const skillMd = await readTextFile(dirHandle, "SKILL.md");
-  #|       const frontmatter = parseFrontmatter(skillMd);
-  #|       const keyAttributes = parseKeyAttributes(skillMd);
-  #|       const runtimeSpec = parseRuntimeSpec(skillMd);
-  #|       return {
-  #|         id: `local.${String(relativePath || dirHandle?.name || "").replace(/[\\/]/g, ".")}`,
-  #|         name: String(frontmatter.name || dirHandle?.name || "Local SKILL"),
-  #|         description: String(frontmatter.description || ""),
-  #|         task_kind: String(keyAttributes.task_kind || "generic"),
-  #|         runtime_mode: String(keyAttributes.runtime_mode || "form"),
-  #|         result_mode: String(keyAttributes.result_mode || "text"),
-  #|         relative_path: String(relativePath || dirHandle?.name || ""),
-  #|         runtime_spec: runtimeSpec && typeof runtimeSpec === "object" ? runtimeSpec : {}
-  #|       };
+  #|       const normalizedPath = pathRuntime.normalize(relativePath || dirHandle?.name || "");
+  #|       return await folderRuntime.readSkillFolder(dirHandle, {
+  #|         id: `local.${normalizedPath.replace(/\//g, ".")}`,
+  #|         defaultName: "Local SKILL",
+  #|         relativePath: normalizedPath
+  #|       });
   #|     };
   #|     const walkSkills = async (dirHandle, prefix = "") => {
   #|       let results = [];
@@ -4557,11 +4574,11 @@ extern "js" fn browser_render_local_skill_hub() -> Int =
   #|         });
   #|       },
   #|       hasPermission: async (handle, request = false) => {
-  #|         return await ensurePermission(handle, "readwrite", request);
+  #|         return await folderRuntime.ensurePermission(handle, "readwrite", request);
   #|       },
   #|       listFromRoot: async (rootHandle) => {
   #|         if (!rootHandle || typeof rootHandle.entries !== "function") return [];
-  #|         if (!await ensurePermission(rootHandle, "read", false)) {
+  #|         if (!await folderRuntime.ensurePermission(rootHandle, "read", false)) {
   #|           const error = new Error("MoonAP needs this browser to regain access to the selected Local SKILL Hub directory.");
   #|           error.code = "permission-denied";
   #|           throw error;
@@ -4619,7 +4636,7 @@ extern "js" fn browser_render_local_skill_hub() -> Int =
   #|       card.className = "skill-card personal";
   #|       card.type = "button";
   #|       card.dataset.skillId = String(skill.id || "");
-  #|       card.innerHTML = `<span>Local Hub / ${String(skill.relative_path || "").replace(/\\/g, "/")}</span><strong>${skill.name || "Local SKILL"}</strong><small>${skill.description || `Task kind: ${String(skill.task_kind || "generic")}`}</small>`;
+  #|       card.innerHTML = `<span>Local Hub / ${pathRuntime.normalize(skill.relative_path || "")}</span><strong>${skill.name || "Local SKILL"}</strong><small>${skill.description || `Task kind: ${String(skill.task_kind || "generic")}`}</small>`;
   #|       root.append(card);
   #|     }
   #|   })().catch((error) => {
@@ -4639,6 +4656,10 @@ extern "js" fn browser_render_local_skill_hub() -> Int =
 #cfg(target="js")
 extern "js" fn browser_render_cloud_skill_hub(force_refresh : Bool) -> Int =
   #| (forceRefresh) => {
+  #|   const pathRuntime = globalThis.__moonapVirtualPathRuntime;
+  #|   if (!pathRuntime || typeof pathRuntime.normalize !== "function") {
+  #|     throw new Error("MoonAP virtual path runtime is not ready yet.");
+  #|   }
   #|   const root = document.querySelector("#cloudSkillHubCards");
   #|   if (!root) return 0;
   #|   root.innerHTML = "";
@@ -4653,13 +4674,13 @@ extern "js" fn browser_render_cloud_skill_hub(force_refresh : Bool) -> Int =
   #|     sourceLabel.innerHTML = `<a href="${repositoryUrl}" target="_blank" rel="noreferrer">${repositoryUrl}</a>`;
   #|   }
   #|   const normalizeSkill = (entry, hub) => {
-  #|     const folderPath = String(entry?.folder_path || "");
+  #|     const folderPath = pathRuntime.normalize(entry?.folder_path || "");
   #|     const repository = String(entry?.repository_url || hub?.repository_url || repositoryUrl);
   #|     const rawBase = repository
   #|       .replace("https://github.com/", "https://raw.githubusercontent.com/")
   #|       .replace(/\/$/, "") + "/main";
   #|     const version = String(entry?.version || "");
-  #|     const zipPath = String(entry?.zip_path || (folderPath ? `${folderPath}.zip` : ""));
+  #|     const zipPath = pathRuntime.normalize(entry?.zip_path || (folderPath ? `${folderPath}.zip` : ""));
   #|     const zipUrl = String(entry?.zip_url || (zipPath ? `${rawBase}/${zipPath}` : ""));
   #|     return {
   #|       id: `cloud.${String(entry?.id || folderPath || entry?.name || "skill")}`,
@@ -4746,6 +4767,10 @@ extern "js" fn browser_install_cloud_skill(
 ) -> Unit =
   #| async (skillId, onDone, onError) => {
   #|   try {
+  #|     const pathRuntime = globalThis.__moonapVirtualPathRuntime;
+  #|     if (!pathRuntime || typeof pathRuntime.normalize !== "function" || typeof pathRuntime.split !== "function" || typeof pathRuntime.lastSegment !== "function") {
+  #|       throw new Error("MoonAP virtual path runtime is not ready yet.");
+  #|     }
   #|     const skill = globalThis.__moonapHubSkillCache && typeof globalThis.__moonapHubSkillCache === "object"
   #|       ? globalThis.__moonapHubSkillCache[String(skillId || "")]
   #|       : null;
@@ -4787,7 +4812,7 @@ extern "js" fn browser_install_cloud_skill(
   #|         await runtime.putRootHandle(rootHandle);
   #|       }
   #|     }
-  #|     const folderPath = String(skill.folder_path || "").trim();
+  #|     const folderPath = pathRuntime.normalize(String(skill.folder_path || "").trim());
   #|     const downloadUrl = String(skill.download_url || "").trim();
   #|     if (!folderPath) throw new Error("Cloud SKILL entry does not include folder_path.");
   #|     if (!downloadUrl) throw new Error("Cloud SKILL entry does not include a ZIP download path yet.");
@@ -4816,7 +4841,7 @@ extern "js" fn browser_install_cloud_skill(
   #|     };
   #|     const ensurePath = async (dirHandle, relativePath) => {
   #|       let current = dirHandle;
-  #|       const parts = String(relativePath || "").split("/").filter(Boolean);
+  #|       const parts = pathRuntime.split(relativePath);
   #|       for (const part of parts) {
   #|         current = await current.getDirectoryHandle(part, { create: true });
   #|       }
@@ -4824,25 +4849,25 @@ extern "js" fn browser_install_cloud_skill(
   #|     };
   #|     const zipBytes = await fetchBinary(downloadUrl);
   #|     const zipEntries = await zipRuntime.unzip(zipBytes);
-  #|     const folderName = String(folderPath.split("/").filter(Boolean).slice(-1)[0] || "");
+  #|     const folderName = pathRuntime.lastSegment(folderPath);
   #|     const fileEntries = zipEntries.filter((entry) => entry && typeof entry.path === "string" && !entry.directory);
   #|     const stripRoot = folderName !== "" && fileEntries.length > 0 && fileEntries.every((entry) => {
-  #|       const normalized = String(entry.path || "").replace(/^\/+/, "");
+  #|       const normalized = pathRuntime.normalize(entry.path || "");
   #|       return normalized === folderName || normalized.startsWith(`${folderName}/`);
   #|     });
   #|     const targetDir = await ensurePath(rootHandle, folderPath);
   #|     for (const entry of zipEntries) {
-  #|       const originalPath = String(entry?.path || "").replace(/^\/+/, "");
+  #|       const originalPath = pathRuntime.normalize(entry?.path || "");
   #|       if (!originalPath || originalPath.startsWith("__MACOSX/")) continue;
   #|       const relativePath = stripRoot
   #|         ? (originalPath === folderName ? "" : originalPath.slice(folderName.length + 1))
   #|         : originalPath;
   #|       if (!relativePath) continue;
-  #|       if (String(relativePath).endsWith("/")) {
+  #|       if (entry?.directory) {
   #|         await ensurePath(targetDir, relativePath);
   #|         continue;
   #|       }
-  #|       const parts = relativePath.split("/").filter(Boolean);
+  #|       const parts = pathRuntime.split(relativePath);
   #|       const fileName = parts.pop();
   #|       const parentDir = parts.length == 0 ? targetDir : await ensurePath(targetDir, parts.join("/"));
   #|       await writeBinary(parentDir, fileName, entry.bytes || new Uint8Array(0));
@@ -4932,8 +4957,12 @@ extern "js" fn browser_load_personal_skill(
   #| async (skillId, onDone, onError) => {
   #|   try {
   #|     const runtime = globalThis.__moonapPersonalSkillRuntime;
+  #|     const folderRuntime = globalThis.__moonapSkillFolderRuntime;
   #|     if (!runtime || typeof runtime.getHandle !== "function") {
   #|       throw new Error("Personal SKILL runtime is not ready yet. Open the SKILL tab again and retry.");
+  #|     }
+  #|     if (!folderRuntime || typeof folderRuntime.ensurePermission !== "function") {
+  #|       throw new Error("MoonAP skill folder runtime is not ready yet. Open the SKILL tab again and retry.");
   #|     }
   #|     let fallback = null;
   #|     try {
@@ -4949,6 +4978,14 @@ extern "js" fn browser_load_personal_skill(
   #|         globalThis.__moonapSkillExportRootHandle = rootHandle;
   #|       }
   #|     }
+  #|     if (rootHandle && typeof rootHandle.entries === "function") {
+  #|       const rootReady = await folderRuntime.ensurePermission(rootHandle, "read", true);
+  #|       if (!rootReady) {
+  #|         const error = new Error("MoonAP needs this browser to regain access to the selected Personal SKILL directory before it can open this skill.");
+  #|         error.code = "permission-denied";
+  #|         throw error;
+  #|       }
+  #|     }
   #|     let handle = null;
   #|     if (rootHandle && typeof runtime.findSkillDir === "function") {
   #|       handle = await runtime.findSkillDir(rootHandle, skillId);
@@ -4958,6 +4995,12 @@ extern "js" fn browser_load_personal_skill(
   #|     }
   #|     if (!handle) {
   #|       throw new Error("MoonAP could not find a saved local folder handle for this Personal SKILL.");
+  #|     }
+  #|     const handleReady = await folderRuntime.ensurePermission(handle, "read", true);
+  #|     if (!handleReady) {
+  #|       const error = new Error("MoonAP needs permission to reopen this saved Personal SKILL folder.");
+  #|       error.code = "permission-denied";
+  #|       throw error;
   #|     }
   #|     const loaded = await runtime.loadFromHandle(skillId, handle, fallback || {});
   #|     onDone(JSON.stringify(loaded, null, 2));
@@ -6293,6 +6336,8 @@ fn main {
       "Refreshing Cloud SKILL catalog from the official MoonAP-SKILL-Hub repository.",
     )
   })
+  browser_ensure_virtual_path_runtime()
+  browser_ensure_skill_folder_runtime()
   browser_ensure_skill_zip_runtime()
   browser_on_skill_export_confirm(fn() {
     browser_request_skill_save(

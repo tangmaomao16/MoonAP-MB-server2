@@ -2140,11 +2140,7 @@ fn query_param(path : String, key : String) -> String {
 
 ///|
 fn run_id_from_dir(dir : String) -> String {
-  let mut last = dir
-  for part in dir.split("/") {
-    last = part.to_string()
-  }
-  last
+  @core.path_last_segment(dir)
 }
 
 ///|

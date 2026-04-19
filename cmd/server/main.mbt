@@ -1509,7 +1509,10 @@ fn runtime_spec_json_for_context(
   original_prompt : String,
   source_text : String,
 ) -> String {
-  if task_kind != "generic-task" {
+  let declared_spec = extract_moonap_runtime_spec_json(source_text)
+  if declared_spec != "" {
+    declared_spec
+  } else if task_kind != "generic-task" {
     runtime_spec_json_for_task_kind(task_kind)
   } else {
     let haystack = (original_prompt + "\n" + source_text).to_lower()
@@ -1562,6 +1565,41 @@ fn runtime_spec_json_for_context(
     } else {
       runtime_spec_json_for_task_kind(task_kind)
     }
+  }
+}
+
+///|
+fn strip_runtime_spec_comment_prefix(line : String) -> String {
+  let trimmed = line.trim().to_string()
+  if trimmed.has_prefix("///") {
+    trimmed[3:].to_string().trim().to_string()
+  } else if trimmed.has_prefix("//") {
+    trimmed[2:].to_string().trim().to_string()
+  } else {
+    line
+  }
+}
+
+///|
+fn extract_moonap_runtime_spec_json(source_text : String) -> String {
+  let start_marker = "MOONAP_RUNTIME_SPEC_BEGIN"
+  let end_marker = "MOONAP_RUNTIME_SPEC_END"
+  guard source_text.find(start_marker) is Some(start_index) else { return "" }
+  let after_start = source_text[start_index + start_marker.length():].to_string()
+  guard after_start.find(end_marker) is Some(end_index) else { return "" }
+  let raw = after_start[:end_index].to_string()
+  let lines : Array[String] = []
+  for line in raw.split("\n") {
+    let cleaned = strip_runtime_spec_comment_prefix(line.to_string())
+    if cleaned.trim() != "" {
+      lines.push(cleaned)
+    }
+  }
+  let spec = lines.join("\n").trim().to_string()
+  if spec.has_prefix("{") && spec.contains("\"fields\"") {
+    spec
+  } else {
+    ""
   }
 }
 

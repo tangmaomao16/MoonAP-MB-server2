@@ -111,6 +111,33 @@ Build an app where the user enters two numbers and gets the sum.
 
 The first should show a `Celsius temperature` field. The second should show `First number` and `Second number` fields.
 
+## Form Runtime Contract
+
+For ordinary form-style APPs, MoonAP now prefers a declarative runtime contract embedded in the generated MoonBit source:
+
+```moonbit
+/// MOONAP_RUNTIME_SPEC_BEGIN
+/// {
+///   "mode": "form",
+///   "title": "Convert meters to feet",
+///   "action_label": "Convert length",
+///   "fields": [
+///     {"name":"meters","label":"Length in meters","type":"float","default":1,"step":0.01}
+///   ],
+///   "computed_outputs": [
+///     {"name":"feet","label":"Length in feet","expression":"meters * 3.28084","decimals":4}
+///   ],
+///   "result_template": "Meters: {{meters}}\nFeet: {{feet}}",
+///   "summary_template": "Converted {{meters}} meters to {{feet}} feet."
+/// }
+/// MOONAP_RUNTIME_SPEC_END
+fn main {
+  println("MoonAP app")
+}
+```
+
+MoonAP parses this contract, renders the form, evaluates simple arithmetic `computed_outputs`, and displays the result in the runtime card. This avoids adding task-specific host code for every unit conversion or calculator-style APP. Current expressions are intentionally limited to numeric fields with `+`, `-`, `*`, `/`, and parentheses.
+
 ## SKILL Model
 
 MoonAP uses three SKILL layers:

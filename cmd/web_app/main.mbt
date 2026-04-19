@@ -1463,6 +1463,60 @@ extern "js" fn browser_record_demo_runtime_result(
   #|     };
   #|     const buildGenericFormPayload = () => {
   #|       const inputLines = Object.entries(runtimeInputs).map(([key, value]) => `${key}: ${String(value)}`);
+  #|       const renderTemplate = (template, values) => String(template || "").replace(/\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g, (_match, name) => {
+  #|         const value = values[name];
+  #|         return value === undefined || value === null ? "" : String(value);
+  #|       });
+  #|       const evaluateExpression = (expression, values) => {
+  #|         const expr = String(expression || "").trim();
+  #|         if (!expr) throw new Error("Computed output is missing an expression.");
+  #|         if (!/^[A-Za-z0-9_+\-*/().\s]+$/.test(expr)) {
+  #|           throw new Error(`Unsupported characters in expression: ${expr}`);
+  #|         }
+  #|         const numericExpr = expr.replace(/\b[A-Za-z_][A-Za-z0-9_]*\b/g, (name) => {
+  #|           if (!Object.prototype.hasOwnProperty.call(values, name)) {
+  #|             throw new Error(`Unknown input in expression: ${name}`);
+  #|           }
+  #|           const n = Number(values[name]);
+  #|           if (!Number.isFinite(n)) throw new Error(`Input ${name} is not numeric.`);
+  #|           return `(${String(n)})`;
+  #|         });
+  #|         if (!/^[0-9eE+\-*/().\s]+$/.test(numericExpr)) {
+  #|           throw new Error(`Expression did not reduce to arithmetic: ${expr}`);
+  #|         }
+  #|         const result = Function(`"use strict"; return (${numericExpr});`)();
+  #|         if (!Number.isFinite(Number(result))) {
+  #|           throw new Error(`Expression produced a non-finite result: ${expr}`);
+  #|         }
+  #|         return Number(result);
+  #|       };
+  #|       const computedOutputs = Array.isArray(runtimeSpec.computed_outputs)
+  #|         ? runtimeSpec.computed_outputs
+  #|         : (Array.isArray(runtimeSpec.outputs) ? runtimeSpec.outputs : []);
+  #|       if (computedOutputs.length > 0) {
+  #|         const values = { ...runtimeInputs };
+  #|         for (const output of computedOutputs) {
+  #|           const name = String(output?.name || "").trim();
+  #|           if (!name) continue;
+  #|           const rawValue = evaluateExpression(output?.expression, values);
+  #|           const decimals = Number.isFinite(Number(output?.decimals)) ? Math.max(0, Math.min(12, Number(output.decimals))) : null;
+  #|           const value = decimals === null ? rawValue : Number(rawValue.toFixed(decimals));
+  #|           values[name] = value;
+  #|         }
+  #|         const outputLines = computedOutputs.map((output) => {
+  #|           const name = String(output?.name || "").trim();
+  #|           if (!name) return "";
+  #|           const label = String(output?.label || name);
+  #|           return `${label}: ${String(values[name])}`;
+  #|         }).filter(Boolean);
+  #|         const displayText = runtimeSpec.result_template
+  #|           ? renderTemplate(runtimeSpec.result_template, values)
+  #|           : [...inputLines, ...outputLines].join("\n");
+  #|         const summaryText = runtimeSpec.summary_template
+  #|           ? renderTemplate(runtimeSpec.summary_template, values)
+  #|           : (outputLines[0] || "MoonAP calculated the form result.");
+  #|         return buildGenericPayload(summaryText, displayText);
+  #|       }
   #|       if (Object.prototype.hasOwnProperty.call(runtimeInputs, "celsius")) {
   #|         const celsius = Number(runtimeInputs.celsius);
   #|         const fahrenheit = celsius * 9 / 5 + 32;
@@ -5222,6 +5276,20 @@ extern "js" fn browser_generate_moonbit_artifact(
   #|         "You are an AI coder.",
   #|         "You only write MoonBit code.",
   #|         "Your job is to write MoonBit code for the user's task.",
+  #|         "For ordinary form-style apps, include a MoonAP declarative runtime contract in line comments before main:",
+  #|         "/// MOONAP_RUNTIME_SPEC_BEGIN",
+  #|         "/// {",
+  #|         "///   \"mode\": \"form\",",
+  #|         "///   \"title\": \"Short app title\",",
+  #|         "///   \"action_label\": \"Run app\",",
+  #|         "///   \"fields\": [{\"name\":\"input_name\",\"label\":\"Input label\",\"type\":\"float\",\"default\":1,\"step\":0.01}],",
+  #|         "///   \"computed_outputs\": [{\"name\":\"output_name\",\"label\":\"Output label\",\"expression\":\"input_name * 2\",\"decimals\":2}],",
+  #|         "///   \"result_template\": \"Input: {{input_name}}\\nOutput: {{output_name}}\",",
+  #|         "///   \"summary_template\": \"Calculated output {{output_name}}.\"",
+  #|         "/// }",
+  #|         "/// MOONAP_RUNTIME_SPEC_END",
+  #|         "Use computed_outputs expressions only for simple arithmetic over numeric fields using +, -, *, /, and parentheses.",
+  #|         "Choose semantic field names and labels from the user's task instead of generic input_text.",
   #|         "Return only the full contents of cmd/main/main.mbt."
   #|       ].join("\\n");
   #|       const userPrompt = String(prompt || "");

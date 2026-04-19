@@ -234,19 +234,19 @@ The saved `SKILL.md` was inspected and looked correct. It records:
 
 ### Important UX clarification
 
-When the user reuses `large-fastq-generator` from the SKILL panel, the dialog should show a `Choose output file/location` button before `Run`.
+When the user runs a direct large-file generation runtime or reuses `large-fastq-generator` from the SKILL panel, the UI should show a `Choose output file/location` button before `Run`.
 
 The intended UX is:
 
-1. the user opens the SKILL;
+1. the user opens the generated runtime or SKILL;
 2. the user edits generation parameters;
 3. the user clicks `Choose output file/location`;
 4. the browser's native save-file picker opens;
-5. the selected browser `FileSystemFileHandle` is stored on the dialog;
+5. the selected browser `FileSystemFileHandle` is stored on the runtime card or dialog;
 6. the user clicks `Run`;
 7. MoonAP writes directly to the preselected file handle.
 
-If the user skips `Choose output file/location`, `Run` still falls back to opening the save picker. This fallback is intentional, but the preferred path is preselection before `Run`.
+If the user skips `Choose output file/location`, `Run` should stop with a clear message asking for an output file first. Do not open the native save picker from the run button, because the user needs an explicit pre-run target-selection step for predictable demos and long writes.
 
 The generated file is saved wherever the user chooses in that save picker. MoonAP intentionally does **not** invent or silently use an OS path. This is especially important for cross-platform behavior and browser security.
 

@@ -217,6 +217,17 @@ extern "js" fn browser_render_artifact_card(
   #|           <small>${isFastqAnalysisRuntime ? "File contents stay in this browser. MoonAP reads it in chunks and sends only summary metrics to the server." : "File contents stay in this browser."}</small>
   #|         </div>`
   #|       : "";
+  #|     const isStreamedOutputRuntime = String(runtimeSpec?.io_contract?.host_capability || "") === "streamed-local-generation" || taskKind === "large-file-generation";
+  #|     const outputSelection = globalThis.__moonapRuntimeOutputFile && String(globalThis.__moonapRuntimeOutputFile.request_id || "") === requestId
+  #|       ? globalThis.__moonapRuntimeOutputFile
+  #|       : null;
+  #|     const outputPickerHtml = isStreamedOutputRuntime
+  #|       ? `<div class="action-card-file-target">
+  #|           <button id="chooseRuntimeOutputFile" class="secondary strong" type="button">Choose output file</button>
+  #|           <span id="runtimeOutputFileStatus">${outputSelection?.name ? `Selected: ${String(outputSelection.name)}` : "No output file selected yet."}</span>
+  #|           <small>Choose where MoonAP should stream the generated file before running. No OS path string is stored.</small>
+  #|         </div>`
+  #|       : "";
   #|     const runLabel = runtimeDone
   #|       ? String(runtimeSpec?.rerun_action_label || runtimeSpec?.action_label || runtimeSpec?.primary_action_label || (runtimeMode === "interactive" ? "Run again" : "Run generator again"))
   #|       : String(runtimeSpec?.action_label || runtimeSpec?.primary_action_label || (runtimeMode === "interactive" ? "Run game" : "Run runtime step"));
@@ -253,6 +264,7 @@ extern "js" fn browser_render_artifact_card(
   #|       <div class="action-card-status">${statusHtml}</div>
   #|       ${runtimeProfileHtml}
   #|       ${filePickerHtml}
+  #|       ${outputPickerHtml}
   #|       ${paramsHtml}
   #|       ${resultPreviewHtml}
   #|       <div class="action-card-primary">${primaryAction}</div>
@@ -284,6 +296,34 @@ extern "js" fn browser_render_artifact_card(
   #|     };
   #|     runtimeFileInput.onchange = syncRuntimeFileStatus;
   #|     syncRuntimeFileStatus();
+  #|   }
+  #|   const runtimeOutputButton = document.querySelector("#chooseRuntimeOutputFile");
+  #|   const runtimeOutputStatus = document.querySelector("#runtimeOutputFileStatus");
+  #|   if (runtimeOutputButton && runtimeOutputStatus) {
+  #|     runtimeOutputButton.onclick = async () => {
+  #|       try {
+  #|         if (typeof window.showSaveFilePicker !== "function") {
+  #|           throw new Error("This browser does not support selecting a streamed output file yet.");
+  #|         }
+  #|         const fileNameRuntime = globalThis.__moonapFileNameRuntime;
+  #|         const outputInput = document.querySelector("#runtime-field-output_name");
+  #|         const outputNameRaw = String(outputInput?.value || "moonap-output.fastq").trim() || "moonap-output.fastq";
+  #|         const outputName = fileNameRuntime?.sanitize(outputNameRaw, "moonap-output.fastq") || "moonap-output.fastq";
+  #|         const handle = await window.showSaveFilePicker({
+  #|           suggestedName: outputName,
+  #|           types: [{ description: "FastQ files", accept: { "text/plain": [".fastq", ".fq", ".txt"] } }]
+  #|         });
+  #|         globalThis.__moonapRuntimeOutputFile = {
+  #|           request_id: requestId,
+  #|           handle,
+  #|           name: String(handle?.name || outputName)
+  #|         };
+  #|         if (outputInput) outputInput.value = String(handle?.name || outputName);
+  #|         runtimeOutputStatus.textContent = `Selected: ${String(handle?.name || outputName)}`;
+  #|       } catch (error) {
+  #|         runtimeOutputStatus.textContent = `Output file not selected: ${error instanceof Error ? error.message : String(error)}`;
+  #|       }
+  #|     };
   #|   }
   #|   if (runtimeCard) {
   #|     try { root.scrollIntoView({ behavior: "smooth", block: "end" }); } catch {}
@@ -679,6 +719,7 @@ extern "js" fn browser_start_new_app() -> Unit =
   #|   globalThis.__moonapLastRuntimeRequest = {};
   #|   globalThis.__moonapLastRuntimeResult = {};
   #|   globalThis.__moonapLastRuntimeReportPayload = null;
+  #|   globalThis.__moonapRuntimeOutputFile = null;
   #|   globalThis.__moonapLastRuntimeRequestText = "";
   #|   globalThis.__moonapLastRuntimeResultText = "";
   #|   globalThis.__moonapLastArtifactCardArgs = null;
@@ -1371,7 +1412,7 @@ extern "js" fn browser_record_demo_runtime_result(
   #|       const encoder = new TextEncoder();
   #|       const outputNameRaw = String(runtimeInputs.output_name || "moonap-output.fastq").trim() || "moonap-output.fastq";
   #|       const fileNameRuntime = globalThis.__moonapFileNameRuntime;
-  #|       const outputName = fileNameRuntime?.sanitize(outputNameRaw, "moonap-output.fastq") || "moonap-output.fastq";
+  #|       let outputName = fileNameRuntime?.sanitize(outputNameRaw, "moonap-output.fastq") || "moonap-output.fastq";
   #|       const targetSizeMb = Math.max(1, Math.min(1024, Number(runtimeInputs.target_size_mb) || 128));
   #|       const targetBytes = targetSizeMb * 1024 * 1024;
   #|       const readLength = Math.max(20, Math.min(20000, Number(runtimeInputs.read_length ?? runtimeInputs.line_length) || 150));
@@ -1385,10 +1426,12 @@ extern "js" fn browser_record_demo_runtime_result(
   #|         seed = (seed * 1664525 + 1013904223) >>> 0;
   #|         return seed / 4294967296;
   #|       };
-  #|       const fileHandle = await window.showSaveFilePicker({
-  #|         suggestedName: outputName,
-  #|         types: [{ description: "FastQ files", accept: { "text/plain": [".fastq", ".fq", ".txt"] } }]
-  #|       });
+  #|       const selectedOutput = globalThis.__moonapRuntimeOutputFile;
+  #|       if (!selectedOutput || String(selectedOutput.request_id || "") !== requestId || !selectedOutput.handle) {
+  #|         throw new Error("Choose an output file before running. MoonAP streams generated files to that browser file handle.");
+  #|       }
+  #|       const fileHandle = selectedOutput.handle;
+  #|       outputName = String(fileHandle?.name || selectedOutput.name || outputName);
   #|       const writable = await fileHandle.createWritable();
   #|       let bytesWritten = 0;
   #|       let readIndex = 0;
@@ -4132,11 +4175,11 @@ extern "js" fn browser_run_dialog_large_file_generation(
   #|       throw new Error("This browser does not support streamed save-file output yet.");
   #|     }
   #|     const selectedFileHandle = dialog.__moonapOutputFileHandle || null;
+  #|     if (!selectedFileHandle) {
+  #|       throw new Error("Choose output file/location before running this large-file generator.");
+  #|     }
   #|     dialog.close();
-  #|     const fileHandle = selectedFileHandle || await window.showSaveFilePicker({
-  #|       suggestedName: outputName,
-  #|       types: [{ description: "FastQ files", accept: { "text/plain": [".fastq", ".fq", ".txt"] } }]
-  #|     });
+  #|     const fileHandle = selectedFileHandle;
   #|     outputName = String(fileHandle?.name || outputName);
   #|     const writable = await fileHandle.createWritable();
   #|     const encoder = new TextEncoder();

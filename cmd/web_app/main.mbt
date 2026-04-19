@@ -1004,12 +1004,23 @@ extern "js" fn browser_record_demo_runtime_result(
 ) -> Unit =
   #| async (onDone, onError) => {
   #|   try {
-  #|     const runtimeRequest = globalThis.__moonapLastRuntimeRequest;
+  #|     let runtimeRequest = globalThis.__moonapLastRuntimeRequest;
+  #|     if (!runtimeRequest || typeof runtimeRequest !== "object") {
+  #|       runtimeRequest = globalThis.__moonapLastSkillRuntimeRequest;
+  #|     }
   #|     if (!runtimeRequest || typeof runtimeRequest !== "object") {
   #|       throw new Error("No runtime request is available yet.");
   #|     }
-  #|     const requestId = String(runtimeRequest.request_id || "");
-  #|     if (!requestId) throw new Error("MoonAP runtime request_id is missing.");
+  #|     let requestId = String(runtimeRequest.request_id || "");
+  #|     if (!requestId && globalThis.__moonapLastSkillRuntimeRequest && typeof globalThis.__moonapLastSkillRuntimeRequest === "object") {
+  #|       runtimeRequest = globalThis.__moonapLastSkillRuntimeRequest;
+  #|       requestId = String(runtimeRequest.request_id || "");
+  #|     }
+  #|     if (!requestId) {
+  #|       requestId = `browser-rerun-${Date.now()}`;
+  #|       runtimeRequest = Object.assign({}, runtimeRequest, { request_id: requestId });
+  #|       globalThis.__moonapLastRuntimeRequest = runtimeRequest;
+  #|     }
   #|     const sourceUrl = String(runtimeRequest.source_url || "");
   #|     const wasmUrl = String(runtimeRequest.wasm_url || "");
   #|     const taskKind = String(runtimeRequest.task_kind || "");
@@ -4214,6 +4225,7 @@ extern "js" fn browser_run_dialog_generic_skill(
   #|       skill_source: sourceKind
   #|     };
   #|     globalThis.__moonapLastRuntimeRequest = runtimeRequestRecord;
+  #|     globalThis.__moonapLastSkillRuntimeRequest = runtimeRequestRecord;
   #|     globalThis.__moonapLastRuntimeRequestText = JSON.stringify(runtimeRequestRecord, null, 2);
   #|     const runtimeInputs = {};
   #|     for (const node of Array.from(dialog.querySelectorAll("[data-param-name]"))) {
@@ -4260,6 +4272,8 @@ extern "js" fn browser_run_dialog_generic_skill(
   #|       } catch {
   #|         globalThis.__moonapLastRuntimeResult = payload;
   #|       }
+  #|       globalThis.__moonapLastSkillRuntimeRequest = runtimeRequestRecord;
+  #|       globalThis.__moonapLastSkillRuntimeResult = globalThis.__moonapLastRuntimeResult;
   #|       globalThis.__moonapLastRuntimeResultText = text || JSON.stringify(payload, null, 2);
   #|       if (String(payload?.result_kind || "").includes("report") || resultMode === "report") {
   #|         globalThis.__moonapLastRuntimeReportPayload = payload;
@@ -6522,9 +6536,27 @@ extern "js" fn browser_on_record_demo_runtime_result(
   #|   if (event.target?.id !== "recordDemoRuntimeResult") return;
   #|   event.preventDefault();
   #|   event.stopPropagation();
+  #|   if (globalThis.__moonapRuntimeRerunBusy) return;
+  #|   globalThis.__moonapRuntimeRerunBusy = true;
+  #|   const button = event.target;
+  #|   const previousDisabled = button.disabled;
+  #|   button.disabled = true;
   #|   try {
-  #|     handler();
+  #|     const result = handler();
+  #|     if (result && typeof result.finally === "function") {
+  #|       result.finally(() => {
+  #|         globalThis.__moonapRuntimeRerunBusy = false;
+  #|         button.disabled = previousDisabled;
+  #|       });
+  #|     } else {
+  #|       setTimeout(() => {
+  #|         globalThis.__moonapRuntimeRerunBusy = false;
+  #|         button.disabled = previousDisabled;
+  #|       }, 600);
+  #|     }
   #|   } catch (error) {
+  #|     globalThis.__moonapRuntimeRerunBusy = false;
+  #|     button.disabled = previousDisabled;
   #|     alert(`MoonAP demo runtime execution failed: ${error instanceof Error ? error.message : String(error)}`);
   #|   }
   #| })

@@ -144,8 +144,8 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__render__ar
        : (runtimeRequest?.runtime_ui && typeof runtimeRequest.runtime_ui === "object" ? runtimeRequest.runtime_ui : {});
      const runtimeFields = Array.isArray(runtimeSpec.fields) ? runtimeSpec.fields : [];
      const taskKind = String(runtimeRequest?.task_kind || "");
-     const runtimeMode = String(runtimeRequest?.runtime_mode || runtimeSpec?.mode || "");
-     const resultMode = String(runtimeRequest?.result_mode || runtimeResult?.result_mode || runtimeSpec?.result_mode || "");
+     const runtimeMode = String(runtimeSpec?.mode || runtimeRequest?.runtime_mode || "");
+     const resultMode = String(runtimeSpec?.result_mode || runtimeRequest?.result_mode || runtimeResult?.result_mode || "");
      const currentProfileId = profileRuntime && typeof profileRuntime.profileIdForRequest === "function"
        ? String(profileRuntime.profileIdForRequest(runtimeRequest) || "")
        : String(runtimeRequest?.runtime_profile_override_id || runtimeRequest?.runtime_profile_id || taskKind || "");
@@ -910,11 +910,11 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__record__de
      const sourceUrl = String(runtimeRequest.source_url || "");
      const wasmUrl = String(runtimeRequest.wasm_url || "");
      const taskKind = String(runtimeRequest.task_kind || "");
-     const runtimeMode = String(runtimeRequest.runtime_mode || "");
-     const resultMode = String(runtimeRequest.result_mode || "text");
      const runtimeSpec = runtimeRequest?.runtime_spec && typeof runtimeRequest.runtime_spec === "object"
        ? runtimeRequest.runtime_spec
        : (runtimeRequest?.runtime_ui && typeof runtimeRequest.runtime_ui === "object" ? runtimeRequest.runtime_ui : {});
+     const runtimeMode = String(runtimeSpec?.mode || runtimeRequest.runtime_mode || "");
+     const resultMode = String(runtimeSpec?.result_mode || runtimeRequest.result_mode || "text");
      const ioContract = runtimeSpec?.io_contract && typeof runtimeSpec.io_contract === "object"
        ? runtimeSpec.io_contract
        : {};
@@ -1592,6 +1592,8 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__record__de
      let payload;
      if (taskKind === "large-fastq-analysis" || String(runtimeSpec.domain_profile || "").toLowerCase() === "fastq") {
        payload = await runLargeFastqAnalysisPayload();
+     } else if (String(ioContract.host_capability || "") === "csv-summary" || String(runtimeSpec?.analysis_type || "").toLowerCase() === "csv-summary") {
+       payload = await runLargeFileAnalysisPayload();
      } else if (String(ioContract.host_capability || "") === "chunked-local-analysis" || taskKind === "large-file-analysis") {
        payload = await runLargeFileAnalysisPayload();
      } else if (String(ioContract.host_capability || "") === "streamed-local-generation" || taskKind === "large-file-generation") {

@@ -1604,6 +1604,7 @@ fn runtime_spec_json_for_generic_prompt(haystack : String) -> String {
     "    \"title\": \"CSV analyzer\",\n" +
     "    \"action_label\": \"Analyze CSV\",\n" +
     "    \"rerun_action_label\": \"Analyze CSV again\",\n" +
+    "    \"result_mode\": \"report\",\n" +
     "    \"io_contract\": {\"browser_local_only\": true, \"llm_receives_file_contents\": false, \"host_capability\": \"csv-summary\", \"input_mode\": \"file\", \"output_mode\": \"report\", \"supported_extensions\": [\"csv\", \"tsv\", \"txt\"]},\n" +
     "    \"fields\": []\n" +
     "  }"
@@ -3489,6 +3490,7 @@ fn llm_sim_csv_analyzer_source() -> String {
   "///   \"title\": \"CSV analyzer\",\n" +
   "///   \"action_label\": \"Analyze CSV\",\n" +
   "///   \"rerun_action_label\": \"Analyze CSV again\",\n" +
+  "///   \"result_mode\": \"report\",\n" +
   "///   \"io_contract\": {\"browser_local_only\": true, \"llm_receives_file_contents\": false, \"host_capability\": \"csv-summary\", \"input_mode\": \"file\", \"output_mode\": \"report\", \"supported_extensions\": [\"csv\", \"tsv\", \"txt\"]},\n" +
   "///   \"fields\": []\n" +
   "/// }\n" +

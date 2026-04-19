@@ -3884,9 +3884,11 @@ extern "js" fn browser_open_skill_dialog(skill_id : String) -> Unit =
   #|   dialog.dataset.externalUrl = "";
   #|   dialog.dataset.downloadUrl = "";
   #|   dialog.dataset.folderPath = "";
+  #|   dialog.dataset.inputKind = "";
   #|   if (runButton) runButton.textContent = "Run";
   #|   if (openSourceButton) openSourceButton.style.display = "none";
   #|   if (inputTarget) inputTarget.style.display = "none";
+  #|   if (chooseInput) chooseInput.textContent = "Choose input file";
   #|   set(inputStatus, "No input file selected yet.");
   #|   if (outputTarget) outputTarget.style.display = "none";
   #|   set(outputStatus, "No output file selected yet.");
@@ -3963,6 +3965,12 @@ extern "js" fn browser_open_skill_dialog(skill_id : String) -> Unit =
   #|     }
   #|     if (String(loadedPersonal.task_kind || "") === "large-fastq-analysis" && inputTarget) {
   #|       inputTarget.style.display = "";
+  #|       dialog.dataset.inputKind = "fastq";
+  #|       if (chooseInput) chooseInput.textContent = "Choose input FastQ file";
+  #|     } else if (String(runtimeSpec.mode || loadedPersonal.runtime_mode || "").toLowerCase() === "file" && inputTarget) {
+  #|       inputTarget.style.display = "";
+  #|       dialog.dataset.inputKind = String(runtimeSpec.analysis_type || runtimeSpec.tool_kind || "file").toLowerCase();
+  #|       if (chooseInput) chooseInput.textContent = "Choose input file";
   #|     }
   #|   } else if (loadedHubSkill && typeof loadedHubSkill === "object") {
   #|     const runtimeSpec = loadedHubSkill.runtime_spec && typeof loadedHubSkill.runtime_spec === "object"
@@ -4011,6 +4019,12 @@ extern "js" fn browser_open_skill_dialog(skill_id : String) -> Unit =
   #|     }
   #|     if (sourceKind !== "cloud" && String(loadedHubSkill.task_kind || "") === "large-fastq-analysis" && inputTarget) {
   #|       inputTarget.style.display = "";
+  #|       dialog.dataset.inputKind = "fastq";
+  #|       if (chooseInput) chooseInput.textContent = "Choose input FastQ file";
+  #|     } else if (sourceKind !== "cloud" && String(runtimeSpec.mode || loadedHubSkill.runtime_mode || "").toLowerCase() === "file" && inputTarget) {
+  #|       inputTarget.style.display = "";
+  #|       dialog.dataset.inputKind = String(runtimeSpec.analysis_type || runtimeSpec.tool_kind || "file").toLowerCase();
+  #|       if (chooseInput) chooseInput.textContent = "Choose input file";
   #|     }
   #|     if (runButton) {
   #|       runButton.textContent = sourceKind === "cloud" ? "Install to Local SKILL Hub" : "Run";
@@ -4088,14 +4102,18 @@ extern "js" fn browser_open_skill_dialog(skill_id : String) -> Unit =
   #|         if (typeof window.showOpenFilePicker !== "function") {
   #|           throw new Error("This browser does not support selecting a local input file yet.");
   #|         }
+  #|         const inputKind = String(dialog.dataset.inputKind || "").toLowerCase();
+  #|         const pickerTypes = inputKind === "csv-summary"
+  #|           ? [{ description: "CSV/TSV files", accept: { "text/plain": [".csv", ".tsv", ".txt"] } }]
+  #|           : [{ description: "FastQ files", accept: { "text/plain": [".fastq", ".fq", ".txt", ".csv", ".tsv"] } }];
   #|         const handles = await window.showOpenFilePicker({
   #|           multiple: false,
-  #|           types: [{ description: "FastQ files", accept: { "text/plain": [".fastq", ".fq", ".txt"] } }]
+  #|           types: pickerTypes
   #|         });
   #|         const handle = Array.isArray(handles) ? handles[0] : null;
   #|         if (!handle) throw new Error("No input file selected.");
   #|         dialog.__moonapInputFileHandle = handle;
-  #|         set(inputStatus, `Selected: ${String(handle.name || "local FastQ file")}`);
+  #|         set(inputStatus, `Selected: ${String(handle.name || "local input file")}`);
   #|       } catch (error) {
   #|         set(inputStatus, `Input file not selected: ${error instanceof Error ? error.message : String(error)}`);
   #|       }
@@ -4145,6 +4163,231 @@ extern "js" fn browser_dialog_skill_task_kind() -> String =
 #cfg(target="js")
 extern "js" fn browser_dialog_skill_source() -> String =
   #| () => String(document.querySelector("#skillDialog")?.dataset?.skillSource || "")
+
+///|
+#cfg(target="js")
+extern "js" fn browser_run_dialog_generic_skill(
+  on_done : (String) -> Unit,
+  on_error : (String) -> Unit,
+) -> Unit =
+  #| async (onDone, onError) => {
+  #|   try {
+  #|     const dialog = document.querySelector("#skillDialog");
+  #|     if (!dialog) throw new Error("No SKILL dialog is open.");
+  #|     const skillId = String(dialog.dataset.skillId || "");
+  #|     const sourceKind = String(dialog.dataset.skillSource || "");
+  #|     const loadedPersonal = globalThis.__moonapPersonalSkillCache && typeof globalThis.__moonapPersonalSkillCache === "object"
+  #|       ? globalThis.__moonapPersonalSkillCache[skillId]
+  #|       : null;
+  #|     const loadedHubSkill = globalThis.__moonapHubSkillCache && typeof globalThis.__moonapHubSkillCache === "object"
+  #|       ? globalThis.__moonapHubSkillCache[skillId]
+  #|       : null;
+  #|     const skill = loadedPersonal && typeof loadedPersonal === "object" ? loadedPersonal : loadedHubSkill;
+  #|     if (!skill || typeof skill !== "object") throw new Error("SKILL metadata is not loaded.");
+  #|     const runtimeSpec = skill.runtime_spec && typeof skill.runtime_spec === "object" ? skill.runtime_spec : {};
+  #|     const taskKind = String(skill.task_kind || dialog.dataset.taskKind || "generic");
+  #|     const resultMode = String(runtimeSpec.result_mode || skill.result_mode || "text");
+  #|     const requestId = `skill-runtime-${Date.now()}`;
+  #|     const runtimeInputs = {};
+  #|     for (const node of Array.from(dialog.querySelectorAll("[data-param-name]"))) {
+  #|       const name = String(node.dataset.paramName || "");
+  #|       if (!name) continue;
+  #|       const type = String(node.type || "").toLowerCase();
+  #|       const raw = type === "checkbox" ? (node.checked ? "true" : "false") : String(node.value ?? "");
+  #|       const field = (Array.isArray(runtimeSpec.fields) ? runtimeSpec.fields : []).find((item) => String(item?.name || "") === name) || {};
+  #|       const fieldType = String(field.type || field.kind || type || "text").toLowerCase();
+  #|       runtimeInputs[name] = fieldType === "int"
+  #|         ? Number.parseInt(raw, 10)
+  #|         : fieldType === "float" || fieldType === "decimal" || fieldType === "number"
+  #|           ? Number.parseFloat(raw)
+  #|           : fieldType === "bool" || fieldType === "boolean" || fieldType === "checkbox"
+  #|             ? raw === "true"
+  #|             : raw;
+  #|     }
+  #|     const buildPayload = (summary, displayText, resultKind = "text") => ({
+  #|       run_id: "",
+  #|       request_id: requestId,
+  #|       status: "runtime-succeeded",
+  #|       result_kind: resultKind,
+  #|       runtime_inputs: runtimeInputs,
+  #|       summary,
+  #|       display_text: displayText,
+  #|       stdout_text: `Browser-local SKILL runtime completed for ${requestId}.`,
+  #|       download_name: resultKind.includes("report") ? "moonap-skill-report.txt" : "moonap-skill-result.txt",
+  #|       download_content: displayText,
+  #|       skill_id: skillId,
+  #|       skill_source: sourceKind,
+  #|       task_kind: taskKind,
+  #|       accepted_for_skill: false
+  #|     });
+  #|     const postPayload = async (payload) => {
+  #|       const response = await fetch("/api/task/execute", {
+  #|         method: "POST",
+  #|         headers: { "Content-Type": "application/json; charset=utf-8" },
+  #|         body: JSON.stringify(payload)
+  #|       });
+  #|       const text = await response.text();
+  #|       if (!response.ok) throw new Error(text || `Runtime execute failed (${response.status})`);
+  #|       if (String(payload?.result_kind || "").includes("report") || resultMode === "report") {
+  #|         globalThis.__moonapLastRuntimeReportPayload = payload;
+  #|       }
+  #|       return text;
+  #|     };
+  #|     const toolKind = String(runtimeSpec.tool_kind || runtimeSpec.analysis_type || "").toLowerCase();
+  #|     const mode = String(runtimeSpec.mode || skill.runtime_mode || "").toLowerCase();
+  #|     if (mode === "file" || toolKind === "csv-summary") {
+  #|       const handle = dialog.__moonapInputFileHandle || null;
+  #|       if (!handle || typeof handle.getFile !== "function") {
+  #|         throw new Error("Choose an input file before running this SKILL.");
+  #|       }
+  #|       const file = await handle.getFile();
+  #|       const analysisType = String(runtimeSpec.analysis_type || toolKind).toLowerCase();
+  #|       if (analysisType !== "csv-summary") {
+  #|         throw new Error(`Generic file SKILL analysis '${analysisType || "file"}' is not supported yet.`);
+  #|       }
+  #|       const delimiter = String(runtimeSpec.delimiter || "").toLowerCase() === "tab" || file.name.toLowerCase().endsWith(".tsv") ? "\t" : ",";
+  #|       const text = await file.text();
+  #|       const rows = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n").filter((line) => line.trim() !== "");
+  #|       const parseRow = (line) => {
+  #|         const result = [];
+  #|         let current = "";
+  #|         let inQuotes = false;
+  #|         for (let i = 0; i < line.length; i += 1) {
+  #|           const ch = line[i];
+  #|           const next = line[i + 1];
+  #|           if (ch === "\"" && inQuotes && next === "\"") {
+  #|             current += "\"";
+  #|             i += 1;
+  #|           } else if (ch === "\"") {
+  #|             inQuotes = !inQuotes;
+  #|           } else if (ch === delimiter && !inQuotes) {
+  #|             result.push(current);
+  #|             current = "";
+  #|           } else {
+  #|             current += ch;
+  #|           }
+  #|         }
+  #|         result.push(current);
+  #|         return result;
+  #|       };
+  #|       const header = rows.length > 0 ? parseRow(rows[0]).map((cell, index) => String(cell || `column_${index + 1}`).trim() || `column_${index + 1}`) : [];
+  #|       const dataRows = rows.slice(1).map(parseRow);
+  #|       const columnCount = header.length;
+  #|       const missing = header.map((_name, index) => dataRows.filter((row) => String(row[index] ?? "").trim() === "").length);
+  #|       const numericLines = [];
+  #|       for (let col = 0; col < columnCount; col += 1) {
+  #|         const nums = dataRows.map((row) => Number(String(row[col] ?? "").trim())).filter((value) => Number.isFinite(value));
+  #|         if (nums.length === 0) continue;
+  #|         const min = Math.min(...nums);
+  #|         const max = Math.max(...nums);
+  #|         const mean = nums.reduce((sum, value) => sum + value, 0) / nums.length;
+  #|         numericLines.push(`${header[col]}: count=${nums.length}, min=${min}, max=${max}, mean=${mean.toFixed(4)}`);
+  #|       }
+  #|       const reportText = [
+  #|         "MoonAP CSV Summary",
+  #|         `request_id: ${requestId}`,
+  #|         `file_name: ${file.name}`,
+  #|         `file_size_bytes: ${file.size}`,
+  #|         `row_count: ${dataRows.length}`,
+  #|         `column_count: ${columnCount}`,
+  #|         `columns: ${header.join(", ")}`,
+  #|         `missing_values: ${header.map((name, index) => `${name}=${missing[index]}`).join(", ")}`,
+  #|         "",
+  #|         "Numeric columns:",
+  #|         ...(numericLines.length ? numericLines : ["none"])
+  #|       ].join("\n");
+  #|       const payload = buildPayload(`Analyzed ${dataRows.length} CSV row(s) across ${columnCount} column(s).`, reportText, "csv-summary-report");
+  #|       payload.file_name = file.name;
+  #|       payload.file_size_bytes = file.size;
+  #|       payload.llm_receives_file_contents = false;
+  #|       onDone(await postPayload(payload));
+  #|       return;
+  #|     }
+  #|     const renderTemplate = (template, values) => String(template || "").replace(/\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g, (_match, name) => {
+  #|       const value = values[name];
+  #|       return value === undefined || value === null ? "" : String(value);
+  #|     });
+  #|     const evaluateExpression = (expression, values) => {
+  #|       const expr = String(expression || "").trim();
+  #|       if (!expr) throw new Error("Computed output is missing an expression.");
+  #|       if (!/^[A-Za-z0-9_+\-*/().,\s]+$/.test(expr)) throw new Error(`Unsupported characters in expression: ${expr}`);
+  #|       const numericExpr = expr.replace(/\b[A-Za-z_][A-Za-z0-9_]*\b/g, (name) => {
+  #|         if (name === "pow") return "Math.pow";
+  #|         if (name === "sqrt") return "Math.sqrt";
+  #|         if (name === "abs") return "Math.abs";
+  #|         if (name === "min") return "Math.min";
+  #|         if (name === "max") return "Math.max";
+  #|         if (!Object.prototype.hasOwnProperty.call(values, name)) throw new Error(`Unknown input in expression: ${name}`);
+  #|         const n = Number(values[name]);
+  #|         if (!Number.isFinite(n)) throw new Error(`Input ${name} is not numeric.`);
+  #|         return `(${String(n)})`;
+  #|       });
+  #|       const result = Function(`"use strict"; return (${numericExpr});`)();
+  #|       if (!Number.isFinite(Number(result))) throw new Error(`Expression produced a non-finite result: ${expr}`);
+  #|       return Number(result);
+  #|     };
+  #|     let payload;
+  #|     if (toolKind === "text-analysis") {
+  #|       const sourceText = String(runtimeInputs.input_text || runtimeInputs.text || "");
+  #|       const characters = sourceText.length;
+  #|       const charactersNoSpaces = sourceText.replace(/\s/g, "").length;
+  #|       const words = (sourceText.trim().match(/\S+/g) || []).length;
+  #|       const lines = sourceText === "" ? 0 : sourceText.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n").length;
+  #|       const readingMinutes = words / 200;
+  #|       payload = buildPayload(`Analyzed ${words} word(s), ${characters} character(s), and ${lines} line(s).`, [
+  #|         `Characters: ${characters}`,
+  #|         `Characters without spaces: ${charactersNoSpaces}`,
+  #|         `Words: ${words}`,
+  #|         `Lines: ${lines}`,
+  #|         `Estimated reading time: ${readingMinutes.toFixed(2)} minutes`
+  #|       ].join("\n"));
+  #|     } else if (toolKind === "json-formatter") {
+  #|       const raw = String(runtimeInputs.json_text || runtimeInputs.input_text || "");
+  #|       try {
+  #|         payload = buildPayload("JSON is valid and formatted.", `Valid JSON: true\n\n${JSON.stringify(JSON.parse(raw), null, 2)}`);
+  #|       } catch (error) {
+  #|         payload = buildPayload("JSON is invalid.", `Valid JSON: false\nError: ${error instanceof Error ? error.message : String(error)}`);
+  #|       }
+  #|     } else {
+  #|       const computedOutputs = Array.isArray(runtimeSpec.computed_outputs)
+  #|         ? runtimeSpec.computed_outputs
+  #|         : (Array.isArray(runtimeSpec.outputs) ? runtimeSpec.outputs : []);
+  #|       const inputLines = Object.entries(runtimeInputs).map(([key, value]) => `${key}: ${String(value)}`);
+  #|       if (computedOutputs.length > 0) {
+  #|         const values = { ...runtimeInputs };
+  #|         for (const output of computedOutputs) {
+  #|           const name = String(output?.name || "").trim();
+  #|           if (!name) continue;
+  #|           const rawValue = evaluateExpression(output?.expression, values);
+  #|           const decimals = Number.isFinite(Number(output?.decimals)) ? Math.max(0, Math.min(12, Number(output.decimals))) : null;
+  #|           values[name] = decimals === null ? rawValue : Number(rawValue.toFixed(decimals));
+  #|         }
+  #|         const outputLines = computedOutputs.map((output) => {
+  #|           const name = String(output?.name || "").trim();
+  #|           if (!name) return "";
+  #|           return `${String(output?.label || name)}: ${String(values[name])}`;
+  #|         }).filter(Boolean);
+  #|         payload = buildPayload(
+  #|           runtimeSpec.summary_template ? renderTemplate(runtimeSpec.summary_template, values) : (outputLines[0] || "MoonAP calculated the form result."),
+  #|           runtimeSpec.result_template ? renderTemplate(runtimeSpec.result_template, values) : [...inputLines, ...outputLines].join("\n")
+  #|         );
+  #|       } else if (Object.prototype.hasOwnProperty.call(runtimeInputs, "celsius")) {
+  #|         const celsius = Number(runtimeInputs.celsius);
+  #|         const fahrenheit = celsius * 9 / 5 + 32;
+  #|         payload = buildPayload(`Converted ${celsius} Celsius to ${fahrenheit.toFixed(2)} Fahrenheit.`, `Celsius: ${celsius}\nFahrenheit: ${fahrenheit.toFixed(2)}`);
+  #|       } else if (Object.prototype.hasOwnProperty.call(runtimeInputs, "number_a") && Object.prototype.hasOwnProperty.call(runtimeInputs, "number_b")) {
+  #|         const a = Number(runtimeInputs.number_a);
+  #|         const b = Number(runtimeInputs.number_b);
+  #|         payload = buildPayload(`Calculated ${a} + ${b} = ${a + b}.`, `First number: ${a}\nSecond number: ${b}\nSum: ${a + b}`);
+  #|       } else {
+  #|         payload = buildPayload("MoonAP recorded browser-local SKILL input.", inputLines.join("\n") || "No inputs were provided.");
+  #|       }
+  #|     }
+  #|     onDone(await postPayload(payload));
+  #|   } catch (error) {
+  #|     onError(error instanceof Error ? error.message : String(error));
+  #|   }
+  #| }
 
 ///|
 #cfg(target="js")
@@ -7358,11 +7601,18 @@ fn execute_dialog_skill() -> Unit {
       run_fastq_counter()
       return
     }
-    show_error(
-      "Personal SKILL run not implemented",
-      "MoonAP loaded this Personal SKILL, but rerun support for task kind `" +
-      personal_task_kind +
-      "` is not wired yet.",
+    browser_run_dialog_generic_skill(
+      fn(result) {
+        browser_set_state(browser_pretty_json(result))
+        browser_set_transient_artifact_card(true)
+        browser_render_artifact_card(
+          "Personal SKILL result is ready", "Review the browser-local result. This SKILL used its saved runtime spec and did not ask the LLM again.",
+          "[\"personal skill\",\"generic runtime\",\"runtime succeeded\"]", false,
+          false, false,
+        )
+        browser_show_toast("Personal SKILL ran with the generic runtime.")
+      },
+      fn(error) { show_error("Personal SKILL generic runtime failed", error) },
     )
     return
   }
@@ -7415,11 +7665,18 @@ fn execute_dialog_skill() -> Unit {
       )
       return
     }
-    show_error(
-      "Local SKILL run not implemented",
-      "MoonAP loaded this Local SKILL, but rerun support for task kind `" +
-      personal_task_kind +
-      "` is not wired yet.",
+    browser_run_dialog_generic_skill(
+      fn(result) {
+        browser_set_state(browser_pretty_json(result))
+        browser_set_transient_artifact_card(true)
+        browser_render_artifact_card(
+          "Local SKILL result is ready", "Review the browser-local result. This installed SKILL used its saved runtime spec and did not ask the LLM again.",
+          "[\"local skill\",\"generic runtime\",\"runtime succeeded\"]", false, false,
+          false,
+        )
+        browser_show_toast("Local SKILL ran with the generic runtime.")
+      },
+      fn(error) { show_error("Local SKILL generic runtime failed", error) },
     )
     return
   }

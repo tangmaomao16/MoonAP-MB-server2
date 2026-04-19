@@ -32,9 +32,32 @@ The v0.1 demo target is not "a FASTQ-only tool". FASTQ generator/analyzer are im
 
 ## Current Git State at Handoff
 
-Developer-5 left the worktree clean after committing the latest fix.
+Developer-5 was interrupted after context compression while finishing the generic SKILL reuse and Cloud Hub publishing work. The worktrees are **not clean**. Do not revert these changes; they are the current forward work.
 
-Most recent commits at handoff:
+Main repo current status:
+
+```text
+ M cmd/web_app/main.mbt
+ M web/app-live.js
+ M web/app-live.js.map
+ M web/app.js
+ M web/app.js.map
+?? tools/publish-demo-skills.ps1
+?? tools/test-skill-flow.ps1
+```
+
+Cloud SKILL-Hub repo current status at:
+
+`C:\my_work\MoonBit_Competition\GitHub\MoonAP-SKILL-Hub`
+
+```text
+ M index.json
+?? demo/
+```
+
+The Cloud Hub changes contain generated demo utility SKILL folders/zips under `demo/utilities/` and matching `index.json` entries. They have not yet been committed/pushed.
+
+Most recent committed main-repo commits before the interrupted work:
 
 - `aac92ae Use latest chat content for simulated prompt classification`
 - `ac11a21 Reset runtime state between demo prompts`
@@ -128,9 +151,81 @@ JSON formatter previously mishandled escaped quotes inside the JSON input string
 
 Developer-5 fixed JSON field extraction/unescaping so escaped `\"`, `\\`, `\n`, `\r`, and `\t` are preserved correctly through the runtime request path.
 
+## Late Developer-5 Work: Generic SKILL Reuse
+
+After the earlier commits above, Developer-5 started fixing the remaining SKILL story:
+
+1. Save generated APP as Personal SKILL.
+2. Reuse that Personal SKILL.
+3. Publish to Cloud-SKILL-Hub.
+4. Install from Cloud into Local-SKILL-Hub.
+5. Reuse the Local SKILL.
+
+The user manually confirmed this full flow for `large-fastq-analyzer2`:
+
+- Personal save: passed.
+- Personal reuse: passed.
+- Cloud install: passed.
+- Local reuse: passed.
+
+Then Developer-5 moved on to make the **generic demo utility SKILLs** reusable too, not just FASTQ-specific SKILLs.
+
+### Main Repo Changes Not Yet Committed
+
+`cmd/web_app/main.mbt` now includes a generic Personal/Local SKILL runner path:
+
+- `browser_open_skill_dialog` reads `runtime_spec` from saved SKILL metadata.
+- File input UI is selected from the runtime spec instead of being FASTQ-only.
+- CSV-style file SKILLs use a browser-local file picker and keep file contents in the browser.
+- Personal and Local SKILLs with unknown/small generic task kinds call a new `browser_run_dialog_generic_skill(...)` frontend bridge instead of falling back to the old demo text.
+- Existing large FASTQ generator/analyzer special paths are preserved.
+
+The new generic runner currently supports:
+
+- `tool_kind=text-analysis`
+- `tool_kind=json-formatter`
+- `analysis_type=csv-summary` / file-mode CSV summary
+- form calculators driven by `computed_outputs` or `outputs` expressions, including functions like `pow`, `sqrt`, `abs`, `min`, and `max`
+- simple fallback cases for Celsius conversion and two-number sum
+
+Generated JS has already been synced into:
+
+- `web/app-live.js`
+- `web/app.js`
+- the two source maps
+
+### New Main Repo Scripts Not Yet Committed
+
+`tools/test-skill-flow.ps1`
+
+- Validates Personal, Local, and Cloud SKILL directories.
+- Checks `SKILL.md`, `program/main.mbt`, `program/main.wasm`, sibling zip files, and Cloud `index.json` consistency.
+- Supports `-SkillName`, `-Strict`, `-RequireLatestSave`, and `-RequireLocalInstall`.
+
+`tools/publish-demo-skills.ps1`
+
+- Generates and publishes 10 generic demo utility SKILLs into the Cloud Hub.
+- It calls the simulated GPT-5.4 route, compiles generated MoonBit, copies `main.mbt`/`main.wasm`, writes `SKILL.md`, creates zip archives, and updates Cloud `index.json`.
+- It is PowerShell 5.1 compatible; do not reintroduce PowerShell 7-only operators such as `??`.
+
+Generated Cloud demo skills:
+
+1. `celsius-fahrenheit-converter`
+2. `minutes-seconds-converter`
+3. `two-number-sum`
+4. `bmi-calculator`
+5. `circle-calculator`
+6. `loan-payment-calculator`
+7. `tip-calculator`
+8. `json-formatter-validator`
+9. `text-analyzer`
+10. `csv-summary-analyzer`
+
+Together with the existing FASTQ generator/analyzer entries, the 12 v0.1 demo categories are represented in Cloud-SKILL-Hub.
+
 ## Validation Already Run
 
-The following passed after the latest fix:
+The following passed after the earlier committed demo prompt fixes:
 
 ```powershell
 moon fmt
@@ -153,6 +248,28 @@ Direct simulated LLM proxy reproduction also passed:
 - User message asked for text analyzer.
 - Response contained `text-analysis`.
 - Response did not contain `json-formatter`.
+
+The following also passed after the late generic SKILL runner edits:
+
+```powershell
+moon fmt
+tools\moon-msvc.cmd build cmd\web_app --target js
+node --check web\app.js
+node --check web\app-live.js
+powershell -ExecutionPolicy Bypass -File tools\test-demo-prompts.ps1
+tools\moon-msvc.cmd build cmd\server --release
+powershell -ExecutionPolicy Bypass -File tools\test-skill-flow.ps1
+```
+
+`tools\test-demo-prompts.ps1` passed all 12 demo prompts after the generic SKILL runner edits.
+
+`tools\test-skill-flow.ps1` saw 14 Cloud catalog entries after `tools\publish-demo-skills.ps1` generated the 10 demo utility SKILLs.
+
+Important: the server restart command was started during the interrupted turn and appears to have exited successfully, but Developer-6 should rerun it before browser testing to remove doubt:
+
+```powershell
+tools\restart-moonap-server.cmd
+```
 
 ## Important Windows Notes
 
@@ -257,17 +374,49 @@ Recommended order:
 
 1. Re-read this handoff, `docs/notes/README.md`, and `AGENTS.md`.
 2. Run `git status --short`.
-3. Confirm the local server is running at `http://127.0.0.1:3000`.
-4. Manually test the three most important browser paths:
-   - Celsius converter.
-   - JSON formatter.
-   - Text analyzer immediately after JSON formatter.
-5. If stable, move to release preparation:
+3. Do not assume the interrupted `restart-moonap-server.cmd` run is enough; rerun:
+
+```powershell
+tools\restart-moonap-server.cmd
+```
+
+4. Commit and push the Cloud SKILL-Hub repo if inspection looks right:
+
+```powershell
+cd C:\my_work\MoonBit_Competition\GitHub\MoonAP-SKILL-Hub
+git status --short
+git diff --stat
+git add .
+git commit -m "Publish generic demo utility skills"
+git push
+```
+
+5. Commit the main repo generic SKILL runner work if browser smoke tests pass:
+
+```powershell
+cd C:\my_work\MoonBit_Competition\GitHub\MoonAP-MB-server2
+git status --short
+git add cmd\web_app\main.mbt web\app-live.js web\app-live.js.map web\app.js web\app.js.map tools\publish-demo-skills.ps1 tools\test-skill-flow.ps1 docs\notes\2026-04-19-developer-5-to-developer-6-handoff.md
+git commit -m "Run generic skills from saved runtime specs"
+```
+
+6. Manually test the important browser SKILL paths:
+   - `JSON Formatter Validator` installed from Cloud into Local, then run locally.
+   - `CSV Summary Analyzer` installed from Cloud into Local, choose a local `.csv`, then run locally.
+   - one computed form SKILL, e.g. `Celsius Fahrenheit Converter` or `Two Number Sum`, installed from Cloud into Local, then run locally.
+
+7. If those are stable, move to release preparation:
    - README fresh-clone instructions.
    - Check `.gitignore` does not include local run artifacts.
    - Verify no large generated files are tracked.
-   - Verify SKILL-Hub publish/install/reuse story still works.
-6. Only then consider broadening demo prompt coverage.
+   - Verify SKILL-Hub publish/install/reuse story is documented.
+
+Do not manually repeat the full Personal/Cloud/Local SKILL lifecycle for all 12 prompt tasks unless the user explicitly wants a marathon. The generic SKILL runner is the abstraction; one representative for each runtime mode is the useful test:
+
+- computed form
+- text/JSON tool form
+- browser-local file input
+- large FASTQ special workflow
 
 ## Known Risks and How to Think About Them
 
@@ -304,6 +453,27 @@ The simulated route is deterministic enough for demos. Real API route still need
 
 Do not regress large file handling by sending file contents to the server/LLM. The large FASTQ analyzer should read file chunks in the browser and return analysis/report artifacts.
 
+### Risk: Path handling on Windows
+
+Earlier developers already found path bugs around slash/backslash differences and duplicated escaping. Keep using the existing path normalization helpers and platform APIs where available. Avoid building important paths with raw string concatenation. For scripts, prefer PowerShell path cmdlets such as `Join-Path`, `Resolve-Path`, and `Split-Path`.
+
+The SKILL roots that matter in this environment are:
+
+- Personal: `C:\my_work\MoonBit_Competition\MoonAP-SKILL\Personal-SKILL-Set`
+- Local: `C:\my_work\MoonBit_Competition\MoonAP-SKILL\Local-SKILL-Hub`
+- Cloud repo: `C:\my_work\MoonBit_Competition\GitHub\MoonAP-SKILL-Hub`
+
+### Risk: Browser permission prompts cannot be fully headless
+
+Cloud install and browser-local file workflows involve browser file/directory permission prompts. API and filesystem scripts can verify generated SKILL packages, Cloud catalog entries, and installed folder contents, but the user may still need to manually approve browser permission dialogs.
+
+Recommended shared test:
+
+1. Developer runs build/restart and validates files with `tools\test-skill-flow.ps1`.
+2. User opens the browser, refreshes the Cloud catalog, installs a representative SKILL, and grants the directory/file picker permission.
+3. Developer validates the installed Local SKILL folder with `tools\test-skill-flow.ps1 -SkillName <name> -RequireLocalInstall -Strict`.
+4. User clicks Run in the browser to confirm real UI reuse.
+
 ## Suggested Handoff Prompt for Developer-6
 
 When starting Developer-6, tell it:
@@ -311,4 +481,3 @@ When starting Developer-6, tell it:
 ```text
 You are Developer-6. Read docs/notes/2026-04-19-developer-5-to-developer-6-handoff.md, docs/notes/README.md, and AGENTS.md. Run git status --short. Do not revert Developer-5 commits. First confirm the browser demo paths for Celsius, JSON formatter, and text analyzer-after-JSON. Then continue MoonAP v0.1 release preparation.
 ```
-

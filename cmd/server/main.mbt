@@ -3031,31 +3031,11 @@ fn llm_sim_auto_codegen_source(body : String) -> String {
 
 ///|
 fn llm_sim_user_prompt_haystack(body : String) -> String {
-  let role_marker = "\"role\":\"user\""
-  let spaced_role_marker = "\"role\": \"user\""
-  let content = if body.find(role_marker) is Some(start) {
-    let before_role = extract_last_json_string_field_before(
-      body, "content", start,
-    )
-    if before_role != "" {
-      before_role
-    } else {
-      let after_role = body[start + role_marker.length():].to_string()
-      extract_json_string_field(after_role, "content")
-    }
-  } else if body.find(spaced_role_marker) is Some(start) {
-    let before_role = extract_last_json_string_field_before(
-      body, "content", start,
-    )
-    if before_role != "" {
-      before_role
-    } else {
-      let after_role = body[start + spaced_role_marker.length():].to_string()
-      extract_json_string_field(after_role, "content")
-    }
-  } else {
-    ""
-  }
+  let content = extract_last_json_string_field_before(
+    body,
+    "content",
+    body.length(),
+  )
   if content == "" {
     body.to_lower()
   } else {

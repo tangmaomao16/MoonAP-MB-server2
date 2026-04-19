@@ -7634,6 +7634,8 @@ function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app25on__skill__save_
 function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app15submit__message() {
   const message = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app23browser__message__value();
   const file_name = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app19browser__file__name();
+  const lower_message = _M0MPC16string6String9to__lower(message);
+  const lower_file_name = _M0MPC16string6String9to__lower(file_name);
   if (message === "") {
     _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__append__message("assistant", "Please enter a task first.");
     return undefined;
@@ -7647,29 +7649,83 @@ function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app15submit__message(
   if (_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__formal__verification__enabled()) {
     _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__append__message("assistant", "Formal verification is reserved for a future MoonBit 0.9 moon prove step and is not executed yet.");
   }
-  let _tmp;
-  if (_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app18browser__has__file()) {
-    let _tmp$2;
-    const _tmp$3 = _M0MPC16string6String9to__lower(message);
-    const _bind = "fastq";
-    if (_M0MPC16string6String8contains(_tmp$3, new _M0TPC16string10StringView(_bind, 0, _bind.length))) {
-      _tmp$2 = true;
-    } else {
-      const _tmp$4 = _M0MPC16string6String9to__lower(file_name);
-      const _bind$2 = ".fq";
-      _tmp$2 = _M0MPC16string6String8contains(_tmp$4, new _M0TPC16string10StringView(_bind$2, 0, _bind$2.length));
-    }
-    _tmp = _tmp$2;
+  let fastq_mentioned;
+  const _bind = "fastq";
+  if (_M0MPC16string6String8contains(lower_message, new _M0TPC16string10StringView(_bind, 0, _bind.length))) {
+    fastq_mentioned = true;
   } else {
-    _tmp = false;
+    let _tmp;
+    const _bind$2 = ".fq";
+    if (_M0MPC16string6String8contains(lower_file_name, new _M0TPC16string10StringView(_bind$2, 0, _bind$2.length))) {
+      _tmp = true;
+    } else {
+      const _bind$3 = ".fastq";
+      _tmp = _M0MPC16string6String8contains(lower_file_name, new _M0TPC16string10StringView(_bind$3, 0, _bind$3.length));
+    }
+    fastq_mentioned = _tmp;
+  }
+  let wants_fastq_generation;
+  let _tmp;
+  const _bind$2 = "generat";
+  if (_M0MPC16string6String8contains(lower_message, new _M0TPC16string10StringView(_bind$2, 0, _bind$2.length))) {
+    _tmp = true;
+  } else {
+    const _bind$3 = "create";
+    _tmp = _M0MPC16string6String8contains(lower_message, new _M0TPC16string10StringView(_bind$3, 0, _bind$3.length));
   }
   if (_tmp) {
+    let _tmp$2;
+    const _bind$3 = "analy";
+    if (!_M0MPC16string6String8contains(lower_message, new _M0TPC16string10StringView(_bind$3, 0, _bind$3.length))) {
+      const _bind$4 = "count";
+      _tmp$2 = !_M0MPC16string6String8contains(lower_message, new _M0TPC16string10StringView(_bind$4, 0, _bind$4.length));
+    } else {
+      _tmp$2 = false;
+    }
+    wants_fastq_generation = _tmp$2;
+  } else {
+    wants_fastq_generation = false;
+  }
+  let wants_fastq_file_analysis;
+  if (fastq_mentioned) {
+    let _tmp$2;
+    if (!wants_fastq_generation) {
+      let _tmp$3;
+      const _bind$3 = "analy";
+      if (_M0MPC16string6String8contains(lower_message, new _M0TPC16string10StringView(_bind$3, 0, _bind$3.length))) {
+        _tmp$3 = true;
+      } else {
+        let _tmp$4;
+        const _bind$4 = "count";
+        if (_M0MPC16string6String8contains(lower_message, new _M0TPC16string10StringView(_bind$4, 0, _bind$4.length))) {
+          _tmp$4 = true;
+        } else {
+          let _tmp$5;
+          const _bind$5 = "read";
+          if (_M0MPC16string6String8contains(lower_message, new _M0TPC16string10StringView(_bind$5, 0, _bind$5.length))) {
+            _tmp$5 = true;
+          } else {
+            const _bind$6 = "base";
+            _tmp$5 = _M0MPC16string6String8contains(lower_message, new _M0TPC16string10StringView(_bind$6, 0, _bind$6.length));
+          }
+          _tmp$4 = _tmp$5;
+        }
+        _tmp$3 = _tmp$4;
+      }
+      _tmp$2 = _tmp$3;
+    } else {
+      _tmp$2 = false;
+    }
+    wants_fastq_file_analysis = _tmp$2;
+  } else {
+    wants_fastq_file_analysis = false;
+  }
+  if (_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app18browser__has__file() && wants_fastq_file_analysis) {
     _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app19run__fastq__counter();
     return undefined;
   }
-  const _tmp$2 = _M0MPC16string6String9to__lower(message);
-  const _bind = "moonbit benchmark";
-  if (_M0MPC16string6String8contains(_tmp$2, new _M0TPC16string10StringView(_bind, 0, _bind.length))) {
+  const _bind$3 = "moonbit benchmark";
+  if (_M0MPC16string6String8contains(lower_message, new _M0TPC16string10StringView(_bind$3, 0, _bind$3.length))) {
     _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app23run__moonbit__benchmark(1);
     return undefined;
   }

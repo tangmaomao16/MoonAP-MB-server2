@@ -8369,6 +8369,8 @@ fn on_skill_save_decision(raw : String) -> Unit {
 fn submit_message() -> Unit {
   let message = browser_message_value()
   let file_name = browser_file_name()
+  let lower_message = message.to_lower()
+  let lower_file_name = file_name.to_lower()
   if message == "" {
     browser_append_message("assistant", "Please enter a task first.")
     return
@@ -8386,15 +8388,27 @@ fn submit_message() -> Unit {
       "assistant", "Formal verification is reserved for a future MoonBit 0.9 moon prove step and is not executed yet.",
     )
   }
-  if browser_has_file() &&
+  let fastq_mentioned = lower_message.contains("fastq") ||
+    lower_file_name.contains(".fq") ||
+    lower_file_name.contains(".fastq")
+  let wants_fastq_generation = (
+      lower_message.contains("generat") || lower_message.contains("create")
+    ) &&
+    !lower_message.contains("analy") &&
+    !lower_message.contains("count")
+  let wants_fastq_file_analysis = fastq_mentioned &&
+    !wants_fastq_generation &&
     (
-      message.to_lower().contains("fastq") ||
-      file_name.to_lower().contains(".fq")
-    ) {
+      lower_message.contains("analy") ||
+      lower_message.contains("count") ||
+      lower_message.contains("read") ||
+      lower_message.contains("base")
+    )
+  if browser_has_file() && wants_fastq_file_analysis {
     run_fastq_counter()
     return
   }
-  if message.to_lower().contains("moonbit benchmark") {
+  if lower_message.contains("moonbit benchmark") {
     run_moonbit_benchmark(1)
     return
   }

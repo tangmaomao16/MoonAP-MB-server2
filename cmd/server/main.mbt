@@ -1509,12 +1509,13 @@ fn runtime_spec_json_for_context(
   original_prompt : String,
   source_text : String,
 ) -> String {
-  let declared_spec = extract_moonap_runtime_spec_json(source_text)
-  if declared_spec != "" {
-    declared_spec
-  } else if task_kind != "generic-task" {
+  if task_kind != "generic-task" {
     runtime_spec_json_for_task_kind(task_kind)
   } else {
+    let declared_spec = extract_moonap_runtime_spec_json(source_text)
+    if declared_spec != "" {
+      return declared_spec
+    }
     let haystack = (original_prompt + "\n" + source_text).to_lower()
     if haystack.contains("celsius") && haystack.contains("fahrenheit") {
       "{\n" +

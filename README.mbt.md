@@ -115,7 +115,8 @@ The first should show a `Celsius temperature` field. The second should show `Fir
 
 For ordinary form-style APPs, MoonAP now prefers a declarative runtime contract embedded in the generated MoonBit source:
 
-```moonbit
+```moonbit nocheck
+///|
 /// MOONAP_RUNTIME_SPEC_BEGIN
 /// {
 ///   "mode": "form",

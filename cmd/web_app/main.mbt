@@ -178,8 +178,12 @@ extern "js" fn browser_render_artifact_card(
   #|       ? `<div class="action-card-params">${runtimeFields.map((field) => {
   #|           const name = String(field?.name || "");
   #|           const label = String(field?.label || name || "Parameter");
-  #|           const type = String(field?.type || "text");
-  #|           const inputType = type === "int" || type === "float" ? "number" : "text";
+  #|           const help = String(field?.help || field?.description || "");
+  #|           const type = String(field?.type || "text").toLowerCase();
+  #|           const isBool = type === "bool" || type === "boolean" || type === "checkbox";
+  #|           const inputType = isBool ? "checkbox" : (type === "int" || type === "float" ? "number" : "text");
+  #|           const defaultValue = field?.default ?? "";
+  #|           const checked = isBool && !["false", "0", "no", "off", ""].includes(String(defaultValue).trim().toLowerCase()) ? "checked" : "";
   #|           const attrs = [
   #|             `id="runtime-field-${name}"`,
   #|             `data-runtime-field="${name}"`,
@@ -187,10 +191,22 @@ extern "js" fn browser_render_artifact_card(
   #|             field?.min !== undefined ? `min="${String(field.min)}"` : "",
   #|             field?.max !== undefined ? `max="${String(field.max)}"` : "",
   #|             field?.step !== undefined ? `step="${String(field.step)}"` : "",
-  #|             `value="${String(field?.default ?? "")}"`
+  #|             isBool ? `value="true"` : `value="${String(defaultValue)}"`,
+  #|             checked
   #|           ].filter(Boolean).join(" ");
-  #|           return `<label><span>${label}</span><input ${attrs} /></label>`;
+  #|           const helpHtml = help ? `<small class="param-help">${help}</small>` : "";
+  #|           return isBool
+  #|             ? `<label class="checkbox-param"><input ${attrs} /><span>${label}</span>${helpHtml}</label>`
+  #|             : `<label><span>${label}</span><input ${attrs} />${helpHtml}</label>`;
   #|         }).join("")}</div>`
+  #|       : "";
+  #|     const isFastqAnalysisRuntime = taskKind === "large-fastq-analysis" || String(runtimeSpec?.domain_profile || "").toLowerCase() === "fastq";
+  #|     const filePickerHtml = isFastqAnalysisRuntime || runtimeMode === "file"
+  #|       ? `<div class="action-card-file-target">
+  #|           <label class="dialog-button secondary" for="fileInput">${isFastqAnalysisRuntime ? "Choose input FastQ file" : "Choose input file"}</label>
+  #|           <span id="runtimeInputFileStatus">${document.querySelector("#fileInput")?.files?.[0]?.name ? `Selected: ${document.querySelector("#fileInput")?.files?.[0]?.name}` : "No input file selected yet."}</span>
+  #|           <small>${isFastqAnalysisRuntime ? "File contents stay in this browser. MoonAP reads it in chunks and sends only summary metrics to the server." : "File contents stay in this browser."}</small>
+  #|         </div>`
   #|       : "";
   #|     const runLabel = runtimeDone
   #|       ? String(runtimeSpec?.rerun_action_label || runtimeSpec?.action_label || runtimeSpec?.primary_action_label || (runtimeMode === "interactive" ? "Run again" : "Run generator again"))
@@ -207,7 +223,9 @@ extern "js" fn browser_render_artifact_card(
   #|     const secondaryActions = [
   #|       wasmUrl ? '<button id="downloadRuntimeWasm" class="secondary" type="button">Download wasm</button>' : '',
   #|       sourceUrl ? '<button id="downloadRuntimeSource" class="secondary" type="button">Download source</button>' : '',
-  #|       resultUrl ? '<button id="downloadRuntimeResult" class="secondary" type="button">Download result</button>' : ''
+  #|       runtimeDone && resultMode === "report" ? '<button id="openRuntimeReport" class="secondary strong" type="button">Open report</button>' : '',
+  #|       runtimeDone && resultMode === "report" ? '<button id="saveRuntimeReport" class="secondary" type="button">Save report</button>' : '',
+  #|       resultUrl ? `<button id="downloadRuntimeResult" class="secondary" type="button">${resultMode === "report" ? "Download raw JSON" : "Download result"}</button>` : ''
   #|     ].filter(Boolean).join("");
   #|     card.innerHTML = `
   #|       <div class="action-card-eyebrow">${eyebrow}</div>
@@ -215,6 +233,7 @@ extern "js" fn browser_render_artifact_card(
   #|       <small>${String(summary)}</small>
   #|       <div class="action-card-status">${statusHtml}</div>
   #|       ${runtimeProfileHtml}
+  #|       ${filePickerHtml}
   #|       ${paramsHtml}
   #|       <div class="action-card-primary">${primaryAction}</div>
   #|       ${secondaryActions ? `<div class="action-card-secondary">${secondaryActions}</div>` : ''}`;
@@ -231,11 +250,21 @@ extern "js" fn browser_render_artifact_card(
   #|         ${wasmUrl ? '<button id="downloadRuntimeWasm" class="secondary" type="button">Download wasm</button>' : ''}
   #|         ${sourceUrl ? '<button id="downloadRuntimeSource" class="secondary" type="button">Download source</button>' : ''}
   #|         ${compileReportUrl ? '<button id="downloadCompileReport" class="secondary" type="button">Download compile report</button>' : ''}
-  #|         ${resultUrl ? '<button id="downloadRuntimeResult" class="secondary" type="button">Download result</button>' : ''}
+  #|         ${resultUrl ? '<button id="downloadRuntimeResult" class="secondary" type="button">Download raw JSON</button>' : ''}
   #|         <button id="exportSkillBundle" class="secondary" type="button">Export Source Bundle</button>
   #|       </div>`;
   #|   }
   #|   root.append(card);
+  #|   const runtimeFileInput = document.querySelector("#fileInput");
+  #|   const runtimeFileStatus = document.querySelector("#runtimeInputFileStatus");
+  #|   if (runtimeFileInput && runtimeFileStatus) {
+  #|     const syncRuntimeFileStatus = () => {
+  #|       const file = runtimeFileInput.files?.[0];
+  #|       runtimeFileStatus.textContent = file ? `Selected: ${file.name}` : "No input file selected yet.";
+  #|     };
+  #|     runtimeFileInput.onchange = syncRuntimeFileStatus;
+  #|     syncRuntimeFileStatus();
+  #|   }
   #| }
 
 ///|
@@ -428,6 +457,37 @@ extern "js" fn browser_ensure_runtime_profile_runtime() -> Unit =
   #|         ]
   #|       }
   #|     },
+  #|     "large-fastq-analysis": {
+  #|       id: "large-fastq-analysis",
+  #|       label: "Large FastQ analysis",
+  #|       description: "Browser-local chunked FastQ analysis with read, base, structure, and preview metrics.",
+  #|       task_kind: "large-fastq-analysis",
+  #|       runtime_mode: "file",
+  #|       result_mode: "report",
+  #|       runtime_spec: {
+  #|         mode: "file",
+  #|         title: "Analyze large FastQ file",
+  #|         action_label: "Run FastQ analysis",
+  #|         rerun_action_label: "Run FastQ analysis again",
+  #|         domain_profile: "fastq",
+  #|         io_contract: {
+  #|           protocol: "moonap.large-file.v1",
+  #|           browser_local_only: true,
+  #|           llm_receives_file_contents: false,
+  #|           host_capability: "chunked-local-analysis",
+  #|           input_mode: "streaming-text",
+  #|           output_mode: "report",
+  #|           chunk_size_bytes: 4194304,
+  #|           carry_strategy: "fastq-record-boundary",
+  #|           supported_extensions: ["fastq", "fq", "txt"]
+  #|         },
+  #|         fields: [
+  #|           { name: "max_preview_reads", label: "Preview reads", type: "int", default: 3, min: 0, max: 20, step: 1, help: "Only controls how many reads appear in the report preview. It does not limit full-file analysis." },
+  #|           { name: "validate_fastq_structure", label: "Validate FastQ structure", type: "bool", default: true, help: "Check @ header, + separator, and sequence/quality length for each four-line FastQ record." },
+  #|           { name: "count_bases", label: "Count A/C/G/T/N bases", type: "bool", default: true, help: "Count base composition while streaming. Turn off only if you want a lighter structural scan." }
+  #|         ]
+  #|       }
+  #|     },
   #|     "large-file-analysis": {
   #|       id: "large-file-analysis",
   #|       label: "Large-file analysis",
@@ -523,7 +583,7 @@ extern "js" fn browser_ensure_runtime_profile_runtime() -> Unit =
   #|       }
   #|     }
   #|   };
-  #|   const orderedIds = ["large-file-generation", "large-file-analysis", "fastq-generator", "fastq-analysis", "generic-form", "generic-file"];
+  #|   const orderedIds = ["large-file-generation", "large-fastq-analysis", "large-file-analysis", "fastq-generator", "fastq-analysis", "generic-form", "generic-file"];
   #|   const normalizeProfileId = (value) => registry[String(value || "").trim()] ? String(value || "").trim() : "";
   #|   const runtimeSpecOf = (request) => request?.runtime_spec && typeof request.runtime_spec === "object"
   #|     ? request.runtime_spec
@@ -532,6 +592,7 @@ extern "js" fn browser_ensure_runtime_profile_runtime() -> Unit =
   #|     const explicit = normalizeProfileId(request?.runtime_profile_override_id || request?.runtime_profile_id || request?.task_kind);
   #|     if (explicit) return explicit;
   #|     const runtimeSpec = runtimeSpecOf(request);
+  #|     if (String(runtimeSpec?.domain_profile || "").toLowerCase() === "fastq") return "large-fastq-analysis";
   #|     const hostCapability = String(runtimeSpec?.io_contract?.host_capability || "");
   #|     if (hostCapability === "streamed-local-generation") return "large-file-generation";
   #|     if (hostCapability === "chunked-local-analysis") return "large-file-analysis";
@@ -618,6 +679,171 @@ extern "js" fn browser_download_runtime_artifact(kind : String) -> Unit =
 
 ///|
 #cfg(target="js")
+extern "js" fn browser_open_runtime_report() -> Unit =
+  #| () => {
+  #|   const report = globalThis.__moonapReportRuntime?.buildHtml?.();
+  #|   if (!report) throw new Error("No browser report is available yet.");
+  #|   const blob = new Blob([report], { type: "text/html;charset=utf-8" });
+  #|   const url = URL.createObjectURL(blob);
+  #|   window.open(url, "_blank", "noopener,noreferrer");
+  #|   setTimeout(() => URL.revokeObjectURL(url), 60000);
+  #| }
+
+///|
+#cfg(target="js")
+extern "js" fn browser_save_runtime_report() -> Unit =
+  #| async () => {
+  #|   const runtime = globalThis.__moonapReportRuntime;
+  #|   const report = runtime?.buildHtml?.();
+  #|   if (!report) throw new Error("No browser report is available yet.");
+  #|   const name = runtime?.reportFileName?.() || "moonap-report.html";
+  #|   if (typeof window.showSaveFilePicker === "function") {
+  #|     const handle = await window.showSaveFilePicker({
+  #|       suggestedName: name,
+  #|       types: [{ description: "HTML report", accept: { "text/html": [".html"] } }]
+  #|     });
+  #|     const writable = await handle.createWritable();
+  #|     await writable.write(new Blob([report], { type: "text/html;charset=utf-8" }));
+  #|     await writable.close();
+  #|     return;
+  #|   }
+  #|   const blob = new Blob([report], { type: "text/html;charset=utf-8" });
+  #|   const url = URL.createObjectURL(blob);
+  #|   const link = document.createElement("a");
+  #|   link.href = url;
+  #|   link.download = name;
+  #|   document.body.append(link);
+  #|   link.click();
+  #|   link.remove();
+  #|   URL.revokeObjectURL(url);
+  #| }
+
+///|
+#cfg(target="js")
+extern "js" fn browser_ensure_report_runtime() -> Unit =
+  #| () => {
+  #|   if (globalThis.__moonapReportRuntime) return;
+  #|   const escapeHtml = (value) => String(value ?? "")
+  #|     .replaceAll("&", "&amp;")
+  #|     .replaceAll("<", "&lt;")
+  #|     .replaceAll(">", "&gt;")
+  #|     .replaceAll('"', "&quot;");
+  #|   const decodeText = (value) => String(value ?? "")
+  #|     .replaceAll("\\r\\n", "\n")
+  #|     .replaceAll("\\n", "\n")
+  #|     .replaceAll("\\t", "\t");
+  #|   const asNumber = (value) => Number.isFinite(Number(value)) ? Number(value) : null;
+  #|   const formatBytes = (value) => {
+  #|     const n = Number(value || 0);
+  #|     if (!Number.isFinite(n) || n <= 0) return "0 B";
+  #|     const units = ["B", "KB", "MB", "GB", "TB"];
+  #|     let size = n;
+  #|     let unit = 0;
+  #|     while (size >= 1024 && unit < units.length - 1) { size /= 1024; unit += 1; }
+  #|     return `${size.toFixed(unit === 0 ? 0 : 2)} ${units[unit]}`;
+  #|   };
+  #|   const currentReportData = () => {
+  #|     const raw = globalThis.__moonapLastRuntimeReportPayload;
+  #|     const result = globalThis.__moonapLastRuntimeResult || {};
+  #|     if (raw && typeof raw === "object" && String(raw.request_id || "") === String(result.request_id || raw.request_id || "")) {
+  #|       return { ...result, ...raw };
+  #|     }
+  #|     return result;
+  #|   };
+  #|   const rows = (items) => items
+  #|     .filter(([, value]) => value !== undefined && value !== null && String(value) !== "")
+  #|     .map(([label, value]) => `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value)}</td></tr>`)
+  #|     .join("");
+  #|   const buildHtml = () => {
+  #|     const data = currentReportData();
+  #|     if (!data || typeof data !== "object" || !String(data.request_id || data.summary || data.display_text || "").trim()) return "";
+  #|     const title = String(data.result_kind || "").includes("fastq") ? "MoonAP Large FastQ Analysis Report" : "MoonAP Runtime Report";
+  #|     const displayText = decodeText(data.display_text || data.download_content || data.summary || "");
+  #|     const previewReads = Array.isArray(data.preview_reads) ? data.preview_reads : [];
+  #|     const baseCounts = [
+  #|       ["A", data.A_count],
+  #|       ["C", data.C_count],
+  #|       ["G", data.G_count],
+  #|       ["T", data.T_count],
+  #|       ["N", data.N_count],
+  #|       ["Other", data.other_base_count]
+  #|     ];
+  #|     const baseTotal = baseCounts.reduce((sum, [, value]) => sum + (asNumber(value) || 0), 0);
+  #|     const baseRows = baseCounts
+  #|       .filter(([, value]) => value !== undefined && value !== null)
+  #|       .map(([base, value]) => {
+  #|         const n = asNumber(value) || 0;
+  #|         const pct = baseTotal > 0 ? `${((n / baseTotal) * 100).toFixed(2)}%` : "-";
+  #|         return `<tr><th>${escapeHtml(base)}</th><td>${escapeHtml(n)}</td><td>${escapeHtml(pct)}</td></tr>`;
+  #|       }).join("");
+  #|     const previewHtml = previewReads.length > 0
+  #|       ? previewReads.map((read, index) => `<article class="preview-read"><h3>Preview read ${index + 1}</h3><pre>${escapeHtml(decodeText(read))}</pre></article>`).join("")
+  #|       : (displayText ? `<pre>${escapeHtml(displayText)}</pre>` : "<p>No preview reads were captured.</p>");
+  #|     return `<!doctype html>
+  #| <html lang="en">
+  #| <head>
+  #| <meta charset="utf-8" />
+  #| <meta name="viewport" content="width=device-width, initial-scale=1" />
+  #| <title>${escapeHtml(title)}</title>
+  #| <style>
+  #| :root { color-scheme: light; font-family: Georgia, "Times New Roman", serif; color: #17261f; background: #f2f5ef; }
+  #| body { margin: 0; padding: 32px; }
+  #| main { max-width: 1040px; margin: 0 auto; display: grid; gap: 22px; }
+  #| header { padding: 28px; border-radius: 24px; background: linear-gradient(135deg, #ffffff, #e7f2eb); border: 1px solid #cfe1d6; }
+  #| h1 { margin: 0 0 10px; font-size: clamp(28px, 4vw, 46px); }
+  #| section { padding: 22px; border-radius: 20px; background: rgba(255,255,255,0.86); border: 1px solid #d8e5dc; box-shadow: 0 16px 40px rgba(43,74,55,0.08); }
+  #| h2 { margin: 0 0 14px; font-size: 22px; }
+  #| table { width: 100%; border-collapse: collapse; }
+  #| th, td { text-align: left; border-bottom: 1px solid #e4ece7; padding: 10px 8px; vertical-align: top; }
+  #| th { width: 34%; color: #315241; }
+  #| pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 14px; border-radius: 14px; background: #102018; color: #e9fff3; line-height: 1.5; }
+  #| .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+  #| button { border: 1px solid #1f7a5b; background: #1f7a5b; color: white; border-radius: 999px; padding: 10px 16px; font: inherit; cursor: pointer; }
+  #| button.secondary { background: white; color: #1f7a5b; }
+  #| .note { color: #567064; }
+  #| </style>
+  #| </head>
+  #| <body>
+  #| <main>
+  #| <header>
+  #| <h1>${escapeHtml(title)}</h1>
+  #| <p>${escapeHtml(data.summary || "Browser-local report generated by MoonAP.")}</p>
+  #| <p class="note">File contents stayed in this browser. The report contains summary metrics and small previews only.</p>
+  #| <div class="actions"><button onclick="window.print()">Print / Save as PDF</button><button class="secondary" onclick="navigator.clipboard?.writeText(document.body.innerText)">Copy text</button></div>
+  #| </header>
+  #| <section><h2>File</h2><table>${rows([
+  #|   ["File name", data.file_name],
+  #|   ["File size", data.file_size_bytes !== undefined ? `${formatBytes(data.file_size_bytes)} (${data.file_size_bytes} bytes)` : ""],
+  #|   ["Chunk count", data.chunk_count],
+  #|   ["Chunk size", data.chunk_size_bytes !== undefined ? `${formatBytes(data.chunk_size_bytes)} (${data.chunk_size_bytes} bytes)` : ""],
+  #|   ["Request ID", data.request_id]
+  #| ])}</table></section>
+  #| <section><h2>FastQ Summary</h2><table>${rows([
+  #|   ["Estimated read count", data.estimated_read_count || data.reads_seen],
+  #|   ["Total lines", data.total_lines || data.line_count],
+  #|   ["Total bases", data.total_bases],
+  #|   ["Malformed records", data.malformed_record_count],
+  #|   ["Min read length", data.min_read_length],
+  #|   ["Max read length", data.max_read_length],
+  #|   ["Average read length", data.average_read_length],
+  #|   ["Elapsed ms", data.elapsed_ms]
+  #| ])}</table></section>
+  #| ${baseRows ? `<section><h2>Base Composition</h2><table><tr><th>Base</th><th>Count</th><th>Percent</th></tr>${baseRows}</table></section>` : ""}
+  #| <section><h2>Preview / Raw Report</h2>${previewHtml}</section>
+  #| </main>
+  #| </body>
+  #| </html>`;
+  #|   };
+  #|   const reportFileName = () => {
+  #|     const data = currentReportData();
+  #|     const base = String(data?.file_name || data?.result_kind || "moonap-report").replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "moonap-report";
+  #|     return `${base}.report.html`;
+  #|   };
+  #|   globalThis.__moonapReportRuntime = { buildHtml, reportFileName };
+  #| }
+
+///|
+#cfg(target="js")
 extern "js" fn browser_record_demo_runtime_result(
   on_done : (String) -> Unit,
   on_error : (String) -> Unit,
@@ -645,15 +871,18 @@ extern "js" fn browser_record_demo_runtime_result(
   #|     for (const field of runtimeFields) {
   #|       const name = String(field?.name || "");
   #|       if (!name) continue;
-  #|       const type = String(field?.type || "text");
+  #|       const type = String(field?.type || "text").toLowerCase();
   #|       const fallback = field?.default;
-  #|       const raw = document.querySelector(`#runtime-field-${name}`)?.value;
+  #|       const node = document.querySelector(`#runtime-field-${name}`);
+  #|       const raw = type === "bool" || type === "boolean" || type === "checkbox" ? (node?.checked ? "true" : "false") : node?.value;
   #|       const text = String(raw ?? fallback ?? "");
   #|       runtimeInputs[name] = type === "int"
   #|         ? Number.parseInt(text, 10)
   #|         : type === "float"
   #|           ? Number.parseFloat(text)
-  #|           : text;
+  #|           : (type === "bool" || type === "boolean" || type === "checkbox")
+  #|             ? text === "true"
+  #|             : text;
   #|     }
   #|     const chunkSize = Math.max(256 * 1024, Number(ioContract.chunk_size_bytes) || (4 * 1024 * 1024));
   #|     const emitProgress = (data) => {
@@ -690,9 +919,9 @@ extern "js" fn browser_record_demo_runtime_result(
   #|         );
   #|         setText("#metricFile", payload.file_name || payload.download_name || "-");
   #|         setText("#metricProcessed", formatBytes(payload.bytes_processed ?? payload.file_size_bytes ?? 0));
-  #|         setText("#metricReads", payload.line_count ?? payload.chunk_count ?? 0);
+  #|         setText("#metricReads", payload.reads_seen ?? payload.line_count ?? payload.chunk_count ?? 0);
   #|         setText("#metricTarget", payload.matching_line_count ?? payload.bytes_written ?? 0);
-  #|         setText("#metricBases", payload.total_characters ?? payload.summary ?? "0");
+  #|         setText("#metricBases", payload.total_bases ?? payload.total_characters ?? payload.summary ?? "0");
   #|         setText("#metricUploaded", formatBytes(payload.uploaded_bytes ?? 0));
   #|       } catch {}
   #|     };
@@ -786,6 +1015,153 @@ extern "js" fn browser_record_demo_runtime_result(
   #|         line_count: lineCount,
   #|         matching_line_count: matchingLineCount,
   #|         total_characters: totalCharacters,
+  #|         progress_percent: 100,
+  #|         llm_receives_file_contents: false,
+  #|         accepted_for_skill: false
+  #|       };
+  #|     };
+  #|     const runLargeFastqAnalysisPayload = async () => {
+  #|       const file = document.querySelector("#fileInput")?.files?.[0];
+  #|       if (!file) {
+  #|         throw new Error("Choose a local FastQ file first. MoonAP large FastQ analysis runs browser-locally in chunks.");
+  #|       }
+  #|       const parsedPreviewReads = Number(runtimeInputs.max_preview_reads);
+  #|       const maxPreviewReads = Math.max(0, Math.min(20, Number.isFinite(parsedPreviewReads) ? parsedPreviewReads : 3));
+  #|       const validateStructure = !["false", "0", "no", "off"].includes(String(runtimeInputs.validate_fastq_structure || "true").trim().toLowerCase());
+  #|       const countBases = !["false", "0", "no", "off"].includes(String(runtimeInputs.count_bases || "true").trim().toLowerCase());
+  #|       let offset = 0;
+  #|       let carry = "";
+  #|       let chunkCount = 0;
+  #|       let lineCount = 0;
+  #|       let readCount = 0;
+  #|       let totalBases = 0;
+  #|       let aCount = 0;
+  #|       let cCount = 0;
+  #|       let gCount = 0;
+  #|       let tCount = 0;
+  #|       let nCount = 0;
+  #|       let otherBaseCount = 0;
+  #|       let minReadLength = null;
+  #|       let maxReadLength = 0;
+  #|       let malformedRecordCount = 0;
+  #|       const previewReads = [];
+  #|       const recordLines = [];
+  #|       const countSequence = (sequence) => {
+  #|         const length = sequence.length;
+  #|         totalBases += length;
+  #|         minReadLength = minReadLength == null ? length : Math.min(minReadLength, length);
+  #|         maxReadLength = Math.max(maxReadLength, length);
+  #|         if (!countBases) return;
+  #|         for (let i = 0; i < sequence.length; i += 1) {
+  #|           const ch = sequence[i].toUpperCase();
+  #|           if (ch === "A") aCount += 1;
+  #|           else if (ch === "C") cCount += 1;
+  #|           else if (ch === "G") gCount += 1;
+  #|           else if (ch === "T") tCount += 1;
+  #|           else if (ch === "N") nCount += 1;
+  #|           else otherBaseCount += 1;
+  #|         }
+  #|       };
+  #|       const consumeRecord = (header, sequence, plus, quality) => {
+  #|         const malformed = validateStructure && (!String(header || "").startsWith("@") || String(plus || "") !== "+" || String(sequence || "").length !== String(quality || "").length);
+  #|         if (malformed) malformedRecordCount += 1;
+  #|         readCount += 1;
+  #|         countSequence(String(sequence || ""));
+  #|         if (previewReads.length < maxPreviewReads) {
+  #|           previewReads.push(`${header}\n${String(sequence || "").slice(0, 240)}\n${plus}\n${String(quality || "").slice(0, 240)}`);
+  #|         }
+  #|       };
+  #|       const consumeLine = (line) => {
+  #|         lineCount += 1;
+  #|         recordLines.push(String(line || ""));
+  #|         if (recordLines.length === 4) {
+  #|           consumeRecord(recordLines[0], recordLines[1], recordLines[2], recordLines[3]);
+  #|           recordLines.length = 0;
+  #|         }
+  #|       };
+  #|       const started = performance.now();
+  #|       while (offset < file.size) {
+  #|         const end = Math.min(offset + chunkSize, file.size);
+  #|         const text = await file.slice(offset, end).text();
+  #|         const merged = carry + text;
+  #|         const hasFinalNewline = merged.endsWith("\n") || merged.endsWith("\r");
+  #|         const lines = merged.split(/\r?\n/);
+  #|         carry = hasFinalNewline ? "" : String(lines.pop() || "");
+  #|         for (const line of lines) {
+  #|           if (line === "" && offset === file.size) continue;
+  #|           consumeLine(line);
+  #|         }
+  #|         offset = end;
+  #|         chunkCount += 1;
+  #|         emitProgress({
+  #|           status: "streaming-fastq-analysis",
+  #|           result_kind: "large-fastq-report",
+  #|           file_name: file.name,
+  #|           file_size_bytes: file.size,
+  #|           chunk_size_bytes: chunkSize,
+  #|           chunk_count: chunkCount,
+  #|           bytes_processed: offset,
+  #|           progress_percent: file.size === 0 ? 100 : Math.floor((offset / file.size) * 100),
+  #|           line_count: lineCount,
+  #|           reads_seen: readCount,
+  #|           total_bases: totalBases,
+  #|           total_characters: totalBases,
+  #|           matching_line_count: nCount,
+  #|           llm_receives_file_contents: false
+  #|         });
+  #|         await new Promise((resolve) => setTimeout(resolve, 0));
+  #|       }
+  #|       if (carry !== "") consumeLine(carry);
+  #|       if (recordLines.length > 0) malformedRecordCount += 1;
+  #|       const elapsedMs = Math.round(performance.now() - started);
+  #|       const avgReadLength = readCount === 0 ? 0 : totalBases / readCount;
+  #|       const reportText = [
+  #|         "MoonAP Large FastQ Analysis",
+  #|         `request_id: ${requestId}`,
+  #|         `file_name: ${file.name}`,
+  #|         `file_size_bytes: ${file.size}`,
+  #|         `chunk_size_bytes: ${chunkSize}`,
+  #|         `chunk_count: ${chunkCount}`,
+  #|         `total_lines: ${lineCount}`,
+  #|         `estimated_read_count: ${readCount}`,
+  #|         `total_bases: ${totalBases}`,
+  #|         `A_count: ${aCount}`,
+  #|         `C_count: ${cCount}`,
+  #|         `G_count: ${gCount}`,
+  #|         `T_count: ${tCount}`,
+  #|         `N_count: ${nCount}`,
+  #|         `other_base_count: ${otherBaseCount}`,
+  #|         `min_read_length: ${minReadLength == null ? 0 : minReadLength}`,
+  #|         `max_read_length: ${maxReadLength}`,
+  #|         `average_read_length: ${avgReadLength.toFixed(2)}`,
+  #|         `malformed_record_count: ${malformedRecordCount}`,
+  #|         `elapsed_ms: ${elapsedMs}`,
+  #|         "",
+  #|         "Preview reads:",
+  #|         ...(previewReads.length === 0 ? ["(none captured)"] : previewReads)
+  #|       ].join("\n");
+  #|       return {
+  #|         run_id: String(runtimeRequest.run_id || ""),
+  #|         request_id: requestId,
+  #|         status: "runtime-succeeded",
+  #|         result_kind: "large-fastq-report",
+  #|         runtime_inputs: runtimeInputs,
+  #|         summary: `Analyzed ${file.name} locally: ${readCount} FastQ reads, ${totalBases} bases.`,
+  #|         display_text: reportText,
+  #|         stdout_text: `Browser-local FastQ analysis completed for ${requestId}.`,
+  #|         download_name: "moonap-large-fastq-analysis.txt",
+  #|         download_content: reportText,
+  #|         file_name: file.name,
+  #|         file_size_bytes: file.size,
+  #|         bytes_processed: file.size,
+  #|         chunk_size_bytes: chunkSize,
+  #|         chunk_count: chunkCount,
+  #|         line_count: lineCount,
+  #|         reads_seen: readCount,
+  #|         total_bases: totalBases,
+  #|         total_characters: totalBases,
+  #|         matching_line_count: nCount,
+  #|         malformed_record_count: malformedRecordCount,
   #|         progress_percent: 100,
   #|         llm_receives_file_contents: false,
   #|         accepted_for_skill: false
@@ -967,7 +1343,9 @@ extern "js" fn browser_record_demo_runtime_result(
   #|       };
   #|     };
   #|     let payload;
-  #|     if (String(ioContract.host_capability || "") === "chunked-local-analysis" || taskKind === "large-file-analysis") {
+  #|     if (taskKind === "large-fastq-analysis" || String(runtimeSpec.domain_profile || "").toLowerCase() === "fastq") {
+  #|       payload = await runLargeFastqAnalysisPayload();
+  #|     } else if (String(ioContract.host_capability || "") === "chunked-local-analysis" || taskKind === "large-file-analysis") {
   #|       payload = await runLargeFileAnalysisPayload();
   #|     } else if (String(ioContract.host_capability || "") === "streamed-local-generation" || taskKind === "large-file-generation") {
   #|       payload = await runLargeFileGenerationPayload();
@@ -996,6 +1374,9 @@ extern "js" fn browser_record_demo_runtime_result(
   #|         `Demo runtime result recorded for ${requestId}. Source URL: ${sourceUrl || "n/a"}. wasm URL: ${wasmUrl || "n/a"}.`
   #|       );
   #|     }
+  #|     if (String(payload?.result_kind || "").includes("report") || resultMode === "report") {
+  #|       globalThis.__moonapLastRuntimeReportPayload = payload;
+  #|     }
   #|     const response = await fetch("/api/task/execute", {
   #|       method: "POST",
   #|       headers: { "Content-Type": "application/json; charset=utf-8" },
@@ -1003,7 +1384,7 @@ extern "js" fn browser_record_demo_runtime_result(
   #|     });
   #|     const text = await response.text();
   #|     if (!response.ok) throw new Error(text || `Runtime execute failed (${response.status})`);
-  #|     if (payload && (taskKind === "large-file-analysis" || taskKind === "large-file-generation")) {
+  #|     if (payload && (taskKind === "large-file-analysis" || taskKind === "large-fastq-analysis" || taskKind === "large-file-generation")) {
   #|       globalThis.__moonapLargeFileProgressRuntime?.update?.({ ...payload, progress_percent: 100, status: "runtime-succeeded" });
   #|     }
   #|     onDone(String(text));
@@ -2337,6 +2718,7 @@ extern "js" fn browser_request_skill_save(
   #|     const descriptionMap = {
   #|       "fastq-generator": "Generate a synthetic FastQ file for testing, demos, or pipeline validation.",
   #|       "fastq-analysis": "Analyze a FastQ file and report summary metrics.",
+  #|       "large-fastq-analysis": "Analyze a large FastQ file with chunked browser-local streaming and report read/base metrics.",
   #|       "large-file-analysis": "Analyze a large browser-local file with chunked local streaming and report summary metrics.",
   #|       "large-file-generation": "Generate a large browser-local file with chunked streaming output instead of buffering the whole artifact in memory.",
   #|       "excel-generator": "Generate a synthetic financial spreadsheet file.",
@@ -2588,6 +2970,7 @@ extern "js" fn browser_open_skill_export_dialog() -> Unit =
   #|   const defaultDescriptionMap = {
   #|     "fastq-generator": "Generate a synthetic FastQ file for testing, demos, or pipeline validation.",
   #|     "fastq-analysis": "Analyze a FastQ file and report summary metrics.",
+  #|     "large-fastq-analysis": "Analyze a large FastQ file with chunked browser-local streaming and report read/base metrics.",
   #|     "large-file-analysis": "Analyze a large browser-local file with chunked local streaming and report summary metrics.",
   #|     "large-file-generation": "Generate a large browser-local file with chunked streaming output instead of buffering the whole artifact in memory.",
   #|     "excel-generator": "Generate a synthetic financial spreadsheet file.",
@@ -3103,6 +3486,10 @@ extern "js" fn browser_open_skill_dialog(skill_id : String) -> Unit =
   #|         <div class="dialog-head"><span id="dialogScope">SKILL</span><strong id="dialogTitle">Configure SKILL</strong></div>
   #|         <p id="dialogSummary" class="dialog-summary"></p>
   #|         <div id="dialogFields" class="dialog-fields"></div>
+  #|         <div id="dialogInputTarget" class="dialog-output-target" style="display:none;">
+  #|           <button id="dialogChooseInput" class="dialog-button secondary" type="button">Choose input FastQ file</button>
+  #|           <span id="dialogInputStatus">No input file selected yet.</span>
+  #|         </div>
   #|         <div id="dialogOutputTarget" class="dialog-output-target" style="display:none;">
   #|           <button id="dialogChooseOutput" class="dialog-button secondary" type="button">Choose output file/location</button>
   #|           <span id="dialogOutputStatus">No output file selected yet.</span>
@@ -3119,11 +3506,15 @@ extern "js" fn browser_open_skill_dialog(skill_id : String) -> Unit =
   #|   const outputTarget = document.querySelector("#dialogOutputTarget");
   #|   const outputStatus = document.querySelector("#dialogOutputStatus");
   #|   const chooseOutput = document.querySelector("#dialogChooseOutput");
+  #|   const inputTarget = document.querySelector("#dialogInputTarget");
+  #|   const inputStatus = document.querySelector("#dialogInputStatus");
+  #|   const chooseInput = document.querySelector("#dialogChooseInput");
   #|   const openSourceButton = document.querySelector("#dialogOpenSource");
   #|   const set = (node, value) => { if (node) node.textContent = String(value); };
   #|   if (!dialog || !fields) return;
   #|   fields.innerHTML = "";
   #|   dialog.__moonapOutputFileHandle = null;
+  #|   dialog.__moonapInputFileHandle = null;
   #|   dialog.dataset.skillId = String(skillId);
   #|   dialog.dataset.taskKind = "";
   #|   dialog.dataset.skillSource = "";
@@ -3132,17 +3523,38 @@ extern "js" fn browser_open_skill_dialog(skill_id : String) -> Unit =
   #|   dialog.dataset.folderPath = "";
   #|   if (runButton) runButton.textContent = "Run";
   #|   if (openSourceButton) openSourceButton.style.display = "none";
+  #|   if (inputTarget) inputTarget.style.display = "none";
+  #|   set(inputStatus, "No input file selected yet.");
   #|   if (outputTarget) outputTarget.style.display = "none";
   #|   set(outputStatus, "No output file selected yet.");
-  #|   const addField = (id, label, value, mode = "numeric", fieldName = "") => {
+  #|   const addField = (id, label, value, mode = "numeric", fieldName = "", help = "", fieldType = "") => {
   #|     const item = document.createElement("label");
-  #|     item.textContent = label;
+  #|     const isBool = ["bool", "boolean", "checkbox"].includes(String(fieldType || "").toLowerCase());
+  #|     if (isBool) item.className = "checkbox-param";
   #|     const input = document.createElement("input");
   #|     input.id = `param-${id}`;
-  #|     input.value = value;
-  #|     input.inputMode = mode;
+  #|     input.type = isBool ? "checkbox" : "text";
+  #|     if (isBool) {
+  #|       input.checked = !["false", "0", "no", "off", ""].includes(String(value ?? "").trim().toLowerCase());
+  #|       input.value = "true";
+  #|     } else {
+  #|       input.value = value;
+  #|       input.inputMode = mode;
+  #|     }
   #|     if (fieldName) input.dataset.paramName = String(fieldName);
-  #|     item.append(input);
+  #|     const labelSpan = document.createElement("span");
+  #|     labelSpan.textContent = label;
+  #|     if (isBool) {
+  #|       item.append(input, labelSpan);
+  #|     } else {
+  #|       item.append(labelSpan, input);
+  #|     }
+  #|     if (help) {
+  #|       const helpNode = document.createElement("small");
+  #|       helpNode.className = "param-help";
+  #|       helpNode.textContent = String(help);
+  #|       item.append(helpNode);
+  #|     }
   #|     fields.append(item);
   #|   };
   #|   const loadedPersonal = globalThis.__moonapPersonalSkillCache && typeof globalThis.__moonapPersonalSkillCache === "object"
@@ -3180,11 +3592,14 @@ extern "js" fn browser_open_skill_dialog(skill_id : String) -> Unit =
   #|         : kind === "text"
   #|           ? "text"
   #|           : "numeric";
-  #|       addField(mapFieldId(name), labelText, defaultValue, inputMode, name);
+  #|       addField(mapFieldId(name), labelText, defaultValue, inputMode, name, String(field?.help || field?.description || ""), kind);
   #|     }
   #|     dialog.dataset.skillSource = "personal";
   #|     if (String(loadedPersonal.task_kind || "") === "large-file-generation" && outputTarget) {
   #|       outputTarget.style.display = "";
+  #|     }
+  #|     if (String(loadedPersonal.task_kind || "") === "large-fastq-analysis" && inputTarget) {
+  #|       inputTarget.style.display = "";
   #|     }
   #|   } else if (loadedHubSkill && typeof loadedHubSkill === "object") {
   #|     const runtimeSpec = loadedHubSkill.runtime_spec && typeof loadedHubSkill.runtime_spec === "object"
@@ -3225,11 +3640,14 @@ extern "js" fn browser_open_skill_dialog(skill_id : String) -> Unit =
   #|           : kind === "text"
   #|             ? "text"
   #|             : "numeric";
-  #|         addField(name, labelText, defaultValue, inputMode, name);
+  #|         addField(name, labelText, defaultValue, inputMode, name, String(field?.help || field?.description || ""), kind);
   #|       }
   #|     }
   #|     if (sourceKind !== "cloud" && String(loadedHubSkill.task_kind || "") === "large-file-generation" && outputTarget) {
   #|       outputTarget.style.display = "";
+  #|     }
+  #|     if (sourceKind !== "cloud" && String(loadedHubSkill.task_kind || "") === "large-fastq-analysis" && inputTarget) {
+  #|       inputTarget.style.display = "";
   #|     }
   #|     if (runButton) {
   #|       runButton.textContent = sourceKind === "cloud" ? "Install to Local SKILL Hub" : "Run";
@@ -3299,6 +3717,27 @@ extern "js" fn browser_open_skill_dialog(skill_id : String) -> Unit =
   #|       }
   #|     };
   #|   }
+  #|   if (chooseInput) {
+  #|     chooseInput.onclick = async (event) => {
+  #|       event.preventDefault();
+  #|       event.stopPropagation();
+  #|       try {
+  #|         if (typeof window.showOpenFilePicker !== "function") {
+  #|           throw new Error("This browser does not support selecting a local input file yet.");
+  #|         }
+  #|         const handles = await window.showOpenFilePicker({
+  #|           multiple: false,
+  #|           types: [{ description: "FastQ files", accept: { "text/plain": [".fastq", ".fq", ".txt"] } }]
+  #|         });
+  #|         const handle = Array.isArray(handles) ? handles[0] : null;
+  #|         if (!handle) throw new Error("No input file selected.");
+  #|         dialog.__moonapInputFileHandle = handle;
+  #|         set(inputStatus, `Selected: ${String(handle.name || "local FastQ file")}`);
+  #|       } catch (error) {
+  #|         set(inputStatus, `Input file not selected: ${error instanceof Error ? error.message : String(error)}`);
+  #|       }
+  #|     };
+  #|   }
   #|   dialog.showModal();
   #| }
 
@@ -3356,7 +3795,9 @@ extern "js" fn browser_run_dialog_large_file_generation(
   #|     if (!dialog) throw new Error("No SKILL dialog is open.");
   #|     const readParam = (name, fallback = "") => {
   #|       const node = dialog.querySelector(`[data-param-name="${String(name)}"]`);
-  #|       return node ? String(node.value ?? fallback) : String(fallback);
+  #|       if (!node) return String(fallback);
+  #|       if (String(node.type || "").toLowerCase() === "checkbox") return node.checked ? "true" : "false";
+  #|       return String(node.value ?? fallback);
   #|     };
   #|     const fileNameRuntime = globalThis.__moonapFileNameRuntime;
   #|     const outputNameRaw = readParam("output_name", "moonap-output.fastq").trim() || "moonap-output.fastq";
@@ -3465,6 +3906,170 @@ extern "js" fn browser_run_dialog_large_file_generation(
   #|       elapsed_ms: elapsedMs,
   #|       llm_receives_file_contents: false,
   #|       summary: `Generated ${outputName} locally with browser streaming output (${readIndex} FastQ reads).`
+  #|     };
+  #|     emitState("runtime-succeeded");
+  #|     onDone(JSON.stringify(result, null, 2));
+  #|   } catch (error) {
+  #|     globalThis.__moonapLargeFileProgressRuntime?.error?.(error instanceof Error ? error.message : String(error));
+  #|     onError(error instanceof Error ? error.message : String(error));
+  #|   }
+  #| }
+
+///|
+#cfg(target="js")
+extern "js" fn browser_run_dialog_large_fastq_analysis(
+  on_done : (String) -> Unit,
+  on_error : (String) -> Unit,
+) -> Unit =
+  #| async (onDone, onError) => {
+  #|   try {
+  #|     const dialog = document.querySelector("#skillDialog");
+  #|     if (!dialog) throw new Error("No SKILL dialog is open.");
+  #|     const readParam = (name, fallback = "") => {
+  #|       const node = dialog.querySelector(`[data-param-name="${String(name)}"]`);
+  #|       return node ? String(node.value ?? fallback) : String(fallback);
+  #|     };
+  #|     let fileHandle = dialog.__moonapInputFileHandle || null;
+  #|     if (!fileHandle) {
+  #|       if (typeof window.showOpenFilePicker !== "function") {
+  #|         throw new Error("This browser does not support selecting a local input file yet.");
+  #|       }
+  #|       const handles = await window.showOpenFilePicker({
+  #|         multiple: false,
+  #|         types: [{ description: "FastQ files", accept: { "text/plain": [".fastq", ".fq", ".txt"] } }]
+  #|       });
+  #|       fileHandle = Array.isArray(handles) ? handles[0] : null;
+  #|     }
+  #|     if (!fileHandle || typeof fileHandle.getFile !== "function") throw new Error("Choose an input FastQ file first.");
+  #|     dialog.close();
+  #|     const file = await fileHandle.getFile();
+  #|     const chunkSize = 4 * 1024 * 1024;
+  #|     const parsedPreviewReads = Number.parseInt(readParam("max_preview_reads", "3"), 10);
+  #|     const maxPreviewReads = Math.max(0, Math.min(20, Number.isFinite(parsedPreviewReads) ? parsedPreviewReads : 3));
+  #|     const validateStructure = !["false", "0", "no", "off"].includes(readParam("validate_fastq_structure", "true").trim().toLowerCase());
+  #|     const countBases = !["false", "0", "no", "off"].includes(readParam("count_bases", "true").trim().toLowerCase());
+  #|     let offset = 0;
+  #|     let carry = "";
+  #|     let chunkCount = 0;
+  #|     let lineCount = 0;
+  #|     let readCount = 0;
+  #|     let totalBases = 0;
+  #|     let aCount = 0, cCount = 0, gCount = 0, tCount = 0, nCount = 0, otherBaseCount = 0;
+  #|     let minReadLength = null;
+  #|     let maxReadLength = 0;
+  #|     let malformedRecordCount = 0;
+  #|     const previewReads = [];
+  #|     const recordLines = [];
+  #|     const setText = (selector, value) => {
+  #|       const node = document.querySelector(selector);
+  #|       if (node) node.textContent = String(value ?? "");
+  #|     };
+  #|     const countSequence = (sequence) => {
+  #|       const length = sequence.length;
+  #|       totalBases += length;
+  #|       minReadLength = minReadLength == null ? length : Math.min(minReadLength, length);
+  #|       maxReadLength = Math.max(maxReadLength, length);
+  #|       if (!countBases) return;
+  #|       for (let i = 0; i < sequence.length; i += 1) {
+  #|         const ch = sequence[i].toUpperCase();
+  #|         if (ch === "A") aCount += 1;
+  #|         else if (ch === "C") cCount += 1;
+  #|         else if (ch === "G") gCount += 1;
+  #|         else if (ch === "T") tCount += 1;
+  #|         else if (ch === "N") nCount += 1;
+  #|         else otherBaseCount += 1;
+  #|       }
+  #|     };
+  #|     const consumeRecord = (header, sequence, plus, quality) => {
+  #|       const malformed = validateStructure && (!String(header || "").startsWith("@") || String(plus || "") !== "+" || String(sequence || "").length !== String(quality || "").length);
+  #|       if (malformed) malformedRecordCount += 1;
+  #|       readCount += 1;
+  #|       countSequence(String(sequence || ""));
+  #|       if (previewReads.length < maxPreviewReads) previewReads.push(`${header}\n${String(sequence || "").slice(0, 240)}\n${plus}\n${String(quality || "").slice(0, 240)}`);
+  #|     };
+  #|     const consumeLine = (line) => {
+  #|       lineCount += 1;
+  #|       recordLines.push(String(line || ""));
+  #|       if (recordLines.length === 4) {
+  #|         consumeRecord(recordLines[0], recordLines[1], recordLines[2], recordLines[3]);
+  #|         recordLines.length = 0;
+  #|       }
+  #|     };
+  #|     const emitState = (status) => {
+  #|       const progress = file.size === 0 ? 100 : Math.min(100, Math.floor((offset / file.size) * 100));
+  #|       const payload = {
+  #|         status,
+  #|         result_kind: "large-fastq-report",
+  #|         file_name: file.name,
+  #|         file_size_bytes: file.size,
+  #|         bytes_processed: offset,
+  #|         chunk_count: chunkCount,
+  #|         line_count: lineCount,
+  #|         reads_seen: readCount,
+  #|         total_bases: totalBases,
+  #|         matching_line_count: nCount,
+  #|         progress_percent: progress,
+  #|         llm_receives_file_contents: false
+  #|       };
+  #|       setText("#state", JSON.stringify(payload, null, 2));
+  #|       setText("#processProvider", String(dialog.dataset.skillSource || "") === "personal" ? "Personal SKILL" : "Local SKILL");
+  #|       setText("#processStage", "skill-runtime");
+  #|       setText("#processResult", status === "runtime-succeeded" ? "succeeded" : "running");
+  #|       setText("#processLog", status === "runtime-succeeded" ? `Analyzed ${file.name}: ${readCount} FastQ reads.` : `Analyzing ${file.name}: ${progress}%`);
+  #|       document.querySelector("#resultPanel")?.classList.add("is-open");
+  #|       setText("#resultStatus", status);
+  #|       setText("#resultTitle", "Browser-local large FastQ analysis");
+  #|       setText("#metricFile", file.name);
+  #|       setText("#metricProcessed", `${Math.floor(offset / 1048576)} MB`);
+  #|       setText("#metricReads", String(readCount));
+  #|       setText("#metricTarget", String(nCount));
+  #|       setText("#metricBases", String(totalBases));
+  #|       const fill = document.querySelector("#progressFill");
+  #|       if (fill) fill.style.width = `${progress}%`;
+  #|       globalThis.__moonapLargeFileProgressRuntime?.update?.(payload);
+  #|     };
+  #|     emitState("streaming-fastq-analysis");
+  #|     const started = performance.now();
+  #|     while (offset < file.size) {
+  #|       const end = Math.min(offset + chunkSize, file.size);
+  #|       const text = await file.slice(offset, end).text();
+  #|       const merged = carry + text;
+  #|       const hasFinalNewline = merged.endsWith("\n") || merged.endsWith("\r");
+  #|       const lines = merged.split(/\r?\n/);
+  #|       carry = hasFinalNewline ? "" : String(lines.pop() || "");
+  #|       for (const line of lines) consumeLine(line);
+  #|       offset = end;
+  #|       chunkCount += 1;
+  #|       emitState("streaming-fastq-analysis");
+  #|       await new Promise((resolve) => setTimeout(resolve, 0));
+  #|     }
+  #|     if (carry !== "") consumeLine(carry);
+  #|     if (recordLines.length > 0) malformedRecordCount += 1;
+  #|     const elapsedMs = Math.round(performance.now() - started);
+  #|     const avgReadLength = readCount === 0 ? 0 : totalBases / readCount;
+  #|     const result = {
+  #|       status: "runtime-succeeded",
+  #|       result_kind: "large-fastq-report",
+  #|       file_name: file.name,
+  #|       file_size_bytes: file.size,
+  #|       chunk_count: chunkCount,
+  #|       total_lines: lineCount,
+  #|       estimated_read_count: readCount,
+  #|       total_bases: totalBases,
+  #|       A_count: aCount,
+  #|       C_count: cCount,
+  #|       G_count: gCount,
+  #|       T_count: tCount,
+  #|       N_count: nCount,
+  #|       other_base_count: otherBaseCount,
+  #|       min_read_length: minReadLength == null ? 0 : minReadLength,
+  #|       max_read_length: maxReadLength,
+  #|       average_read_length: Number(avgReadLength.toFixed(2)),
+  #|       malformed_record_count: malformedRecordCount,
+  #|       elapsed_ms: elapsedMs,
+  #|       preview_reads: previewReads,
+  #|       llm_receives_file_contents: false,
+  #|       summary: `Analyzed ${file.name} locally: ${readCount} FastQ reads, ${totalBases} bases.`
   #|     };
   #|     emitState("runtime-succeeded");
   #|     onDone(JSON.stringify(result, null, 2));
@@ -5146,6 +5751,27 @@ extern "js" fn browser_on_download_runtime_artifact(
 
 ///|
 #cfg(target="js")
+extern "js" fn browser_on_runtime_report_action(
+  action : String,
+  handler : () -> Unit,
+) -> Unit =
+  #| (action, handler) => document.addEventListener("click", (event) => {
+  #|   const targetId = String(action || "") === "save" ? "saveRuntimeReport" : "openRuntimeReport";
+  #|   if (event.target?.id !== targetId) return;
+  #|   event.preventDefault();
+  #|   event.stopPropagation();
+  #|   try {
+  #|     const result = handler();
+  #|     if (result && typeof result.catch === "function") {
+  #|       result.catch((error) => alert(`MoonAP report action failed: ${error instanceof Error ? error.message : String(error)}`));
+  #|     }
+  #|   } catch (error) {
+  #|     alert(`MoonAP report action failed: ${error instanceof Error ? error.message : String(error)}`);
+  #|   }
+  #| })
+
+///|
+#cfg(target="js")
 extern "js" fn browser_on_record_demo_runtime_result(
   handler : () -> Unit,
 ) -> Unit =
@@ -6262,6 +6888,20 @@ fn execute_dialog_skill() -> Unit {
   let folder_path = browser_dialog_folder_path()
   browser_close_skill_dialog()
   if skill_id.contains("personal.") {
+    if personal_task_kind == "large-fastq-analysis" {
+      browser_run_dialog_large_fastq_analysis(
+        fn(result) {
+          browser_set_state(browser_pretty_json(result))
+          browser_show_toast(
+            "Personal SKILL analyzed the FastQ file with browser-local streaming.",
+          )
+        },
+        fn(error) {
+          show_error("Personal SKILL large FastQ analysis failed", error)
+        },
+      )
+      return
+    }
     if personal_task_kind == "large-file-generation" {
       browser_run_dialog_large_file_generation(
         fn(result) {
@@ -6293,6 +6933,20 @@ fn execute_dialog_skill() -> Unit {
     return
   }
   if skill_source == "local" {
+    if personal_task_kind == "large-fastq-analysis" {
+      browser_run_dialog_large_fastq_analysis(
+        fn(result) {
+          browser_set_state(browser_pretty_json(result))
+          browser_show_toast(
+            "Local SKILL analyzed the FastQ file with browser-local streaming.",
+          )
+        },
+        fn(error) {
+          show_error("Local SKILL large FastQ analysis failed", error)
+        },
+      )
+      return
+    }
     if personal_task_kind == "large-file-generation" {
       browser_run_dialog_large_file_generation(
         fn(result) {
@@ -7392,6 +8046,7 @@ fn main {
   browser_prepare_message_input("Generate a FastQ file generator.")
   browser_on_submit(fn() { submit_message() })
   browser_ensure_runtime_profile_runtime()
+  browser_ensure_report_runtime()
   browser_on_click("#experimentButton", fn() { show_experiment_entry() })
   browser_on_click("#detailsToggle", fn() { browser_toggle_details() })
   browser_on_click("#llmButton", fn() { show_llm_entry() })
@@ -7431,6 +8086,12 @@ fn main {
   })
   browser_on_download_runtime_artifact("result", fn() {
     browser_download_runtime_artifact("result")
+  })
+  browser_on_runtime_report_action("open", fn() {
+    browser_open_runtime_report()
+  })
+  browser_on_runtime_report_action("save", fn() {
+    browser_save_runtime_report()
   })
   browser_on_record_demo_runtime_result(fn() {
     browser_record_demo_runtime_result(

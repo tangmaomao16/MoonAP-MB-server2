@@ -1117,6 +1117,7 @@ fn runtime_mode_for_task_kind(task_kind : String) -> String {
     task_kind == "large-file-generation" {
     "form"
   } else if task_kind == "fastq-analysis" ||
+    task_kind == "large-fastq-analysis" ||
     task_kind == "finance-report-analysis" ||
     task_kind == "large-file-analysis" {
     "file"
@@ -1134,6 +1135,7 @@ fn result_mode_for_task_kind(task_kind : String) -> String {
     task_kind == "large-file-generation" {
     "download"
   } else if task_kind == "fastq-analysis" ||
+    task_kind == "large-fastq-analysis" ||
     task_kind == "finance-report-analysis" ||
     task_kind == "large-file-analysis" {
     "report"
@@ -1172,11 +1174,19 @@ fn runtime_task_kind_from_context(
     haystack.contains("scan") ||
     haystack.contains("parse") ||
     haystack.contains("report")
-  if mentions_large_file && mentions_generation {
+  let mentions_fastq = haystack.contains("fastq") ||
+    haystack.contains(".fq") ||
+    haystack.contains(" fq ") ||
+    haystack.contains("sequencing")
+  if mentions_large_file && mentions_fastq && mentions_analysis {
+    "large-fastq-analysis"
+  } else if mentions_large_file && mentions_generation {
     "large-file-generation"
   } else if mentions_large_file && mentions_analysis {
     "large-file-analysis"
-  } else if haystack.contains("fastq") || haystack.contains("fq") {
+  } else if mentions_fastq && mentions_analysis {
+    "fastq-analysis"
+  } else if mentions_fastq {
     "fastq-generator"
   } else if haystack.contains("financial") ||
     haystack.contains("finance") ||
@@ -1277,6 +1287,51 @@ fn runtime_spec_json_for_task_kind(task_kind : String) -> String {
     "    \"title\": \"Analyze FastQ file\",\n" +
     "    \"action_label\": \"Run analysis\",\n" +
     "    \"fields\": []\n" +
+    "  }"
+  } else if task_kind == "large-fastq-analysis" {
+    "{\n" +
+    "    \"mode\": \"file\",\n" +
+    "    \"title\": \"Analyze large FastQ file\",\n" +
+    "    \"action_label\": \"Run FastQ analysis\",\n" +
+    "    \"rerun_action_label\": \"Run FastQ analysis again\",\n" +
+    "    \"domain_profile\": \"fastq\",\n" +
+    "    \"io_contract\": {\n" +
+    "      \"protocol\": \"moonap.large-file.v1\",\n" +
+    "      \"browser_local_only\": true,\n" +
+    "      \"llm_receives_file_contents\": false,\n" +
+    "      \"host_capability\": \"chunked-local-analysis\",\n" +
+    "      \"input_mode\": \"streaming-text\",\n" +
+    "      \"output_mode\": \"report\",\n" +
+    "      \"chunk_size_bytes\": 4194304,\n" +
+    "      \"carry_strategy\": \"fastq-record-boundary\",\n" +
+    "      \"supported_extensions\": [\"fastq\", \"fq\", \"txt\"]\n" +
+    "    },\n" +
+    "    \"fields\": [\n" +
+    "      {\n" +
+    "        \"name\": \"max_preview_reads\",\n" +
+    "        \"label\": \"Preview reads\",\n" +
+    "        \"type\": \"int\",\n" +
+    "        \"default\": 3,\n" +
+    "        \"min\": 0,\n" +
+    "        \"max\": 20,\n" +
+    "        \"step\": 1,\n" +
+    "        \"help\": \"Only controls how many reads appear in the report preview. It does not limit full-file analysis.\"\n" +
+    "      },\n" +
+    "      {\n" +
+    "        \"name\": \"validate_fastq_structure\",\n" +
+    "        \"label\": \"Validate FastQ structure\",\n" +
+    "        \"type\": \"bool\",\n" +
+    "        \"default\": true,\n" +
+    "        \"help\": \"Check @ header, + separator, and sequence/quality length for each four-line FastQ record.\"\n" +
+    "      },\n" +
+    "      {\n" +
+    "        \"name\": \"count_bases\",\n" +
+    "        \"label\": \"Count A/C/G/T/N bases\",\n" +
+    "        \"type\": \"bool\",\n" +
+    "        \"default\": true,\n" +
+    "        \"help\": \"Count base composition while streaming. Turn off only if you want a lighter structural scan.\"\n" +
+    "      }\n" +
+    "    ]\n" +
     "  }"
   } else if task_kind == "large-file-analysis" {
     "{\n" +
@@ -3044,6 +3099,7 @@ fn web_index_html() -> String {
     "<dialog id=\"skillDialog\" class=\"skill-dialog\">", "<form method=\"dialog\" class=\"skill-dialog-body\">",
     "<div class=\"dialog-head\"><span id=\"dialogScope\">SKILL</span><strong id=\"dialogTitle\">Configure SKILL</strong></div>",
     "<p id=\"dialogSummary\" class=\"dialog-summary\"></p>", "<div id=\"dialogFields\" class=\"dialog-fields\"></div>",
+    "<div id=\"dialogInputTarget\" class=\"dialog-output-target\" style=\"display:none;\"><button id=\"dialogChooseInput\" class=\"dialog-button secondary\" type=\"button\">Choose input FastQ file</button><span id=\"dialogInputStatus\">No input file selected yet.</span></div>",
     "<div id=\"dialogOutputTarget\" class=\"dialog-output-target\" style=\"display:none;\"><button id=\"dialogChooseOutput\" class=\"dialog-button secondary\" type=\"button\">Choose output file/location</button><span id=\"dialogOutputStatus\">No output file selected yet.</span></div>",
     "<div class=\"dialog-actions\"><button id=\"dialogCancel\" class=\"dialog-button\" type=\"button\">Cancel</button><button id=\"dialogOpenSource\" class=\"dialog-button secondary\" type=\"button\" style=\"display:none;\">View on GitHub</button><button id=\"dialogRun\" class=\"dialog-button primary\" type=\"button\">Run</button></div>",
     "</form>", "</dialog>", "<dialog id=\"llmDialog\" class=\"skill-dialog\">", "<form method=\"dialog\" class=\"skill-dialog-body\">",
@@ -3156,7 +3212,12 @@ fn web_style_css() -> String {
     ".action-card-params { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; padding: 12px; border: 1px solid #dbe7e0; border-radius: 14px; background: rgba(255,255,255,0.68); }",
     ".action-card-params label { display: grid; gap: 6px; font-size: 12px; color: #335748; }",
     ".action-card-params label span { font-weight: 600; }", ".action-card-params input { width: 100%; min-height: 38px; border: 1px solid #d0ddd6; border-radius: 10px; padding: 0 12px; background: #ffffff; color: #14261d; font: inherit; }",
-    ".action-card-primary, .action-card-secondary { display: flex; flex-wrap: wrap; gap: 10px; }",
+    ".action-card-file-target { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; align-items: center; padding: 12px; border: 1px solid #d6e6dc; border-radius: 14px; background: #f5fbf7; color: #315241; font-size: 13px; }",
+    ".action-card-file-target small { grid-column: 1 / -1; color: #557061; line-height: 1.45; }",
+    ".action-card-file-target span { overflow-wrap: anywhere; }", ".action-card-params label.checkbox-param, .dialog-fields label.checkbox-param { display: grid; grid-template-columns: 18px 1fr; gap: 6px 10px; align-items: start; padding: 10px 12px; border: 1px solid #d6e6dc; border-radius: 12px; background: #f8fcfa; }",
+    ".action-card-params label.checkbox-param input, .dialog-fields label.checkbox-param input { width: 18px; min-height: 18px; height: 18px; margin-top: 1px; padding: 0; accent-color: #1f7a5b; }",
+    ".param-help { color: #607568; font-size: 12px; line-height: 1.4; font-weight: 400; }",
+    ".checkbox-param .param-help { grid-column: 2; }", ".action-card-primary, .action-card-secondary { display: flex; flex-wrap: wrap; gap: 10px; }",
     ".action-card-primary button.primary { background: #1f7a5b; color: #ffffff; border-color: #1f7a5b; }",
     ".action-card-primary button.secondary.strong { border-color: #1f7a5b; background: rgba(31,122,91,0.08); color: #195f47; }",
     ".action-card-secondary { padding-top: 2px; }", ".action-card-secondary button.secondary { background: rgba(255,255,255,0.84); border-color: #d4dfd8; color: #193529; }",
@@ -3186,7 +3247,7 @@ fn web_style_css() -> String {
     ".dialog-toggle { display: flex; align-items: center; gap: 8px; color: #555555; font-size: 13px; }",
     ".dialog-toggle input { width: 14px; height: 14px; accent-color: #111111; }",
     ".router-test-status { min-height: 88px; max-height: 180px; overflow: auto; white-space: pre-wrap; padding: 12px; border: 1px solid #e5e5e5; border-radius: 12px; background: #fafafa; color: #222222; font-size: 12px; line-height: 1.5; }",
-    ".dialog-actions { display: flex; justify-content: flex-end; gap: 10px; }", ".dialog-button { height: 38px; border: 1px solid #d8d8d8; border-radius: 999px; padding: 0 16px; background: #ffffff; }",
+    ".dialog-actions { display: flex; justify-content: flex-end; gap: 10px; }", ".dialog-button { height: 38px; border: 1px solid #d8d8d8; border-radius: 999px; padding: 0 16px; background: #ffffff; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }",
     ".dialog-button.primary { border-color: #1f7a5b; background: #1f7a5b; color: #ffffff; }",
     ".dialog-button:hover { background: #f3f3f3; }", ".dialog-button.primary:hover { background: #195f47; }",
     ".large-file-progress { position: fixed; right: 28px; bottom: 28px; width: min(420px, calc(100vw - 56px)); display: grid; gap: 10px; padding: 14px 16px; border: 1px solid #cde4da; border-radius: 16px; background: rgba(247,251,249,0.98); color: #173f31; box-shadow: 0 22px 60px rgba(24,48,37,0.20); opacity: 0; transform: translateY(12px); pointer-events: none; transition: opacity 140ms ease, transform 140ms ease; z-index: 1300; }",

@@ -75,7 +75,13 @@ fn main {
 }
 '@
 
-$compileReport = '{"ok":true,"wasm_path":"C:\\temp\\moonap-demo.wasm","stage":"moonbit-wasm-compile","summary_kind":"none"}'
+$demoWasmPath = Join-Path $env:TEMP "moonap-demo.wasm"
+$compileReport = @{
+  ok = $true
+  wasm_path = $demoWasmPath
+  stage = "moonbit-wasm-compile"
+  summary_kind = "none"
+} | ConvertTo-Json -Compress
 $sequence = @(
   @{ Prompt = "Build a JSON formatter and validator."; Expect = "json_text"; Reject = "tool_kind`": `"text-analysis" },
   @{ Prompt = "Build a text analyzer that counts characters, words, lines, and estimated reading time."; Expect = "text-analysis"; Reject = "json_text" }
@@ -89,7 +95,7 @@ foreach ($item in $sequence) {
     "LLM_MODEL`tgpt-5.4",
     "REQUEST_STAGE`ttest-registration",
     "COMPILE_OK`ttrue",
-    "WASM_PATH`tC:\temp\moonap-demo.wasm",
+    "WASM_PATH`t$demoWasmPath",
     "SOURCE_BEGIN",
     $genericSource.TrimEnd(),
     "SOURCE_END",

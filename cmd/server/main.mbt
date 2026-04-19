@@ -24,13 +24,6 @@ async fn moonap_server(
       served_web_js_path(),
       "application/javascript; charset=utf-8",
     )
-  } else if request.meth == Get &&
-    (path.contains("/app.js.map") || path.contains("/app-live.js.map")) {
-    serve_static_file(
-      conn,
-      served_web_js_map_path(),
-      "application/json; charset=utf-8",
-    )
   } else if request.meth == Get && path == "/style.css" {
     send_css(conn, web_style_css())
   } else if request.meth == Get && path == "/api/health" {
@@ -435,18 +428,8 @@ fn built_web_js_path() -> String {
 }
 
 ///|
-fn built_web_js_map_path() -> String {
-  "_build/js/debug/build/cmd/web_app/web_app.js.map"
-}
-
-///|
 fn committed_web_js_path() -> String {
   "web/app-live.js"
-}
-
-///|
-fn committed_web_js_map_path() -> String {
-  "web/app-live.js.map"
 }
 
 ///|
@@ -455,15 +438,6 @@ async fn served_web_js_path() -> String {
     built_web_js_path()
   } else {
     committed_web_js_path()
-  }
-}
-
-///|
-async fn served_web_js_map_path() -> String {
-  if @fs.exists(built_web_js_map_path()) {
-    built_web_js_map_path()
-  } else {
-    committed_web_js_map_path()
   }
 }
 
@@ -2402,19 +2376,19 @@ async fn codex_threads_dev_manifest_json() -> String {
   ",\n" +
   "  \"docs\": [\n" +
   "    " +
-  json_string("docs/modes/codex-threads-dev-mode.md") +
+  json_string("README.md") +
   ",\n" +
   "    " +
-  json_string("docs/modes/codex-threads-dev/protocol-spec.md") +
+  json_string("SUBMISSION.md") +
   ",\n" +
   "    " +
-  json_string("docs/modes/codex-threads-dev/developer-thread.md") +
+  json_string("docs/README.md") +
   ",\n" +
   "    " +
-  json_string("docs/modes/codex-threads-dev/simulated-user-thread.md") +
+  json_string("docs/architecture/lightweight-task-runtime-abstraction.md") +
   ",\n" +
   "    " +
-  json_string("docs/modes/codex-threads-dev/simulated-llm-thread.md") +
+  json_string("docs/architecture/moonap-skill-folder-spec.md") +
   "\n" +
   "  ]\n" +
   "}\n"

@@ -5,7 +5,7 @@
     "moonbitlang/async": "0.16.6",
     "illusory0x0/path": "0.2.0"
   },
-  "readme": "README.mbt.md",
+  "readme": "README.md",
   "repository": "",
   "license": "Apache-2.0",
   "keywords": [],

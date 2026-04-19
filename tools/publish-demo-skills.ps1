@@ -1,10 +1,15 @@
 param(
   [string]$BaseUrl = "http://127.0.0.1:3000",
-  [string]$CloudHubRoot = "C:\my_work\MoonBit_Competition\GitHub\MoonAP-SKILL-Hub",
+  [string]$CloudHubRoot = "",
   [switch]$NoIndexUpdate
 )
 
 $ErrorActionPreference = "Stop"
+
+$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+if ($CloudHubRoot -eq "") {
+  $CloudHubRoot = Join-Path (Split-Path -Parent $RepoRoot) "MoonAP-SKILL-Hub"
+}
 
 $cases = @(
   @{

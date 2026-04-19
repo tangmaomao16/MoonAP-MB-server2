@@ -89,7 +89,6 @@ demo/utilities/celsius-fahrenheit-converter.zip
 The official Cloud SKILL-Hub is maintained in the separate repository:
 
 ```text
-C:\my_work\MoonBit_Competition\GitHub\MoonAP-SKILL-Hub
 https://github.com/tangmaomao16/MoonAP-SKILL-Hub
 ```
 
@@ -132,9 +131,7 @@ For release builds, keep these files synchronized with `cmd/web_app/main.mbt`:
 
 ```text
 web/app-live.js
-web/app-live.js.map
 web/app.js
-web/app.js.map
 ```
 
 ## LLM Configuration

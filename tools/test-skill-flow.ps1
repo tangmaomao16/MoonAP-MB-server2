@@ -1,7 +1,7 @@
 param(
-  [string]$PersonalRoot = "C:\my_work\MoonBit_Competition\MoonAP-SKILL\Personal-SKILL-Set",
-  [string]$LocalHubRoot = "C:\my_work\MoonBit_Competition\MoonAP-SKILL\Local-SKILL-Hub",
-  [string]$CloudHubRoot = "C:\my_work\MoonBit_Competition\GitHub\MoonAP-SKILL-Hub",
+  [string]$PersonalRoot = "",
+  [string]$LocalHubRoot = "",
+  [string]$CloudHubRoot = "",
   [string]$SkillName = "",
   [switch]$RequireLatestSave,
   [switch]$RequireLocalInstall,
@@ -9,6 +9,18 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$WorkspaceRoot = Split-Path -Parent $RepoRoot
+if ($PersonalRoot -eq "") {
+  $PersonalRoot = Join-Path $HOME "MoonAP-SKILL\Personal-SKILL-Set"
+}
+if ($LocalHubRoot -eq "") {
+  $LocalHubRoot = Join-Path $HOME "MoonAP-SKILL\Local-SKILL-Hub"
+}
+if ($CloudHubRoot -eq "") {
+  $CloudHubRoot = Join-Path $WorkspaceRoot "MoonAP-SKILL-Hub"
+}
 
 function Add-Result {
   param(

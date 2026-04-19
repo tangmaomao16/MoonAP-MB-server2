@@ -156,7 +156,7 @@ test "moonbit extractor falls back to fenced moonbit code" {
 test "path last segment handles unix and windows separators" {
   assert_eq(
     @moonap_mb_server.path_last_segment(
-      "C:\\my_work\\MoonBit_Competition\\logs\\run-12345",
+      "C:\\workspace\\moonap\\logs\\run-12345",
     ),
     "run-12345",
   )

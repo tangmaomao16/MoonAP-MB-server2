@@ -72,7 +72,7 @@ MoonAP demonstrates large-scale software synthesis at two levels:
 - [docs/README.md](docs/README.md) indexes architecture, plans, modes, notes, and experiments.
 - [docs/architecture/lightweight-task-runtime-abstraction.md](docs/architecture/lightweight-task-runtime-abstraction.md) explains the runtime abstraction.
 - [docs/architecture/moonap-skill-folder-spec.md](docs/architecture/moonap-skill-folder-spec.md) explains the SKILL format.
-- Handoff notes under `docs/notes/` preserve the engineering decisions behind the v0.1 release.
+- The release docs keep the stable architecture and validation story visible while internal handoff notes are intentionally excluded from the public repository.
 
 ### User Experience
 

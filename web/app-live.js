@@ -1,4 +1,4 @@
-class $PanicError extends Error {}
+﻿class $PanicError extends Error {}
 function $panic() {
   throw new $PanicError();
 }
@@ -8253,4 +8253,3 @@ function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app15submit__message(
   _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__restore__formal__verification();
   _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app17refresh__policies();
 })();
-//# sourceMappingURL=web_app.js.map

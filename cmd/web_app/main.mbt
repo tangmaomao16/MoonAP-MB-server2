@@ -117,6 +117,12 @@ extern "js" fn browser_render_artifact_card(
   #|   const card = document.createElement("section");
   #|   card.className = "action-card is-open";
   #|   const metaHtml = meta.map((item) => `<span>${String(item)}</span>`).join("");
+  #|   const escapeHtml = (value) => String(value ?? "")
+  #|     .replace(/&/g, "&amp;")
+  #|     .replace(/</g, "&lt;")
+  #|     .replace(/>/g, "&gt;")
+  #|     .replace(/"/g, "&quot;")
+  #|     .replace(/'/g, "&#39;");
   #|   const wasmUrl = String(runtimeRequest?.wasm_url || "");
   #|   const sourceUrl = String(runtimeRequest?.source_url || "");
   #|   const compileReportUrl = String(runtimeRequest?.compile_report_url || "");
@@ -223,6 +229,15 @@ extern "js" fn browser_render_artifact_card(
   #|       `<button id="recordDemoRuntimeResult" class="primary" type="button">${runLabel}</button>`,
   #|       runtimeDone && allowSave ? `<button id="savePersonalSkill" class="secondary strong" type="button">${saveLabel}</button>` : ''
   #|     ].filter(Boolean).join("");
+  #|     const resultPreviewText = runtimeDone
+  #|       ? String(runtimeResult?.display_text || runtimeResult?.download_content || runtimeResult?.summary || "")
+  #|         .replace(/\\r\\n/g, "\n")
+  #|         .replace(/\\n/g, "\n")
+  #|         .replace(/\\t/g, "\t")
+  #|       : "";
+  #|     const resultPreviewHtml = resultPreviewText.trim()
+  #|       ? `<div class="action-card-result-preview"><strong>Result</strong><pre>${escapeHtml(resultPreviewText)}</pre></div>`
+  #|       : "";
   #|     const secondaryActions = [
   #|       '<button id="startNewApp" class="secondary strong" type="button">Start new APP</button>',
   #|       wasmUrl ? '<button id="downloadRuntimeWasm" class="secondary" type="button">Download wasm</button>' : '',
@@ -239,6 +254,7 @@ extern "js" fn browser_render_artifact_card(
   #|       ${runtimeProfileHtml}
   #|       ${filePickerHtml}
   #|       ${paramsHtml}
+  #|       ${resultPreviewHtml}
   #|       <div class="action-card-primary">${primaryAction}</div>
   #|       ${secondaryActions ? `<div class="action-card-secondary">${secondaryActions}</div>` : ''}`;
   #|   } else {
@@ -951,6 +967,7 @@ extern "js" fn browser_record_demo_runtime_result(
   #|     const wasmUrl = String(runtimeRequest.wasm_url || "");
   #|     const taskKind = String(runtimeRequest.task_kind || "");
   #|     const runtimeMode = String(runtimeRequest.runtime_mode || "");
+  #|     const resultMode = String(runtimeRequest.result_mode || "text");
   #|     const runtimeSpec = runtimeRequest?.runtime_spec && typeof runtimeRequest.runtime_spec === "object"
   #|       ? runtimeRequest.runtime_spec
   #|       : (runtimeRequest?.runtime_ui && typeof runtimeRequest.runtime_ui === "object" ? runtimeRequest.runtime_ui : {});
@@ -1444,6 +1461,32 @@ extern "js" fn browser_record_demo_runtime_result(
   #|         accepted_for_skill: false
   #|       };
   #|     };
+  #|     const buildGenericFormPayload = () => {
+  #|       const inputLines = Object.entries(runtimeInputs).map(([key, value]) => `${key}: ${String(value)}`);
+  #|       if (Object.prototype.hasOwnProperty.call(runtimeInputs, "celsius")) {
+  #|         const celsius = Number(runtimeInputs.celsius);
+  #|         const fahrenheit = celsius * 9 / 5 + 32;
+  #|         return buildGenericPayload(
+  #|           `Converted ${celsius} Celsius to ${fahrenheit.toFixed(2)} Fahrenheit.`,
+  #|           `Celsius: ${celsius}\nFahrenheit: ${fahrenheit.toFixed(2)}`
+  #|         );
+  #|       }
+  #|       if (Object.prototype.hasOwnProperty.call(runtimeInputs, "number_a") && Object.prototype.hasOwnProperty.call(runtimeInputs, "number_b")) {
+  #|         const a = Number(runtimeInputs.number_a);
+  #|         const b = Number(runtimeInputs.number_b);
+  #|         const sum = a + b;
+  #|         return buildGenericPayload(
+  #|           `Calculated ${a} + ${b} = ${sum}.`,
+  #|           `First number: ${a}\nSecond number: ${b}\nSum: ${sum}`
+  #|         );
+  #|       }
+  #|       return buildGenericPayload(
+  #|         "MoonAP recorded browser-local form input for the compiled wasm artifact.",
+  #|         inputLines.length === 0
+  #|           ? `Demo runtime result recorded for ${requestId}. Source URL: ${sourceUrl || "n/a"}. wasm URL: ${wasmUrl || "n/a"}.`
+  #|           : `Runtime inputs:\n${inputLines.join("\n")}\n\nSource URL: ${sourceUrl || "n/a"}\nwasm URL: ${wasmUrl || "n/a"}`
+  #|       );
+  #|     };
   #|     let payload;
   #|     if (taskKind === "large-fastq-analysis" || String(runtimeSpec.domain_profile || "").toLowerCase() === "fastq") {
   #|       payload = await runLargeFastqAnalysisPayload();
@@ -1471,10 +1514,7 @@ extern "js" fn browser_record_demo_runtime_result(
   #|         "interactive-view"
   #|       );
   #|     } else {
-  #|       payload = buildGenericPayload(
-  #|         "MoonAP recorded a browser-side runtime result for the compiled wasm artifact.",
-  #|         `Demo runtime result recorded for ${requestId}. Source URL: ${sourceUrl || "n/a"}. wasm URL: ${wasmUrl || "n/a"}.`
-  #|       );
+  #|       payload = buildGenericFormPayload();
   #|     }
   #|     if (String(payload?.result_kind || "").includes("report") || resultMode === "report") {
   #|       globalThis.__moonapLastRuntimeReportPayload = payload;
@@ -4306,11 +4346,15 @@ extern "js" fn browser_open_llm_dialog() -> Unit =
   #|     const model = String(item?.model || "").trim();
   #|     const apiKey = String(item?.apiKey || "").trim();
   #|     const enabled = Boolean(item?.enabled);
+  #|     const custom = Boolean(item?.custom);
+  #|     const providerName = String(item?.providerName || "").trim();
   #|     const test_status = String(item?.test_status || "").trim();
   #|     const test_message = String(item?.test_message || "").trim();
   #|     const tested_at = String(item?.tested_at || "").trim();
   #|     let baseUrl = String(item?.baseUrl || "").trim();
-  #|     if (key === "gemini") {
+  #|     if (custom) {
+  #|       baseUrl = String(item?.baseUrl || "").trim();
+  #|     } else if (key === "gemini") {
   #|       baseUrl = "https://generativelanguage.googleapis.com";
   #|     } else if (key === "openrouter") {
   #|       baseUrl = "https://openrouter.ai/api/v1";
@@ -4323,7 +4367,7 @@ extern "js" fn browser_open_llm_dialog() -> Unit =
   #|     } else if (key === "nvidia") {
   #|       baseUrl = "https://integrate.api.nvidia.com/v1";
   #|     }
-  #|     return { key, enabled, model, baseUrl, apiKey, test_status, test_message, tested_at };
+  #|     return { key, providerName, custom, enabled, model, baseUrl, apiKey, test_status, test_message, tested_at };
   #|   };
   #|   const providerPriority = (provider, model) => {
   #|     const key = String(provider || "").toLowerCase();
@@ -4362,7 +4406,8 @@ extern "js" fn browser_open_llm_dialog() -> Unit =
   #|     else if (name.includes("nemotron-3-super-120b-a12b:free")) score += 280;
   #|     else if (name.includes("openrouter/free")) score += 200;
   #|     else if (name.includes("openrouter/auto")) score += 180;
-  #|     if (key === "openai") score += 120;
+  #|     if (key !== "openai" && key !== "nvidia" && key !== "zai" && key !== "gemini" && key !== "siliconflow" && key !== "openrouter") score += 130;
+  #|     else if (key === "openai") score += 120;
   #|     else if (key === "nvidia") score += 90;
   #|     else if (key === "zai") score += 70;
   #|     else if (key === "gemini") score += 40;
@@ -4374,9 +4419,9 @@ extern "js" fn browser_open_llm_dialog() -> Unit =
   #|   const expandProviderSpec = (spec) => {
   #|     const models = parseModelList(spec?.modelsText || spec?.model || "");
   #|     if (models.length === 0) {
-  #|       return [{ key: spec?.key, enabled: Boolean(spec?.enabled), model: "", baseUrl: spec?.baseUrl, apiKey: spec?.apiKey }];
+  #|       return [{ key: spec?.key, providerName: spec?.providerName, custom: Boolean(spec?.custom), enabled: Boolean(spec?.enabled), model: "", baseUrl: spec?.baseUrl, apiKey: spec?.apiKey }];
   #|     }
-  #|     return models.map((model) => ({ key: spec?.key, enabled: Boolean(spec?.enabled), model, baseUrl: spec?.baseUrl, apiKey: spec?.apiKey }));
+  #|     return models.map((model) => ({ key: spec?.key, providerName: spec?.providerName, custom: Boolean(spec?.custom), enabled: Boolean(spec?.enabled), model, baseUrl: spec?.baseUrl, apiKey: spec?.apiKey }));
   #|   };
   #|   const readRouter = () => {
   #|     try {
@@ -4388,14 +4433,14 @@ extern "js" fn browser_open_llm_dialog() -> Unit =
   #|       return {};
   #|     }
   #|   };
-  #|   const routerProfileVersion = 5;
+  #|   const routerProfileVersion = 6;
   #|   const providerConfigs = [
   #|     {
   #|       key: "openai",
-  #|       enabled: true,
+  #|       enabled: false,
   #|       baseUrl: "moonap://llm-sim",
   #|       models: [
-  #|         { id: "gpt-5.4", enabled: true }
+  #|         { id: "gpt-5.4", enabled: false }
   #|       ]
   #|     },
   #|     {
@@ -4419,6 +4464,8 @@ extern "js" fn browser_open_llm_dialog() -> Unit =
   #|       enabled: false,
   #|       baseUrl: "https://generativelanguage.googleapis.com",
   #|       models: [
+  #|         { id: "gemini-3-flash-preview", enabled: false },
+  #|         { id: "gemini-3.1-flash-lite-preview", enabled: false },
   #|         { id: "gemini-2.5-flash", enabled: false }
   #|       ]
   #|     },
@@ -4476,7 +4523,10 @@ extern "js" fn browser_open_llm_dialog() -> Unit =
   #|     }
   #|     return sortMoonBitProviders(merged);
   #|   };
-  #|   const providers = mergeWithDefaults(saved.providers, defaults);
+  #|   const savedNormalized = Array.isArray(saved.providers) ? saved.providers.map(normalizeProviderEntry) : [];
+  #|   const knownKeys = new Set(providerConfigs.map((item) => item.key));
+  #|   const savedCustom = savedNormalized.find((item) => item.custom) || savedNormalized.find((item) => item.key && !knownKeys.has(item.key));
+  #|   const providers = sortMoonBitProviders(mergeWithDefaults(saved.providers, defaults).concat(savedCustom ? [savedCustom] : []));
   #|   try {
   #|     localStorage.setItem("moonap.llm.router.v1", JSON.stringify({ providers, cursor: Number.isFinite(saved.cursor) ? saved.cursor : 0, savedAt: saved.savedAt || new Date().toISOString(), profile_version: routerProfileVersion }));
   #|   } catch {}
@@ -4522,6 +4572,40 @@ extern "js" fn browser_open_llm_dialog() -> Unit =
   #|   bind("gemini", { enable: "routerEnableGemini", model: "routerModelsGemini", base: "routerBaseGemini", key: "routerKeyGemini" });
   #|   bind("siliconflow", { enable: "routerEnableSiliconFlow", model: "routerModelsSiliconFlow", base: "routerBaseSiliconFlow", key: "routerKeySiliconFlow" });
   #|   bind("openrouter", { enable: "routerEnableOpenRouter", model: "routerModelsOpenRouter", base: "routerBaseOpenRouter", key: "routerKeyOpenRouter" });
+  #|   const customEnable = document.querySelector("#routerEnableCustom");
+  #|   const customProvider = document.querySelector("#routerProviderCustom");
+  #|   const customModel = document.querySelector("#routerModelCustom");
+  #|   const customBase = document.querySelector("#routerBaseCustom");
+  #|   const customKey = document.querySelector("#routerKeyCustom");
+  #|   if (customEnable) customEnable.checked = Boolean(savedCustom?.enabled);
+  #|   if (customProvider) customProvider.value = String(savedCustom?.providerName || savedCustom?.key || "");
+  #|   if (customModel) customModel.value = String(savedCustom?.model || "");
+  #|   if (customBase) customBase.value = String(savedCustom?.baseUrl || "");
+  #|   if (customKey) customKey.value = String(savedCustom?.apiKey || "");
+  #|   const syncCustomDisabled = () => {
+  #|     const disabled = !Boolean(customEnable?.checked);
+  #|     [customProvider, customModel, customBase, customKey].forEach((node) => {
+  #|       if (node) node.disabled = disabled;
+  #|     });
+  #|   };
+  #|   customEnable?.addEventListener("change", syncCustomDisabled);
+  #|   syncCustomDisabled();
+  #|   const setRouterTab = (name) => {
+  #|     const tabName = name === "simulated" ? "simulated" : "real";
+  #|     document.querySelectorAll("[data-router-tab]").forEach((node) => {
+  #|       const active = node.getAttribute("data-router-tab") === tabName;
+  #|       node.classList.toggle("is-active", active);
+  #|       node.setAttribute("aria-selected", active ? "true" : "false");
+  #|     });
+  #|     document.querySelectorAll("[data-router-panel]").forEach((node) => {
+  #|       node.classList.toggle("is-active", node.getAttribute("data-router-panel") === tabName);
+  #|     });
+  #|     try { localStorage.setItem("moonap.llm.router.activeTab", tabName); } catch {}
+  #|   };
+  #|   document.querySelectorAll("[data-router-tab]").forEach((node) => {
+  #|     node.addEventListener("click", () => setRouterTab(node.getAttribute("data-router-tab")));
+  #|   });
+  #|   setRouterTab(localStorage.getItem("moonap.llm.router.activeTab") === "simulated" ? "simulated" : "real");
   #|   document.querySelectorAll(".router-row").forEach((node) => {
   #|     node.style.display = "";
   #|   });
@@ -4564,7 +4648,7 @@ extern "js" fn browser_llm_summary() -> String =
   #|   }
   #|   const providers = Array.isArray(saved.providers) ? saved.providers.filter((item) => item.enabled && String(item.apiKey || "").trim() !== "" && String(item.test_status || "") !== "failed") : [];
   #|   if (providers.length === 0) return "not configured";
-  #|   const labels = providers.map((item) => `${item.key}/${item.model}`);
+  #|   const labels = providers.map((item) => `${item.providerName || item.key}/${item.model}`);
   #|   return `${providers.length} provider(s): ${labels.join(", ")}`;
   #| }
 
@@ -4599,7 +4683,7 @@ extern "js" fn browser_render_onboarding() -> Unit =
   #|   const providers = Array.isArray(saved.providers) ? saved.providers : [];
   #|   const usable = providers.filter((item) => Boolean(item?.enabled) && String(item?.apiKey || "").trim() !== "" && String(item?.test_status || "") !== "failed");
   #|   const primary = usable[0];
-  #|   const primaryLabel = primary ? `${String(primary.key || "")}/${String(primary.model || "")}` : "OpenAI/GPT-5.4 (LLM-sim)";
+  #|   const primaryLabel = primary ? `${String(primary.providerName || primary.key || "")}/${String(primary.model || "")}` : "Real API provider";
   #|   let benchmark = {};
   #|   try { benchmark = JSON.parse(globalThis.__moonapBenchmarkAssessment || "{}"); } catch { benchmark = {}; }
   #|   const passedLevel = Number(benchmark?.pass ? benchmark.level || 0 : 0);
@@ -4623,7 +4707,7 @@ extern "js" fn browser_render_onboarding() -> Unit =
   #|       </div>`
   #|     : `
   #|       <strong>Connect an LLM to begin</strong>
-  #|       <small>Use OpenAI / GPT-5.4 LLM-sim for the local multi-thread dev path, or switch to real providers later. After Save, MoonAP will test the checked models and show the usable order in Details.</small>
+  #|       <small>Configure a Real API provider to begin. Simulated API is still available inside LLM Router for local development and demos. After Save, MoonAP will test the checked models and show the usable order in Details.</small>
   #|       <div class="onboarding-actions">
   #|         <button id="onboardingEditLLM" type="button">Open LLM Router</button>
   #|         <button id="onboardingOpenSkill" class="secondary" type="button">Browse SKILL</button>
@@ -4745,7 +4829,7 @@ extern "js" fn browser_on_llm_save(handler : () -> Unit) -> Unit =
   #|   if (event.target?.id !== "llmSave") return;
   #|   event.preventDefault();
   #|   event.stopPropagation();
-  #|   const routerProfileVersion = 4;
+  #|   const routerProfileVersion = 6;
   #|   const parseModelList = (raw) => {
   #|     const seen = new Set();
   #|     const values = String(raw || "")
@@ -4764,11 +4848,15 @@ extern "js" fn browser_on_llm_save(handler : () -> Unit) -> Unit =
   #|     const model = String(item?.model || "").trim();
   #|     const apiKey = String(item?.apiKey || "").trim();
   #|     const enabled = Boolean(item?.enabled);
+  #|     const custom = Boolean(item?.custom);
+  #|     const providerName = String(item?.providerName || "").trim();
   #|     const test_status = String(item?.test_status || "").trim();
   #|     const test_message = String(item?.test_message || "").trim();
   #|     const tested_at = String(item?.tested_at || "").trim();
   #|     let baseUrl = String(item?.baseUrl || "").trim();
-  #|     if (key === "gemini") {
+  #|     if (custom) {
+  #|       baseUrl = String(item?.baseUrl || "").trim();
+  #|     } else if (key === "gemini") {
   #|       baseUrl = "https://generativelanguage.googleapis.com";
   #|     } else if (key === "openrouter") {
   #|       baseUrl = "https://openrouter.ai/api/v1";
@@ -4781,7 +4869,7 @@ extern "js" fn browser_on_llm_save(handler : () -> Unit) -> Unit =
   #|     } else if (key === "nvidia") {
   #|       baseUrl = "https://integrate.api.nvidia.com/v1";
   #|     }
-  #|     return { key, enabled, model, baseUrl, apiKey, test_status, test_message, tested_at };
+  #|     return { key, providerName, custom, enabled, model, baseUrl, apiKey, test_status, test_message, tested_at };
   #|   };
   #|   const providerPriority = (provider, model) => {
   #|     const key = String(provider || "").toLowerCase();
@@ -4820,7 +4908,8 @@ extern "js" fn browser_on_llm_save(handler : () -> Unit) -> Unit =
   #|     else if (name.includes("nemotron-3-super-120b-a12b:free")) score += 280;
   #|     else if (name.includes("openrouter/free")) score += 200;
   #|     else if (name.includes("openrouter/auto")) score += 180;
-  #|     if (key === "openai") score += 120;
+  #|     if (key !== "openai" && key !== "nvidia" && key !== "zai" && key !== "gemini" && key !== "siliconflow" && key !== "openrouter") score += 130;
+  #|     else if (key === "openai") score += 120;
   #|     else if (key === "nvidia") score += 90;
   #|     else if (key === "zai") score += 70;
   #|     else if (key === "gemini") score += 40;
@@ -4830,25 +4919,35 @@ extern "js" fn browser_on_llm_save(handler : () -> Unit) -> Unit =
   #|   };
   #|   const sortMoonBitProviders = (providers) => [...providers].sort((a, b) => providerPriority(b?.key, b?.model) - providerPriority(a?.key, a?.model));
   #|   const collectCheckedModels = (selector) => Array.from(document.querySelectorAll(`${selector} input[type=checkbox]:checked`)).map((node) => String(node.value || "").trim()).filter((value) => value.length > 0);
+  #|   const normalizeCustomKey = (value) => {
+  #|     const raw = String(value || "").trim() || "custom";
+  #|     const key = raw.toLowerCase().replace(/[^a-z0-9._:-]+/g, "-").replace(/^-+|-+$/g, "") || "custom";
+  #|     return ["openai", "nvidia", "zai", "gemini", "siliconflow", "openrouter"].includes(key) ? `custom-${key}` : key;
+  #|   };
+  #|   const customProviderName = String(document.querySelector("#routerProviderCustom")?.value || "").trim() || "custom";
+  #|   const customModelName = String(document.querySelector("#routerModelCustom")?.value || "").trim();
   #|   const providerSpecs = [
   #|     { key: "openai", enabled: Boolean(document.querySelector("#routerEnableOpenAI")?.checked), models: collectCheckedModels("#routerModelsOpenAI"), baseUrl: String(document.querySelector("#routerBaseOpenAI")?.value || "").trim(), apiKey: String(document.querySelector("#routerKeyOpenAI")?.value || "").trim() },
   #|     { key: "nvidia", enabled: Boolean(document.querySelector("#routerEnableNVIDIA")?.checked), models: collectCheckedModels("#routerModelsNVIDIA"), baseUrl: String(document.querySelector("#routerBaseNVIDIA")?.value || "").trim(), apiKey: String(document.querySelector("#routerKeyNVIDIA")?.value || "").trim() },
   #|     { key: "zai", enabled: Boolean(document.querySelector("#routerEnableZAI")?.checked), models: collectCheckedModels("#routerModelsZAI"), baseUrl: String(document.querySelector("#routerBaseZAI")?.value || "").trim(), apiKey: String(document.querySelector("#routerKeyZAI")?.value || "").trim() },
   #|     { key: "gemini", enabled: Boolean(document.querySelector("#routerEnableGemini")?.checked), models: collectCheckedModels("#routerModelsGemini"), baseUrl: String(document.querySelector("#routerBaseGemini")?.value || "").trim(), apiKey: String(document.querySelector("#routerKeyGemini")?.value || "").trim() },
   #|     { key: "siliconflow", enabled: Boolean(document.querySelector("#routerEnableSiliconFlow")?.checked), models: collectCheckedModels("#routerModelsSiliconFlow"), baseUrl: String(document.querySelector("#routerBaseSiliconFlow")?.value || "").trim(), apiKey: String(document.querySelector("#routerKeySiliconFlow")?.value || "").trim() },
-  #|     { key: "openrouter", enabled: Boolean(document.querySelector("#routerEnableOpenRouter")?.checked), models: collectCheckedModels("#routerModelsOpenRouter"), baseUrl: String(document.querySelector("#routerBaseOpenRouter")?.value || "").trim(), apiKey: String(document.querySelector("#routerKeyOpenRouter")?.value || "").trim() }
+  #|     { key: "openrouter", enabled: Boolean(document.querySelector("#routerEnableOpenRouter")?.checked), models: collectCheckedModels("#routerModelsOpenRouter"), baseUrl: String(document.querySelector("#routerBaseOpenRouter")?.value || "").trim(), apiKey: String(document.querySelector("#routerKeyOpenRouter")?.value || "").trim() },
+  #|     { key: normalizeCustomKey(customProviderName), providerName: customProviderName, custom: true, enabled: Boolean(document.querySelector("#routerEnableCustom")?.checked), models: customModelName ? [customModelName] : [], baseUrl: String(document.querySelector("#routerBaseCustom")?.value || "").trim(), apiKey: String(document.querySelector("#routerKeyCustom")?.value || "").trim() }
   #|   ];
   #|   const providers = providerSpecs.flatMap((item) => item.models.map((model) => ({
   #|     key: item.key,
+  #|     providerName: item.providerName || "",
+  #|     custom: Boolean(item.custom),
   #|     enabled: Boolean(item.enabled),
   #|     model,
   #|     baseUrl: item.baseUrl,
   #|     apiKey: item.apiKey
   #|   })));
   #|   const sortedProviders = sortMoonBitProviders(providers.map(normalizeProviderEntry));
-  #|   const active = sortedProviders.filter((item) => item.enabled && item.apiKey);
+  #|   const active = sortedProviders.filter((item) => item.enabled && item.apiKey && item.model && item.baseUrl);
   #|   if (active.length === 0) {
-  #|     alert("Please enable at least one provider, check at least one model under it, and fill its API key.");
+  #|     alert("Please enable at least one provider, choose or enter a model, and fill endpoint URL plus API key.");
   #|     return;
   #|   }
   #|   const statusNode = document.querySelector("#routerTestStatus");
@@ -4882,7 +4981,7 @@ extern "js" fn browser_on_llm_save(handler : () -> Unit) -> Unit =
   #|       String(body)
   #|     ].join("\n");
   #|     const controller = new AbortController();
-  #|     const timeout = setTimeout(() => controller.abort(), 8000);
+  #|     const timeout = setTimeout(() => controller.abort(), 30000);
   #|     try {
   #|       const response = await fetch("/api/llm/proxy", {
   #|         method: "POST",
@@ -4905,7 +5004,7 @@ extern "js" fn browser_on_llm_save(handler : () -> Unit) -> Unit =
   #|       return json;
   #|     } catch (error) {
   #|       if (error && error.name === "AbortError") {
-  #|         throw new Error("Timed out after 8s");
+  #|         throw new Error("Timed out after 30s");
   #|       }
   #|       throw error;
   #|     } finally {
@@ -4974,7 +5073,7 @@ extern "js" fn browser_on_llm_save(handler : () -> Unit) -> Unit =
   #|     const lines = [];
   #|     const results = [];
   #|     for (const item of active) {
-  #|       const label = `${item.key}/${item.model}`;
+  #|       const label = `${item.providerName || item.key}/${item.model}`;
   #|       lines.push(`[running] ${label}`);
   #|       setStatus(lines.join("\n"));
   #|       updateProcess("LLM Router", "llm-api-test", "running", lines.join("\n"));
@@ -5004,7 +5103,7 @@ extern "js" fn browser_on_llm_save(handler : () -> Unit) -> Unit =
   #|     const usable = providersWithHealth.filter((item) => item.enabled && item.apiKey && item.test_status === "ok");
   #|     const orderLines = usable.length === 0
   #|       ? ["No enabled provider passed the API test."]
-  #|       : usable.map((item, index) => `${index + 1}. ${item.key}/${item.model}`);
+  #|       : usable.map((item, index) => `${index + 1}. ${item.providerName || item.key}/${item.model}`);
   #|     const summary = lines.join("\n") + "\n\nFinal usable provider order:\n" + orderLines.join("\n");
   #|     localStorage.setItem("moonap.llm.router.v1", JSON.stringify({
   #|       providers: providersWithHealth,
@@ -5015,7 +5114,7 @@ extern "js" fn browser_on_llm_save(handler : () -> Unit) -> Unit =
   #|     }));
   #|     setStatus(summary);
   #|     updateProcess(
-  #|       usable.length === 0 ? "LLM Router" : usable.map((item) => `${item.key}/${item.model}`).join(", "),
+  #|       usable.length === 0 ? "LLM Router" : usable.map((item) => `${item.providerName || item.key}/${item.model}`).join(", "),
   #|       "llm-api-test",
   #|       usable.length === 0 ? "failed" : "succeeded",
   #|       summary
@@ -6900,45 +6999,6 @@ extern "js" fn browser_has_last_artifact_source() -> Bool =
 
 ///|
 #cfg(target="js")
-fn context_path(message : String, file_name : String) -> String {
-  let hint = (message + " " + file_name).to_lower()
-  if hint.contains("fastq") || hint.contains(".fq") {
-    "/api/agent/context?fastq"
-  } else if hint.contains("csv") {
-    "/api/agent/context?csv"
-  } else if hint.contains("xlsx") ||
-    hint.contains("xls") ||
-    hint.contains("excel") {
-    "/api/agent/context?xlsx"
-  } else if hint.contains("json") {
-    "/api/agent/context?json"
-  } else if hint.contains("game") {
-    "/api/agent/context?game"
-  } else {
-    "/api/agent/context"
-  }
-}
-
-///|
-#cfg(target="js")
-fn active_skill_from_context(raw : String) -> String {
-  if raw.contains("\"active_skill\": \"fastq\"") {
-    "fastq"
-  } else if raw.contains("\"active_skill\": \"csv\"") {
-    "csv"
-  } else if raw.contains("\"active_skill\": \"spreadsheet\"") {
-    "spreadsheet"
-  } else if raw.contains("\"active_skill\": \"json\"") {
-    "json"
-  } else if raw.contains("\"active_skill\": \"game\"") {
-    "game"
-  } else {
-    "chat"
-  }
-}
-
-///|
-#cfg(target="js")
 fn show_error(label : String, error : String) -> Unit {
   browser_set_state(label + ": " + error)
   browser_update_process("-", label, "failed", error, "")
@@ -8149,40 +8209,13 @@ fn submit_message() -> Unit {
     run_fastq_counter()
     return
   }
-  if message.to_lower().contains("fastq") ||
-    message.to_lower().contains("generator") ||
-    message.to_lower().contains("synthetic") ||
-    message.to_lower().contains("moonbit benchmark") ||
-    (
-      message.to_lower().contains("moonbit") &&
-      (
-        message.to_lower().contains("write") ||
-        message.to_lower().contains("generate") ||
-        message.to_lower().contains("compile") ||
-        message.to_lower().contains("benchmark")
-      )
-    ) {
-    if message.to_lower().contains("moonbit benchmark") {
-      run_moonbit_benchmark(1)
-    } else {
-      run_llm_moonbit_codegen(
-        "MoonBit Task", message, "MoonAP received MoonBit source from the active router provider and is now starting a real native compile probe automatically.",
-        false,
-      )
-    }
+  if message.to_lower().contains("moonbit benchmark") {
+    run_moonbit_benchmark(1)
     return
   }
-  browser_fetch_text(
-    context_path(message, file_name),
-    fn(raw) {
-      browser_set_state(browser_pretty_json(raw))
-      let skill = active_skill_from_context(raw)
-      browser_update_process(
-        skill, "context", "ready", "Context normalized by MoonBit frontend and native server.",
-        "",
-      )
-    },
-    fn(error) { show_error("context fetch failed", error) },
+  run_llm_moonbit_codegen(
+    "MoonBit Task", message, "MoonAP received MoonBit source from the active router provider and is now starting a real native compile probe automatically.",
+    false,
   )
 }
 

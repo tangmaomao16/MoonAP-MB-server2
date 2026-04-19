@@ -121,6 +121,12 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__render__ar
    const card = document.createElement("section");
    card.className = "action-card is-open";
    const metaHtml = meta.map((item) => `<span>${String(item)}</span>`).join("");
+   const escapeHtml = (value) => String(value ?? "")
+     .replace(/&/g, "&amp;")
+     .replace(/</g, "&lt;")
+     .replace(/>/g, "&gt;")
+     .replace(/"/g, "&quot;")
+     .replace(/'/g, "&#39;");
    const wasmUrl = String(runtimeRequest?.wasm_url || "");
    const sourceUrl = String(runtimeRequest?.source_url || "");
    const compileReportUrl = String(runtimeRequest?.compile_report_url || "");
@@ -227,6 +233,15 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__render__ar
        `<button id="recordDemoRuntimeResult" class="primary" type="button">${runLabel}</button>`,
        runtimeDone && allowSave ? `<button id="savePersonalSkill" class="secondary strong" type="button">${saveLabel}</button>` : ''
      ].filter(Boolean).join("");
+     const resultPreviewText = runtimeDone
+       ? String(runtimeResult?.display_text || runtimeResult?.download_content || runtimeResult?.summary || "")
+         .replace(/\\r\\n/g, "\n")
+         .replace(/\\n/g, "\n")
+         .replace(/\\t/g, "\t")
+       : "";
+     const resultPreviewHtml = resultPreviewText.trim()
+       ? `<div class="action-card-result-preview"><strong>Result</strong><pre>${escapeHtml(resultPreviewText)}</pre></div>`
+       : "";
      const secondaryActions = [
        '<button id="startNewApp" class="secondary strong" type="button">Start new APP</button>',
        wasmUrl ? '<button id="downloadRuntimeWasm" class="secondary" type="button">Download wasm</button>' : '',
@@ -243,6 +258,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__render__ar
        ${runtimeProfileHtml}
        ${filePickerHtml}
        ${paramsHtml}
+       ${resultPreviewHtml}
        <div class="action-card-primary">${primaryAction}</div>
        ${secondaryActions ? `<div class="action-card-secondary">${secondaryActions}</div>` : ''}`;
    } else {
@@ -889,6 +905,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__record__de
      const wasmUrl = String(runtimeRequest.wasm_url || "");
      const taskKind = String(runtimeRequest.task_kind || "");
      const runtimeMode = String(runtimeRequest.runtime_mode || "");
+     const resultMode = String(runtimeRequest.result_mode || "text");
      const runtimeSpec = runtimeRequest?.runtime_spec && typeof runtimeRequest.runtime_spec === "object"
        ? runtimeRequest.runtime_spec
        : (runtimeRequest?.runtime_ui && typeof runtimeRequest.runtime_ui === "object" ? runtimeRequest.runtime_ui : {});
@@ -1382,6 +1399,32 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__record__de
          accepted_for_skill: false
        };
      };
+     const buildGenericFormPayload = () => {
+       const inputLines = Object.entries(runtimeInputs).map(([key, value]) => `${key}: ${String(value)}`);
+       if (Object.prototype.hasOwnProperty.call(runtimeInputs, "celsius")) {
+         const celsius = Number(runtimeInputs.celsius);
+         const fahrenheit = celsius * 9 / 5 + 32;
+         return buildGenericPayload(
+           `Converted ${celsius} Celsius to ${fahrenheit.toFixed(2)} Fahrenheit.`,
+           `Celsius: ${celsius}\nFahrenheit: ${fahrenheit.toFixed(2)}`
+         );
+       }
+       if (Object.prototype.hasOwnProperty.call(runtimeInputs, "number_a") && Object.prototype.hasOwnProperty.call(runtimeInputs, "number_b")) {
+         const a = Number(runtimeInputs.number_a);
+         const b = Number(runtimeInputs.number_b);
+         const sum = a + b;
+         return buildGenericPayload(
+           `Calculated ${a} + ${b} = ${sum}.`,
+           `First number: ${a}\nSecond number: ${b}\nSum: ${sum}`
+         );
+       }
+       return buildGenericPayload(
+         "MoonAP recorded browser-local form input for the compiled wasm artifact.",
+         inputLines.length === 0
+           ? `Demo runtime result recorded for ${requestId}. Source URL: ${sourceUrl || "n/a"}. wasm URL: ${wasmUrl || "n/a"}.`
+           : `Runtime inputs:\n${inputLines.join("\n")}\n\nSource URL: ${sourceUrl || "n/a"}\nwasm URL: ${wasmUrl || "n/a"}`
+       );
+     };
      let payload;
      if (taskKind === "large-fastq-analysis" || String(runtimeSpec.domain_profile || "").toLowerCase() === "fastq") {
        payload = await runLargeFastqAnalysisPayload();
@@ -1409,10 +1452,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__record__de
          "interactive-view"
        );
      } else {
-       payload = buildGenericPayload(
-         "MoonAP recorded a browser-side runtime result for the compiled wasm artifact.",
-         `Demo runtime result recorded for ${requestId}. Source URL: ${sourceUrl || "n/a"}. wasm URL: ${wasmUrl || "n/a"}.`
-       );
+       payload = buildGenericFormPayload();
      }
      if (String(payload?.result_kind || "").includes("report") || resultMode === "report") {
        globalThis.__moonapLastRuntimeReportPayload = payload;
@@ -3950,11 +3990,15 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app26browser__open__llm_
      const model = String(item?.model || "").trim();
      const apiKey = String(item?.apiKey || "").trim();
      const enabled = Boolean(item?.enabled);
+     const custom = Boolean(item?.custom);
+     const providerName = String(item?.providerName || "").trim();
      const test_status = String(item?.test_status || "").trim();
      const test_message = String(item?.test_message || "").trim();
      const tested_at = String(item?.tested_at || "").trim();
      let baseUrl = String(item?.baseUrl || "").trim();
-     if (key === "gemini") {
+     if (custom) {
+       baseUrl = String(item?.baseUrl || "").trim();
+     } else if (key === "gemini") {
        baseUrl = "https://generativelanguage.googleapis.com";
      } else if (key === "openrouter") {
        baseUrl = "https://openrouter.ai/api/v1";
@@ -3967,7 +4011,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app26browser__open__llm_
      } else if (key === "nvidia") {
        baseUrl = "https://integrate.api.nvidia.com/v1";
      }
-     return { key, enabled, model, baseUrl, apiKey, test_status, test_message, tested_at };
+     return { key, providerName, custom, enabled, model, baseUrl, apiKey, test_status, test_message, tested_at };
    };
    const providerPriority = (provider, model) => {
      const key = String(provider || "").toLowerCase();
@@ -4006,7 +4050,8 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app26browser__open__llm_
      else if (name.includes("nemotron-3-super-120b-a12b:free")) score += 280;
      else if (name.includes("openrouter/free")) score += 200;
      else if (name.includes("openrouter/auto")) score += 180;
-     if (key === "openai") score += 120;
+     if (key !== "openai" && key !== "nvidia" && key !== "zai" && key !== "gemini" && key !== "siliconflow" && key !== "openrouter") score += 130;
+     else if (key === "openai") score += 120;
      else if (key === "nvidia") score += 90;
      else if (key === "zai") score += 70;
      else if (key === "gemini") score += 40;
@@ -4018,9 +4063,9 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app26browser__open__llm_
    const expandProviderSpec = (spec) => {
      const models = parseModelList(spec?.modelsText || spec?.model || "");
      if (models.length === 0) {
-       return [{ key: spec?.key, enabled: Boolean(spec?.enabled), model: "", baseUrl: spec?.baseUrl, apiKey: spec?.apiKey }];
+       return [{ key: spec?.key, providerName: spec?.providerName, custom: Boolean(spec?.custom), enabled: Boolean(spec?.enabled), model: "", baseUrl: spec?.baseUrl, apiKey: spec?.apiKey }];
      }
-     return models.map((model) => ({ key: spec?.key, enabled: Boolean(spec?.enabled), model, baseUrl: spec?.baseUrl, apiKey: spec?.apiKey }));
+     return models.map((model) => ({ key: spec?.key, providerName: spec?.providerName, custom: Boolean(spec?.custom), enabled: Boolean(spec?.enabled), model, baseUrl: spec?.baseUrl, apiKey: spec?.apiKey }));
    };
    const readRouter = () => {
      try {
@@ -4032,14 +4077,14 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app26browser__open__llm_
        return {};
      }
    };
-   const routerProfileVersion = 5;
+   const routerProfileVersion = 6;
    const providerConfigs = [
      {
        key: "openai",
-       enabled: true,
+       enabled: false,
        baseUrl: "moonap://llm-sim",
        models: [
-         { id: "gpt-5.4", enabled: true }
+         { id: "gpt-5.4", enabled: false }
        ]
      },
      {
@@ -4063,6 +4108,8 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app26browser__open__llm_
        enabled: false,
        baseUrl: "https://generativelanguage.googleapis.com",
        models: [
+         { id: "gemini-3-flash-preview", enabled: false },
+         { id: "gemini-3.1-flash-lite-preview", enabled: false },
          { id: "gemini-2.5-flash", enabled: false }
        ]
      },
@@ -4120,7 +4167,10 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app26browser__open__llm_
      }
      return sortMoonBitProviders(merged);
    };
-   const providers = mergeWithDefaults(saved.providers, defaults);
+   const savedNormalized = Array.isArray(saved.providers) ? saved.providers.map(normalizeProviderEntry) : [];
+   const knownKeys = new Set(providerConfigs.map((item) => item.key));
+   const savedCustom = savedNormalized.find((item) => item.custom) || savedNormalized.find((item) => item.key && !knownKeys.has(item.key));
+   const providers = sortMoonBitProviders(mergeWithDefaults(saved.providers, defaults).concat(savedCustom ? [savedCustom] : []));
    try {
      localStorage.setItem("moonap.llm.router.v1", JSON.stringify({ providers, cursor: Number.isFinite(saved.cursor) ? saved.cursor : 0, savedAt: saved.savedAt || new Date().toISOString(), profile_version: routerProfileVersion }));
    } catch {}
@@ -4166,6 +4216,40 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app26browser__open__llm_
    bind("gemini", { enable: "routerEnableGemini", model: "routerModelsGemini", base: "routerBaseGemini", key: "routerKeyGemini" });
    bind("siliconflow", { enable: "routerEnableSiliconFlow", model: "routerModelsSiliconFlow", base: "routerBaseSiliconFlow", key: "routerKeySiliconFlow" });
    bind("openrouter", { enable: "routerEnableOpenRouter", model: "routerModelsOpenRouter", base: "routerBaseOpenRouter", key: "routerKeyOpenRouter" });
+   const customEnable = document.querySelector("#routerEnableCustom");
+   const customProvider = document.querySelector("#routerProviderCustom");
+   const customModel = document.querySelector("#routerModelCustom");
+   const customBase = document.querySelector("#routerBaseCustom");
+   const customKey = document.querySelector("#routerKeyCustom");
+   if (customEnable) customEnable.checked = Boolean(savedCustom?.enabled);
+   if (customProvider) customProvider.value = String(savedCustom?.providerName || savedCustom?.key || "");
+   if (customModel) customModel.value = String(savedCustom?.model || "");
+   if (customBase) customBase.value = String(savedCustom?.baseUrl || "");
+   if (customKey) customKey.value = String(savedCustom?.apiKey || "");
+   const syncCustomDisabled = () => {
+     const disabled = !Boolean(customEnable?.checked);
+     [customProvider, customModel, customBase, customKey].forEach((node) => {
+       if (node) node.disabled = disabled;
+     });
+   };
+   customEnable?.addEventListener("change", syncCustomDisabled);
+   syncCustomDisabled();
+   const setRouterTab = (name) => {
+     const tabName = name === "simulated" ? "simulated" : "real";
+     document.querySelectorAll("[data-router-tab]").forEach((node) => {
+       const active = node.getAttribute("data-router-tab") === tabName;
+       node.classList.toggle("is-active", active);
+       node.setAttribute("aria-selected", active ? "true" : "false");
+     });
+     document.querySelectorAll("[data-router-panel]").forEach((node) => {
+       node.classList.toggle("is-active", node.getAttribute("data-router-panel") === tabName);
+     });
+     try { localStorage.setItem("moonap.llm.router.activeTab", tabName); } catch {}
+   };
+   document.querySelectorAll("[data-router-tab]").forEach((node) => {
+     node.addEventListener("click", () => setRouterTab(node.getAttribute("data-router-tab")));
+   });
+   setRouterTab(localStorage.getItem("moonap.llm.router.activeTab") === "simulated" ? "simulated" : "real");
    document.querySelectorAll(".router-row").forEach((node) => {
      node.style.display = "";
    });
@@ -4200,7 +4284,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__llm__summa
    }
    const providers = Array.isArray(saved.providers) ? saved.providers.filter((item) => item.enabled && String(item.apiKey || "").trim() !== "" && String(item.test_status || "") !== "failed") : [];
    if (providers.length === 0) return "not configured";
-   const labels = providers.map((item) => `${item.key}/${item.model}`);
+   const labels = providers.map((item) => `${item.providerName || item.key}/${item.model}`);
    return `${providers.length} provider(s): ${labels.join(", ")}`;
  };
 const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app27browser__render__onboarding = () => {
@@ -4231,7 +4315,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app27browser__render__on
    const providers = Array.isArray(saved.providers) ? saved.providers : [];
    const usable = providers.filter((item) => Boolean(item?.enabled) && String(item?.apiKey || "").trim() !== "" && String(item?.test_status || "") !== "failed");
    const primary = usable[0];
-   const primaryLabel = primary ? `${String(primary.key || "")}/${String(primary.model || "")}` : "OpenAI/GPT-5.4 (LLM-sim)";
+   const primaryLabel = primary ? `${String(primary.providerName || primary.key || "")}/${String(primary.model || "")}` : "Real API provider";
    let benchmark = {};
    try { benchmark = JSON.parse(globalThis.__moonapBenchmarkAssessment || "{}"); } catch { benchmark = {}; }
    const passedLevel = Number(benchmark?.pass ? benchmark.level || 0 : 0);
@@ -4255,7 +4339,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app27browser__render__on
        </div>`
      : `
        <strong>Connect an LLM to begin</strong>
-       <small>Use OpenAI / GPT-5.4 LLM-sim for the local multi-thread dev path, or switch to real providers later. After Save, MoonAP will test the checked models and show the usable order in Details.</small>
+       <small>Configure a Real API provider to begin. Simulated API is still available inside LLM Router for local development and demos. After Save, MoonAP will test the checked models and show the usable order in Details.</small>
        <div class="onboarding-actions">
          <button id="onboardingEditLLM" type="button">Open LLM Router</button>
          <button id="onboardingOpenSkill" class="secondary" type="button">Browse SKILL</button>
@@ -4355,7 +4439,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app22browser__on__llm__s
    if (event.target?.id !== "llmSave") return;
    event.preventDefault();
    event.stopPropagation();
-   const routerProfileVersion = 4;
+   const routerProfileVersion = 6;
    const parseModelList = (raw) => {
      const seen = new Set();
      const values = String(raw || "")
@@ -4374,11 +4458,15 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app22browser__on__llm__s
      const model = String(item?.model || "").trim();
      const apiKey = String(item?.apiKey || "").trim();
      const enabled = Boolean(item?.enabled);
+     const custom = Boolean(item?.custom);
+     const providerName = String(item?.providerName || "").trim();
      const test_status = String(item?.test_status || "").trim();
      const test_message = String(item?.test_message || "").trim();
      const tested_at = String(item?.tested_at || "").trim();
      let baseUrl = String(item?.baseUrl || "").trim();
-     if (key === "gemini") {
+     if (custom) {
+       baseUrl = String(item?.baseUrl || "").trim();
+     } else if (key === "gemini") {
        baseUrl = "https://generativelanguage.googleapis.com";
      } else if (key === "openrouter") {
        baseUrl = "https://openrouter.ai/api/v1";
@@ -4391,7 +4479,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app22browser__on__llm__s
      } else if (key === "nvidia") {
        baseUrl = "https://integrate.api.nvidia.com/v1";
      }
-     return { key, enabled, model, baseUrl, apiKey, test_status, test_message, tested_at };
+     return { key, providerName, custom, enabled, model, baseUrl, apiKey, test_status, test_message, tested_at };
    };
    const providerPriority = (provider, model) => {
      const key = String(provider || "").toLowerCase();
@@ -4430,7 +4518,8 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app22browser__on__llm__s
      else if (name.includes("nemotron-3-super-120b-a12b:free")) score += 280;
      else if (name.includes("openrouter/free")) score += 200;
      else if (name.includes("openrouter/auto")) score += 180;
-     if (key === "openai") score += 120;
+     if (key !== "openai" && key !== "nvidia" && key !== "zai" && key !== "gemini" && key !== "siliconflow" && key !== "openrouter") score += 130;
+     else if (key === "openai") score += 120;
      else if (key === "nvidia") score += 90;
      else if (key === "zai") score += 70;
      else if (key === "gemini") score += 40;
@@ -4440,25 +4529,35 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app22browser__on__llm__s
    };
    const sortMoonBitProviders = (providers) => [...providers].sort((a, b) => providerPriority(b?.key, b?.model) - providerPriority(a?.key, a?.model));
    const collectCheckedModels = (selector) => Array.from(document.querySelectorAll(`${selector} input[type=checkbox]:checked`)).map((node) => String(node.value || "").trim()).filter((value) => value.length > 0);
+   const normalizeCustomKey = (value) => {
+     const raw = String(value || "").trim() || "custom";
+     const key = raw.toLowerCase().replace(/[^a-z0-9._:-]+/g, "-").replace(/^-+|-+$/g, "") || "custom";
+     return ["openai", "nvidia", "zai", "gemini", "siliconflow", "openrouter"].includes(key) ? `custom-${key}` : key;
+   };
+   const customProviderName = String(document.querySelector("#routerProviderCustom")?.value || "").trim() || "custom";
+   const customModelName = String(document.querySelector("#routerModelCustom")?.value || "").trim();
    const providerSpecs = [
      { key: "openai", enabled: Boolean(document.querySelector("#routerEnableOpenAI")?.checked), models: collectCheckedModels("#routerModelsOpenAI"), baseUrl: String(document.querySelector("#routerBaseOpenAI")?.value || "").trim(), apiKey: String(document.querySelector("#routerKeyOpenAI")?.value || "").trim() },
      { key: "nvidia", enabled: Boolean(document.querySelector("#routerEnableNVIDIA")?.checked), models: collectCheckedModels("#routerModelsNVIDIA"), baseUrl: String(document.querySelector("#routerBaseNVIDIA")?.value || "").trim(), apiKey: String(document.querySelector("#routerKeyNVIDIA")?.value || "").trim() },
      { key: "zai", enabled: Boolean(document.querySelector("#routerEnableZAI")?.checked), models: collectCheckedModels("#routerModelsZAI"), baseUrl: String(document.querySelector("#routerBaseZAI")?.value || "").trim(), apiKey: String(document.querySelector("#routerKeyZAI")?.value || "").trim() },
      { key: "gemini", enabled: Boolean(document.querySelector("#routerEnableGemini")?.checked), models: collectCheckedModels("#routerModelsGemini"), baseUrl: String(document.querySelector("#routerBaseGemini")?.value || "").trim(), apiKey: String(document.querySelector("#routerKeyGemini")?.value || "").trim() },
      { key: "siliconflow", enabled: Boolean(document.querySelector("#routerEnableSiliconFlow")?.checked), models: collectCheckedModels("#routerModelsSiliconFlow"), baseUrl: String(document.querySelector("#routerBaseSiliconFlow")?.value || "").trim(), apiKey: String(document.querySelector("#routerKeySiliconFlow")?.value || "").trim() },
-     { key: "openrouter", enabled: Boolean(document.querySelector("#routerEnableOpenRouter")?.checked), models: collectCheckedModels("#routerModelsOpenRouter"), baseUrl: String(document.querySelector("#routerBaseOpenRouter")?.value || "").trim(), apiKey: String(document.querySelector("#routerKeyOpenRouter")?.value || "").trim() }
+     { key: "openrouter", enabled: Boolean(document.querySelector("#routerEnableOpenRouter")?.checked), models: collectCheckedModels("#routerModelsOpenRouter"), baseUrl: String(document.querySelector("#routerBaseOpenRouter")?.value || "").trim(), apiKey: String(document.querySelector("#routerKeyOpenRouter")?.value || "").trim() },
+     { key: normalizeCustomKey(customProviderName), providerName: customProviderName, custom: true, enabled: Boolean(document.querySelector("#routerEnableCustom")?.checked), models: customModelName ? [customModelName] : [], baseUrl: String(document.querySelector("#routerBaseCustom")?.value || "").trim(), apiKey: String(document.querySelector("#routerKeyCustom")?.value || "").trim() }
    ];
    const providers = providerSpecs.flatMap((item) => item.models.map((model) => ({
      key: item.key,
+     providerName: item.providerName || "",
+     custom: Boolean(item.custom),
      enabled: Boolean(item.enabled),
      model,
      baseUrl: item.baseUrl,
      apiKey: item.apiKey
    })));
    const sortedProviders = sortMoonBitProviders(providers.map(normalizeProviderEntry));
-   const active = sortedProviders.filter((item) => item.enabled && item.apiKey);
+   const active = sortedProviders.filter((item) => item.enabled && item.apiKey && item.model && item.baseUrl);
    if (active.length === 0) {
-     alert("Please enable at least one provider, check at least one model under it, and fill its API key.");
+     alert("Please enable at least one provider, choose or enter a model, and fill endpoint URL plus API key.");
      return;
    }
    const statusNode = document.querySelector("#routerTestStatus");
@@ -4492,7 +4591,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app22browser__on__llm__s
        String(body)
      ].join("\n");
      const controller = new AbortController();
-     const timeout = setTimeout(() => controller.abort(), 8000);
+     const timeout = setTimeout(() => controller.abort(), 30000);
      try {
        const response = await fetch("/api/llm/proxy", {
          method: "POST",
@@ -4515,7 +4614,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app22browser__on__llm__s
        return json;
      } catch (error) {
        if (error && error.name === "AbortError") {
-         throw new Error("Timed out after 8s");
+         throw new Error("Timed out after 30s");
        }
        throw error;
      } finally {
@@ -4584,7 +4683,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app22browser__on__llm__s
      const lines = [];
      const results = [];
      for (const item of active) {
-       const label = `${item.key}/${item.model}`;
+       const label = `${item.providerName || item.key}/${item.model}`;
        lines.push(`[running] ${label}`);
        setStatus(lines.join("\n"));
        updateProcess("LLM Router", "llm-api-test", "running", lines.join("\n"));
@@ -4614,7 +4713,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app22browser__on__llm__s
      const usable = providersWithHealth.filter((item) => item.enabled && item.apiKey && item.test_status === "ok");
      const orderLines = usable.length === 0
        ? ["No enabled provider passed the API test."]
-       : usable.map((item, index) => `${index + 1}. ${item.key}/${item.model}`);
+       : usable.map((item, index) => `${index + 1}. ${item.providerName || item.key}/${item.model}`);
      const summary = lines.join("\n") + "\n\nFinal usable provider order:\n" + orderLines.join("\n");
      localStorage.setItem("moonap.llm.router.v1", JSON.stringify({
        providers: providersWithHealth,
@@ -4625,7 +4724,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app22browser__on__llm__s
      }));
      setStatus(summary);
      updateProcess(
-       usable.length === 0 ? "LLM Router" : usable.map((item) => `${item.key}/${item.model}`).join(", "),
+       usable.length === 0 ? "LLM Router" : usable.map((item) => `${item.providerName || item.key}/${item.model}`).join(", "),
        "llm-api-test",
        usable.length === 0 ? "failed" : "succeeded",
        summary
@@ -6841,84 +6940,6 @@ function _M0MPB4Iter4join(self, sep) {
 function _M0MPB5Iter24nextGicE(self) {
   return _M0MPB4Iter4nextGsE(self);
 }
-function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app13context__path(message, file_name) {
-  const hint = _M0MPC16string6String9to__lower(`${message} ${file_name}`);
-  let _tmp;
-  const _bind = "fastq";
-  if (_M0MPC16string6String8contains(hint, new _M0TPC16string10StringView(_bind, 0, _bind.length))) {
-    _tmp = true;
-  } else {
-    const _bind$2 = ".fq";
-    _tmp = _M0MPC16string6String8contains(hint, new _M0TPC16string10StringView(_bind$2, 0, _bind$2.length));
-  }
-  if (_tmp) {
-    return "/api/agent/context?fastq";
-  } else {
-    const _bind$2 = "csv";
-    if (_M0MPC16string6String8contains(hint, new _M0TPC16string10StringView(_bind$2, 0, _bind$2.length))) {
-      return "/api/agent/context?csv";
-    } else {
-      let _tmp$2;
-      const _bind$3 = "xlsx";
-      if (_M0MPC16string6String8contains(hint, new _M0TPC16string10StringView(_bind$3, 0, _bind$3.length))) {
-        _tmp$2 = true;
-      } else {
-        let _tmp$3;
-        const _bind$4 = "xls";
-        if (_M0MPC16string6String8contains(hint, new _M0TPC16string10StringView(_bind$4, 0, _bind$4.length))) {
-          _tmp$3 = true;
-        } else {
-          const _bind$5 = "excel";
-          _tmp$3 = _M0MPC16string6String8contains(hint, new _M0TPC16string10StringView(_bind$5, 0, _bind$5.length));
-        }
-        _tmp$2 = _tmp$3;
-      }
-      if (_tmp$2) {
-        return "/api/agent/context?xlsx";
-      } else {
-        const _bind$4 = "json";
-        if (_M0MPC16string6String8contains(hint, new _M0TPC16string10StringView(_bind$4, 0, _bind$4.length))) {
-          return "/api/agent/context?json";
-        } else {
-          const _bind$5 = "game";
-          if (_M0MPC16string6String8contains(hint, new _M0TPC16string10StringView(_bind$5, 0, _bind$5.length))) {
-            return "/api/agent/context?game";
-          } else {
-            return "/api/agent/context";
-          }
-        }
-      }
-    }
-  }
-}
-function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app28active__skill__from__context(raw) {
-  const _bind = "\"active_skill\": \"fastq\"";
-  if (_M0MPC16string6String8contains(raw, new _M0TPC16string10StringView(_bind, 0, _bind.length))) {
-    return "fastq";
-  } else {
-    const _bind$2 = "\"active_skill\": \"csv\"";
-    if (_M0MPC16string6String8contains(raw, new _M0TPC16string10StringView(_bind$2, 0, _bind$2.length))) {
-      return "csv";
-    } else {
-      const _bind$3 = "\"active_skill\": \"spreadsheet\"";
-      if (_M0MPC16string6String8contains(raw, new _M0TPC16string10StringView(_bind$3, 0, _bind$3.length))) {
-        return "spreadsheet";
-      } else {
-        const _bind$4 = "\"active_skill\": \"json\"";
-        if (_M0MPC16string6String8contains(raw, new _M0TPC16string10StringView(_bind$4, 0, _bind$4.length))) {
-          return "json";
-        } else {
-          const _bind$5 = "\"active_skill\": \"game\"";
-          if (_M0MPC16string6String8contains(raw, new _M0TPC16string10StringView(_bind$5, 0, _bind$5.length))) {
-            return "game";
-          } else {
-            return "chat";
-          }
-        }
-      }
-    }
-  }
-}
 function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app11show__error(label, error) {
   _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app19browser__set__state(`${label}: ${error}`);
   _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__update__process("-", label, "failed", error, "");
@@ -7461,89 +7482,13 @@ function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app15submit__message(
     _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app19run__fastq__counter();
     return undefined;
   }
-  let _tmp$2;
-  const _tmp$3 = _M0MPC16string6String9to__lower(message);
-  const _bind = "fastq";
-  if (_M0MPC16string6String8contains(_tmp$3, new _M0TPC16string10StringView(_bind, 0, _bind.length))) {
-    _tmp$2 = true;
-  } else {
-    let _tmp$4;
-    const _tmp$5 = _M0MPC16string6String9to__lower(message);
-    const _bind$2 = "generator";
-    if (_M0MPC16string6String8contains(_tmp$5, new _M0TPC16string10StringView(_bind$2, 0, _bind$2.length))) {
-      _tmp$4 = true;
-    } else {
-      let _tmp$6;
-      const _tmp$7 = _M0MPC16string6String9to__lower(message);
-      const _bind$3 = "synthetic";
-      if (_M0MPC16string6String8contains(_tmp$7, new _M0TPC16string10StringView(_bind$3, 0, _bind$3.length))) {
-        _tmp$6 = true;
-      } else {
-        let _tmp$8;
-        const _tmp$9 = _M0MPC16string6String9to__lower(message);
-        const _bind$4 = "moonbit benchmark";
-        if (_M0MPC16string6String8contains(_tmp$9, new _M0TPC16string10StringView(_bind$4, 0, _bind$4.length))) {
-          _tmp$8 = true;
-        } else {
-          let _tmp$10;
-          const _tmp$11 = _M0MPC16string6String9to__lower(message);
-          const _bind$5 = "moonbit";
-          if (_M0MPC16string6String8contains(_tmp$11, new _M0TPC16string10StringView(_bind$5, 0, _bind$5.length))) {
-            let _tmp$12;
-            const _tmp$13 = _M0MPC16string6String9to__lower(message);
-            const _bind$6 = "write";
-            if (_M0MPC16string6String8contains(_tmp$13, new _M0TPC16string10StringView(_bind$6, 0, _bind$6.length))) {
-              _tmp$12 = true;
-            } else {
-              let _tmp$14;
-              const _tmp$15 = _M0MPC16string6String9to__lower(message);
-              const _bind$7 = "generate";
-              if (_M0MPC16string6String8contains(_tmp$15, new _M0TPC16string10StringView(_bind$7, 0, _bind$7.length))) {
-                _tmp$14 = true;
-              } else {
-                let _tmp$16;
-                const _tmp$17 = _M0MPC16string6String9to__lower(message);
-                const _bind$8 = "compile";
-                if (_M0MPC16string6String8contains(_tmp$17, new _M0TPC16string10StringView(_bind$8, 0, _bind$8.length))) {
-                  _tmp$16 = true;
-                } else {
-                  const _tmp$18 = _M0MPC16string6String9to__lower(message);
-                  const _bind$9 = "benchmark";
-                  _tmp$16 = _M0MPC16string6String8contains(_tmp$18, new _M0TPC16string10StringView(_bind$9, 0, _bind$9.length));
-                }
-                _tmp$14 = _tmp$16;
-              }
-              _tmp$12 = _tmp$14;
-            }
-            _tmp$10 = _tmp$12;
-          } else {
-            _tmp$10 = false;
-          }
-          _tmp$8 = _tmp$10;
-        }
-        _tmp$6 = _tmp$8;
-      }
-      _tmp$4 = _tmp$6;
-    }
-    _tmp$2 = _tmp$4;
-  }
-  if (_tmp$2) {
-    const _tmp$4 = _M0MPC16string6String9to__lower(message);
-    const _bind$2 = "moonbit benchmark";
-    if (_M0MPC16string6String8contains(_tmp$4, new _M0TPC16string10StringView(_bind$2, 0, _bind$2.length))) {
-      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app23run__moonbit__benchmark(1);
-    } else {
-      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app26run__llm__moonbit__codegen("MoonBit Task", message, "MoonAP received MoonBit source from the active router provider and is now starting a real native compile probe automatically.", false);
-    }
+  const _tmp$2 = _M0MPC16string6String9to__lower(message);
+  const _bind = "moonbit benchmark";
+  if (_M0MPC16string6String8contains(_tmp$2, new _M0TPC16string10StringView(_bind, 0, _bind.length))) {
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app23run__moonbit__benchmark(1);
     return undefined;
   }
-  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app20browser__fetch__text(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app13context__path(message, file_name), (raw) => {
-    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app19browser__set__state(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__pretty__json(raw));
-    const skill = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app28active__skill__from__context(raw);
-    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__update__process(skill, "context", "ready", "Context normalized by MoonBit frontend and native server.", "");
-  }, (error) => {
-    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app11show__error("context fetch failed", error);
-  });
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app26run__llm__moonbit__codegen("MoonBit Task", message, "MoonAP received MoonBit source from the active router provider and is now starting a real native compile probe automatically.", false);
 }
 (() => {
   _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app33browser__extract__moonbit__source("");

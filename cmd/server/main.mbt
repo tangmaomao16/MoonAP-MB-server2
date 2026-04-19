@@ -21,14 +21,14 @@ async fn moonap_server(
     !path.contains(".map") {
     serve_static_file(
       conn,
-      built_web_js_path(),
+      served_web_js_path(),
       "application/javascript; charset=utf-8",
     )
   } else if request.meth == Get &&
     (path.contains("/app.js.map") || path.contains("/app-live.js.map")) {
     serve_static_file(
       conn,
-      built_web_js_map_path(),
+      served_web_js_map_path(),
       "application/json; charset=utf-8",
     )
   } else if request.meth == Get && path == "/style.css" {
@@ -437,6 +437,34 @@ fn built_web_js_path() -> String {
 ///|
 fn built_web_js_map_path() -> String {
   "_build/js/debug/build/cmd/web_app/web_app.js.map"
+}
+
+///|
+fn committed_web_js_path() -> String {
+  "web/app-live.js"
+}
+
+///|
+fn committed_web_js_map_path() -> String {
+  "web/app-live.js.map"
+}
+
+///|
+async fn served_web_js_path() -> String {
+  if @fs.exists(built_web_js_path()) {
+    built_web_js_path()
+  } else {
+    committed_web_js_path()
+  }
+}
+
+///|
+async fn served_web_js_map_path() -> String {
+  if @fs.exists(built_web_js_map_path()) {
+    built_web_js_map_path()
+  } else {
+    committed_web_js_map_path()
+  }
 }
 
 ///|
@@ -1057,7 +1085,9 @@ fn runtime_exec_request_json_from_fields(
   )
   let runtime_mode = runtime_mode_for_task_kind(task_kind)
   let result_mode = result_mode_for_task_kind(task_kind)
-  let runtime_spec_json = runtime_spec_json_for_task_kind(task_kind)
+  let runtime_spec_json = runtime_spec_json_for_context(
+    task_kind, original_prompt, source_text,
+  )
   "{\n" +
   "  \"run_id\": " +
   json_string(run_id) +
@@ -1457,11 +1487,81 @@ fn runtime_spec_json_for_task_kind(task_kind : String) -> String {
     "  }"
   } else {
     "{\n" +
-    "    \"mode\": \"action\",\n" +
-    "    \"title\": \"Run browser-local step\",\n" +
-    "    \"action_label\": \"Run runtime step\",\n" +
-    "    \"fields\": []\n" +
+    "    \"mode\": \"form\",\n" +
+    "    \"title\": \"Run browser-local app\",\n" +
+    "    \"action_label\": \"Run app\",\n" +
+    "    \"fields\": [\n" +
+    "      {\n" +
+    "        \"name\": \"input_text\",\n" +
+    "        \"label\": \"Input\",\n" +
+    "        \"type\": \"text\",\n" +
+    "        \"default\": \"\",\n" +
+    "        \"help\": \"Generic input for this APP.\"\n" +
+    "      }\n" +
+    "    ]\n" +
     "  }"
+  }
+}
+
+///|
+fn runtime_spec_json_for_context(
+  task_kind : String,
+  original_prompt : String,
+  source_text : String,
+) -> String {
+  if task_kind != "generic-task" {
+    runtime_spec_json_for_task_kind(task_kind)
+  } else {
+    let haystack = (original_prompt + "\n" + source_text).to_lower()
+    if haystack.contains("celsius") && haystack.contains("fahrenheit") {
+      "{\n" +
+      "    \"mode\": \"form\",\n" +
+      "    \"title\": \"Convert Celsius to Fahrenheit\",\n" +
+      "    \"action_label\": \"Convert temperature\",\n" +
+      "    \"rerun_action_label\": \"Convert again\",\n" +
+      "    \"fields\": [\n" +
+      "      {\n" +
+      "        \"name\": \"celsius\",\n" +
+      "        \"label\": \"Celsius temperature\",\n" +
+      "        \"type\": \"float\",\n" +
+      "        \"default\": 25,\n" +
+      "        \"step\": 0.1,\n" +
+      "        \"help\": \"Enter the Celsius value to convert.\"\n" +
+      "      }\n" +
+      "    ]\n" +
+      "  }"
+    } else if (
+        haystack.contains("two number") ||
+        haystack.contains("two numbers") ||
+        haystack.contains("2 number") ||
+        haystack.contains("2 numbers")
+      ) &&
+      (haystack.contains("sum") || haystack.contains("add")) {
+      "{\n" +
+      "    \"mode\": \"form\",\n" +
+      "    \"title\": \"Add two numbers\",\n" +
+      "    \"action_label\": \"Calculate sum\",\n" +
+      "    \"rerun_action_label\": \"Calculate again\",\n" +
+      "    \"fields\": [\n" +
+      "      {\n" +
+      "        \"name\": \"number_a\",\n" +
+      "        \"label\": \"First number\",\n" +
+      "        \"type\": \"float\",\n" +
+      "        \"default\": 1,\n" +
+      "        \"step\": 1\n" +
+      "      },\n" +
+      "      {\n" +
+      "        \"name\": \"number_b\",\n" +
+      "        \"label\": \"Second number\",\n" +
+      "        \"type\": \"float\",\n" +
+      "        \"default\": 2,\n" +
+      "        \"step\": 1\n" +
+      "      }\n" +
+      "    ]\n" +
+      "  }"
+    } else {
+      runtime_spec_json_for_task_kind(task_kind)
+    }
   }
 }
 
@@ -3069,8 +3169,7 @@ fn web_index_html() -> String {
     "</div>", "</aside>", "<div class=\"topbar-copy-wrap\">", "<div class=\"topbar-copy\">",
     "<h1 class=\"topbar-title\">MoonAP: MoonBit Agent Playground</h1>", "<p class=\"tagline topbar-tagline\">Describe what APP you want to build.</p>",
     "<p class=\"tagline topbar-tagline secondary\">Or directly use an existing SKILL.</p>",
-    "</div>", "</div>", "<div class=\"top-actions\">", "<button id=\"experimentButton\" class=\"details-button\" type=\"button\">Experiment</button>",
-    "<button id=\"detailsToggle\" class=\"details-button\" type=\"button\" aria-expanded=\"false\">Details</button>",
+    "</div>", "</div>", "<div class=\"top-actions\">", "<button id=\"detailsToggle\" class=\"details-button\" type=\"button\" aria-expanded=\"false\">Details</button>",
     "</div>", "</header>", "<section class=\"conversation\" aria-label=\"Chat conversation\">",
     "<div class=\"welcome\">", "<label class=\"verify-option\"><input id=\"formalVerification\" type=\"checkbox\" /> Formal verification before Wasm compile</label>",
     "<div class=\"privacy-strip\" id=\"privacyStrip\">File contents stay in this browser. Uploaded bytes: 0. LLM receives metadata only.</div>",
@@ -3103,15 +3202,19 @@ fn web_index_html() -> String {
     "<div id=\"dialogOutputTarget\" class=\"dialog-output-target\" style=\"display:none;\"><button id=\"dialogChooseOutput\" class=\"dialog-button secondary\" type=\"button\">Choose output file/location</button><span id=\"dialogOutputStatus\">No output file selected yet.</span></div>",
     "<div class=\"dialog-actions\"><button id=\"dialogCancel\" class=\"dialog-button\" type=\"button\">Cancel</button><button id=\"dialogOpenSource\" class=\"dialog-button secondary\" type=\"button\" style=\"display:none;\">View on GitHub</button><button id=\"dialogRun\" class=\"dialog-button primary\" type=\"button\">Run</button></div>",
     "</form>", "</dialog>", "<dialog id=\"llmDialog\" class=\"skill-dialog\">", "<form method=\"dialog\" class=\"skill-dialog-body\">",
-    "<div class=\"dialog-head\"><span>LLM Router</span><strong>Connect one or more providers</strong></div>",
-    "<p class=\"dialog-summary\">MoonAP stores these keys in this browser only. Level 1 selects providers. Level 2 selects models inside each provider. MoonAP rotates through the checked models from top to bottom.</p>",
-    "<div class=\"router-grid\">", "<div class=\"router-row\"><div class=\"router-row-head\"><span class=\"router-level\">Level 1</span><input id=\"routerEnableOpenAI\" type=\"checkbox\" checked /><strong>OpenAI</strong></div><div class=\"router-level-label\">Level 2 - Models</div><div id=\"routerModelsOpenAI\" class=\"router-model-list\"></div><label>Base URL<input id=\"routerBaseOpenAI\" value=\"moonap://llm-sim\" /></label><label>API key<input id=\"routerKeyOpenAI\" type=\"password\" value=\"llm-sim-mode\" placeholder=\"llm-sim-mode\" /></label></div>",
+    "<div class=\"dialog-head\"><span>LLM Router</span><strong>Connect Real API or Simulated API</strong></div>",
+    "<p class=\"dialog-summary\">MoonAP stores these keys in this browser only. Use Real API for normal use. Simulated API stays available for local development and demos.</p>",
+    "<div class=\"router-tabs\" role=\"tablist\" aria-label=\"LLM API mode\"><button id=\"routerTabReal\" class=\"router-tab is-active\" type=\"button\" data-router-tab=\"real\" aria-selected=\"true\">Real API</button><button id=\"routerTabSimulated\" class=\"router-tab\" type=\"button\" data-router-tab=\"simulated\" aria-selected=\"false\">Simulated API</button></div>",
+    "<div id=\"routerPanelReal\" class=\"router-tab-panel is-active\" data-router-panel=\"real\"><div class=\"router-grid\">",
     "<div class=\"router-row\"><div class=\"router-row-head\"><span class=\"router-level\">Level 1</span><input id=\"routerEnableNVIDIA\" type=\"checkbox\" checked /><strong>NVIDIA</strong></div><div class=\"router-level-label\">Level 2 - Models</div><div id=\"routerModelsNVIDIA\" class=\"router-model-list\"></div><label>Base URL<input id=\"routerBaseNVIDIA\" value=\"https://integrate.api.nvidia.com/v1\" /></label><label>API key<input id=\"routerKeyNVIDIA\" type=\"password\" placeholder=\"Paste NVIDIA API key\" /></label></div>",
     "<div class=\"router-row\"><div class=\"router-row-head\"><span class=\"router-level\">Level 1</span><input id=\"routerEnableZAI\" type=\"checkbox\" checked /><strong>ZAI</strong></div><div class=\"router-level-label\">Level 2 - Models</div><div id=\"routerModelsZAI\" class=\"router-model-list\"></div><label>Base URL<input id=\"routerBaseZAI\" value=\"https://open.bigmodel.cn/api/paas/v4\" /></label><label>API key<input id=\"routerKeyZAI\" type=\"password\" placeholder=\"Paste ZAI API key\" /></label></div>",
     "<div class=\"router-row\"><div class=\"router-row-head\"><span class=\"router-level\">Level 1</span><input id=\"routerEnableGemini\" type=\"checkbox\" /><strong>Gemini</strong></div><div class=\"router-level-label\">Level 2 - Models</div><div id=\"routerModelsGemini\" class=\"router-model-list\"></div><label>Base URL<input id=\"routerBaseGemini\" value=\"https://generativelanguage.googleapis.com\" /></label><label>API key<input id=\"routerKeyGemini\" type=\"password\" placeholder=\"Paste Gemini API key\" /></label></div>",
     "<div class=\"router-row\"><div class=\"router-row-head\"><span class=\"router-level\">Level 1</span><input id=\"routerEnableSiliconFlow\" type=\"checkbox\" /><strong>SiliconFlow</strong></div><div class=\"router-level-label\">Level 2 - Models</div><div id=\"routerModelsSiliconFlow\" class=\"router-model-list\"></div><label>Base URL<input id=\"routerBaseSiliconFlow\" value=\"https://api.siliconflow.cn/v1\" /></label><label>API key<input id=\"routerKeySiliconFlow\" type=\"password\" placeholder=\"Paste SiliconFlow API key\" /></label></div>",
     "<div class=\"router-row\"><div class=\"router-row-head\"><span class=\"router-level\">Level 1</span><input id=\"routerEnableOpenRouter\" type=\"checkbox\" /><strong>OpenRouter</strong></div><div class=\"router-level-label\">Level 2 - Models</div><div id=\"routerModelsOpenRouter\" class=\"router-model-list\"></div><label>Base URL<input id=\"routerBaseOpenRouter\" value=\"https://openrouter.ai/api/v1\" /></label><label>API key<input id=\"routerKeyOpenRouter\" type=\"password\" placeholder=\"Paste OpenRouter API key\" /></label></div>",
-    "</div>", "<label class=\"dialog-toggle\"><input id=\"routerFormalVerification\" type=\"checkbox\" /> Reserve MoonBit formal verification before Wasm compile</label>",
+    "<div class=\"router-row router-row-custom\"><div class=\"router-row-head\"><span class=\"router-level\">Custom</span><input id=\"routerEnableCustom\" type=\"checkbox\" /><strong>Custom provider</strong></div><div class=\"router-level-label\">Manual OpenAI-compatible endpoint</div><div class=\"router-custom-fields\"><label>Provider<input id=\"routerProviderCustom\" placeholder=\"my-provider\" /></label><label>Endpoint URL<input id=\"routerBaseCustom\" placeholder=\"https://example.com/v1\" /></label><label>Model name<input id=\"routerModelCustom\" placeholder=\"model-name\" /></label><label>API key<input id=\"routerKeyCustom\" type=\"password\" placeholder=\"Paste API key\" /></label></div></div>",
+    "</div></div><div id=\"routerPanelSimulated\" class=\"router-tab-panel\" data-router-panel=\"simulated\"><div class=\"router-grid\">",
+    "<div class=\"router-row\"><div class=\"router-row-head\"><span class=\"router-level\">Sim</span><input id=\"routerEnableOpenAI\" type=\"checkbox\" /><strong>OpenAI / GPT-5.4 simulated</strong></div><div class=\"router-level-label\">Level 2 - Models</div><div id=\"routerModelsOpenAI\" class=\"router-model-list\"></div><label>Base URL<input id=\"routerBaseOpenAI\" value=\"moonap://llm-sim\" /></label><label>API key<input id=\"routerKeyOpenAI\" type=\"password\" value=\"llm-sim-mode\" placeholder=\"llm-sim-mode\" /></label></div>",
+    "</div></div>", "<label class=\"dialog-toggle\"><input id=\"routerFormalVerification\" type=\"checkbox\" /> Reserve MoonBit formal verification before Wasm compile</label>",
     "<label class=\"dialog-toggle\"><input id=\"routerRepairUseRawCompilerOutput\" type=\"checkbox\" checked /> Feed native compiler output into repair rounds</label>",
     "<div id=\"routerTestStatus\" class=\"router-test-status\">No API test run yet.</div>",
     "<div class=\"dialog-actions\"><button id=\"llmCancel\" class=\"dialog-button\" type=\"button\">Cancel</button><button id=\"llmSave\" class=\"dialog-button primary\" type=\"button\">Save</button></div>",
@@ -3218,6 +3321,8 @@ fn web_style_css() -> String {
     ".action-card-params label.checkbox-param input, .dialog-fields label.checkbox-param input { width: 18px; min-height: 18px; height: 18px; margin-top: 1px; padding: 0; accent-color: #1f7a5b; }",
     ".param-help { color: #607568; font-size: 12px; line-height: 1.4; font-weight: 400; }",
     ".checkbox-param .param-help { grid-column: 2; }", ".action-card-primary, .action-card-secondary { display: flex; flex-wrap: wrap; gap: 10px; }",
+    ".action-card-result-preview { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid #cfe4da; border-radius: 12px; background: #ffffff; }",
+    ".action-card-result-preview strong { font-size: 13px; color: #24523f; }", ".action-card-result-preview pre { margin: 0; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 14px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, \"Liberation Mono\", monospace; color: #111111; }",
     ".action-card-primary button.primary { background: #1f7a5b; color: #ffffff; border-color: #1f7a5b; }",
     ".action-card-primary button.secondary.strong { border-color: #1f7a5b; background: rgba(31,122,91,0.08); color: #195f47; }",
     ".action-card-secondary { padding-top: 2px; }", ".action-card-secondary button.secondary { background: rgba(255,255,255,0.84); border-color: #d4dfd8; color: #193529; }",
@@ -3233,13 +3338,18 @@ fn web_style_css() -> String {
     ".skill-dialog::backdrop { background: rgba(0,0,0,0.18); }", ".skill-dialog-body { display: grid; gap: 16px; padding: 20px; }",
     ".dialog-head { display: grid; gap: 4px; }", ".dialog-head span { color: #666666; font-size: 12px; }",
     ".dialog-head strong { font-size: 20px; }", ".dialog-summary { margin: 0; color: #444444; line-height: 1.5; }",
+    ".router-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; padding: 4px; border: 1px solid #e5e5e5; border-radius: 14px; background: #f6f6f6; }",
+    ".router-tab { min-height: 38px; border: 0; border-radius: 10px; background: transparent; color: #555555; font-weight: 650; cursor: pointer; }",
+    ".router-tab.is-active { background: #111111; color: #ffffff; box-shadow: 0 8px 18px rgba(0,0,0,0.12); }",
+    ".router-tab-panel { display: none; }", ".router-tab-panel.is-active { display: grid; gap: 12px; }",
     ".router-grid { display: grid; gap: 12px; }", ".router-row { display: grid; gap: 10px; padding: 12px; border: 1px solid #e5e5e5; border-radius: 12px; background: #fafafa; }",
     ".router-row-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }",
     ".router-row-head strong { font-size: 15px; }", ".router-level { display: inline-flex; align-items: center; justify-content: center; min-width: 54px; height: 22px; padding: 0 8px; border-radius: 999px; background: #111111; color: #ffffff; font-size: 11px; font-weight: 650; }",
     ".router-level-label { color: #555555; font-size: 13px; font-weight: 600; }",
     ".dialog-fields { display: grid; gap: 10px; }", ".dialog-fields label, .router-row label { display: grid; gap: 6px; color: #555555; font-size: 13px; }",
     ".dialog-fields input, .router-row input { width: 100%; border: 1px solid #d8d8d8; border-radius: 10px; padding: 8px 10px; font: inherit; }",
-    ".dialog-fields input, .router-row input { height: 38px; }", ".router-model-list { display: grid; gap: 8px; max-height: 180px; overflow: auto; padding: 12px; border: 1px solid #d8d8d8; border-radius: 10px; background: #ffffff; }",
+    ".dialog-fields input, .router-row input { height: 38px; }", ".router-custom-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }",
+    ".router-row-custom { border-color: #cfe2d9; background: #f7fbf9; }", ".router-model-list { display: grid; gap: 8px; max-height: 180px; overflow: auto; padding: 12px; border: 1px solid #d8d8d8; border-radius: 10px; background: #ffffff; }",
     ".dialog-output-target { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid #d6e6dc; border-radius: 12px; background: #f5fbf7; color: #315241; font-size: 13px; }",
     ".dialog-output-target span { overflow-wrap: anywhere; }", ".router-model-option { display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; border-radius: 10px; background: #fafafa; }",
     ".router-model-option input { width: 16px; height: 16px; margin-top: 2px; border: 0; border-radius: 0; padding: 0; background: transparent; accent-color: #111111; }",

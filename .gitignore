@@ -30,3 +30,11 @@ logs/
 *.temp
 *.cache
 $null
+
+# Local runtime data and secrets
+.env
+.env.*
+MoonAP-generated-result-files/
+Personal-SKILL-Set/
+Local-SKILL-Hub/
+MoonAP-SKILL/

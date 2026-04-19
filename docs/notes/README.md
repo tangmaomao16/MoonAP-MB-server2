@@ -12,6 +12,7 @@ Current canonical topics:
 - [Developer-3 Large-File Runtime Handoff](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/notes/2026-04-19-developer-3-large-file-runtime-handoff.md)
 - [Developer-3 Flow Recap and Large FastQ Analyzer Plan](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/notes/2026-04-19-developer-3-flow-recap-and-large-fastq-analyzer-plan.md)
 - [Developer-3 to Developer-4 Handoff](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/notes/2026-04-19-developer-3-to-developer-4-handoff.md)
+- [Developer-5 to Developer-6 Handoff](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/notes/2026-04-19-developer-5-to-developer-6-handoff.md)
 - [Three-Thread Simulation Notes](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/three-thread-codex-simulation-notes.md)
 - [Free LLM MoonBit Results](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/free-llm-moonbit-results.md)
 

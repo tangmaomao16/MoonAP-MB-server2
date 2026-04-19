@@ -21,6 +21,8 @@ MoonAP documentation is organized by purpose.
 
 ## Recommended Entry Points
 
+- [Competition Submission Notes](../SUBMISSION.md)
+- [Root README](../README.md)
 - [Codex Demo Mode](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/modes/codex-demo-mode.md)
 - [Codex Threads Dev Mode](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/modes/codex-threads-dev-mode.md)
 - [Lightweight Task Runtime Abstraction](C:/my_work/MoonBit_Competition/GitHub/MoonAP-MB-server2/docs/architecture/lightweight-task-runtime-abstraction.md)

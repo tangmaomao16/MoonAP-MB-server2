@@ -123,7 +123,9 @@ extern "js" fn browser_render_artifact_card(
   #|   const resultUrl = String(runtimeResult?.download_url || "");
   #|   const requestId = String(runtimeRequest?.request_id || "");
   #|   const runtimeReady = String(runtimeRequest?.status || "") === "ready-for-runtime";
-  #|   const runtimeDone = String(runtimeResult?.request_id || "") === requestId && String(runtimeResult?.status || "").includes("succeeded");
+  #|   const resultRequestId = String(runtimeResult?.request_id || "");
+  #|   const runtimeDone = String(runtimeResult?.status || "").includes("succeeded") &&
+  #|     (requestId === "" || resultRequestId === "" || resultRequestId === requestId || resultRequestId.startsWith("skill-runtime-"));
   #|   const runtimeCard = runtimeReady || runtimeDone;
   #|   if (runtimeCard) {
   #|     card.className += runtimeDone ? " action-card-runtime is-complete" : " action-card-runtime is-awaiting";
@@ -133,6 +135,7 @@ extern "js" fn browser_render_artifact_card(
   #|     const runtimeFields = Array.isArray(runtimeSpec.fields) ? runtimeSpec.fields : [];
   #|     const taskKind = String(runtimeRequest?.task_kind || "");
   #|     const runtimeMode = String(runtimeRequest?.runtime_mode || runtimeSpec?.mode || "");
+  #|     const resultMode = String(runtimeRequest?.result_mode || runtimeResult?.result_mode || runtimeSpec?.result_mode || "");
   #|     const currentProfileId = profileRuntime && typeof profileRuntime.profileIdForRequest === "function"
   #|       ? String(profileRuntime.profileIdForRequest(runtimeRequest) || "")
   #|       : String(runtimeRequest?.runtime_profile_override_id || runtimeRequest?.runtime_profile_id || taskKind || "");
@@ -221,6 +224,7 @@ extern "js" fn browser_render_artifact_card(
   #|       runtimeDone && allowSave ? `<button id="savePersonalSkill" class="secondary strong" type="button">${saveLabel}</button>` : ''
   #|     ].filter(Boolean).join("");
   #|     const secondaryActions = [
+  #|       '<button id="startNewApp" class="secondary strong" type="button">Start new APP</button>',
   #|       wasmUrl ? '<button id="downloadRuntimeWasm" class="secondary" type="button">Download wasm</button>' : '',
   #|       sourceUrl ? '<button id="downloadRuntimeSource" class="secondary" type="button">Download source</button>' : '',
   #|       runtimeDone && resultMode === "report" ? '<button id="openRuntimeReport" class="secondary strong" type="button">Open report</button>' : '',
@@ -264,6 +268,9 @@ extern "js" fn browser_render_artifact_card(
   #|     };
   #|     runtimeFileInput.onchange = syncRuntimeFileStatus;
   #|     syncRuntimeFileStatus();
+  #|   }
+  #|   if (runtimeCard) {
+  #|     try { root.scrollIntoView({ behavior: "smooth", block: "end" }); } catch {}
   #|   }
   #| }
 
@@ -643,6 +650,62 @@ extern "js" fn browser_clear_artifact_card() -> Unit =
 
 ///|
 #cfg(target="js")
+extern "js" fn browser_start_new_app() -> Unit =
+  #| () => {
+  #|   const runtimeRequest = globalThis.__moonapLastRuntimeRequest || {};
+  #|   const runtimeResult = globalThis.__moonapLastRuntimeResult || {};
+  #|   const requestId = String(runtimeResult.request_id || runtimeRequest.request_id || "");
+  #|   if (requestId) {
+  #|     localStorage.setItem("moonap.ignoreRuntimeRequestId", requestId);
+  #|   }
+  #|   globalThis.__moonapLastRuntimeRequest = {};
+  #|   globalThis.__moonapLastRuntimeResult = {};
+  #|   globalThis.__moonapLastRuntimeReportPayload = null;
+  #|   globalThis.__moonapLastRuntimeRequestText = "";
+  #|   globalThis.__moonapLastRuntimeResultText = "";
+  #|   globalThis.__moonapAllowTransientArtifactCard = false;
+  #|   const actions = document.querySelector("#artifactActions");
+  #|   if (actions) {
+  #|     actions.innerHTML = "";
+  #|     if (globalThis.__moonapMinimalShell !== false) actions.style.display = "none";
+  #|   }
+  #|   const messages = document.querySelector("#messages");
+  #|   if (messages) messages.innerHTML = "";
+  #|   const progress = document.querySelector("#largeFileProgressCard");
+  #|   if (progress) progress.classList.remove("is-open", "is-error");
+  #|   const state = document.querySelector("#state");
+  #|   if (state) state.textContent = "{\n  \"status\": \"new-app\"\n}";
+  #|   const processStage = document.querySelector("#processStage");
+  #|   const processResult = document.querySelector("#processResult");
+  #|   const processLog = document.querySelector("#processLog");
+  #|   if (processStage) processStage.textContent = "new-app";
+  #|   if (processResult) processResult.textContent = "ready";
+  #|   if (processLog) processLog.textContent = "Start from a new user prompt.";
+  #|   const textarea = document.querySelector("#message");
+  #|   if (textarea) {
+  #|     textarea.value = "";
+  #|     textarea.classList.remove("suggested");
+  #|     textarea.focus();
+  #|   }
+  #|   try { window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }); } catch {}
+  #| }
+
+///|
+#cfg(target="js")
+extern "js" fn browser_on_start_new_app(handler : () -> Unit) -> Unit =
+  #| (handler) => document.addEventListener("click", (event) => {
+  #|   if (event.target?.id !== "startNewApp") return;
+  #|   event.preventDefault();
+  #|   event.stopPropagation();
+  #|   try {
+  #|     handler();
+  #|   } catch (error) {
+  #|     alert(`MoonAP start-new failed: ${error instanceof Error ? error.message : String(error)}`);
+  #|   }
+  #| })
+
+///|
+#cfg(target="js")
 extern "js" fn browser_set_transient_artifact_card(open : Bool) -> Unit =
   #| (open) => {
   #|   globalThis.__moonapAllowTransientArtifactCard = Boolean(open);
@@ -650,6 +713,32 @@ extern "js" fn browser_set_transient_artifact_card(open : Bool) -> Unit =
   #|   if (!root) return;
   #|   if (!open && globalThis.__moonapMinimalShell !== false) {
   #|     root.style.display = "none";
+  #|   }
+  #| }
+
+///|
+#cfg(target="js")
+extern "js" fn browser_remember_runtime_request(raw : String) -> Unit =
+  #| (raw) => {
+  #|   const text = String(raw || "");
+  #|   globalThis.__moonapLastRuntimeRequestText = text;
+  #|   try {
+  #|     globalThis.__moonapLastRuntimeRequest = JSON.parse(text);
+  #|   } catch {
+  #|     globalThis.__moonapLastRuntimeRequest = {};
+  #|   }
+  #| }
+
+///|
+#cfg(target="js")
+extern "js" fn browser_remember_runtime_result(raw : String) -> Unit =
+  #| (raw) => {
+  #|   const text = String(raw || "");
+  #|   globalThis.__moonapLastRuntimeResultText = text;
+  #|   try {
+  #|     globalThis.__moonapLastRuntimeResult = JSON.parse(text);
+  #|   } catch {
+  #|     globalThis.__moonapLastRuntimeResult = {};
   #|   }
   #| }
 
@@ -786,19 +875,21 @@ extern "js" fn browser_ensure_report_runtime() -> Unit =
   #| <meta name="viewport" content="width=device-width, initial-scale=1" />
   #| <title>${escapeHtml(title)}</title>
   #| <style>
-  #| :root { color-scheme: light; font-family: Georgia, "Times New Roman", serif; color: #17261f; background: #f2f5ef; }
-  #| body { margin: 0; padding: 32px; }
+  #| :root { color-scheme: light; font-family: "Segoe UI", "Aptos", "Helvetica Neue", sans-serif; color: #17261f; background: #f2f5ef; font-variant-numeric: tabular-nums; }
+  #| body { margin: 0; padding: 32px; font-size: 16px; line-height: 1.55; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
   #| main { max-width: 1040px; margin: 0 auto; display: grid; gap: 22px; }
   #| header { padding: 28px; border-radius: 24px; background: linear-gradient(135deg, #ffffff, #e7f2eb); border: 1px solid #cfe1d6; }
-  #| h1 { margin: 0 0 10px; font-size: clamp(28px, 4vw, 46px); }
+  #| h1 { margin: 0 0 10px; font-size: clamp(30px, 4vw, 52px); line-height: 1.05; letter-spacing: -0.04em; font-weight: 750; }
   #| section { padding: 22px; border-radius: 20px; background: rgba(255,255,255,0.86); border: 1px solid #d8e5dc; box-shadow: 0 16px 40px rgba(43,74,55,0.08); }
-  #| h2 { margin: 0 0 14px; font-size: 22px; }
+  #| h2 { margin: 0 0 14px; font-size: 22px; line-height: 1.2; letter-spacing: -0.02em; font-weight: 720; }
   #| table { width: 100%; border-collapse: collapse; }
-  #| th, td { text-align: left; border-bottom: 1px solid #e4ece7; padding: 10px 8px; vertical-align: top; }
-  #| th { width: 34%; color: #315241; }
-  #| pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 14px; border-radius: 14px; background: #102018; color: #e9fff3; line-height: 1.5; }
+  #| th, td { text-align: left; border-bottom: 1px solid #e4ece7; padding: 11px 8px; vertical-align: middle; line-height: 1.45; }
+  #| th { width: 34%; color: #315241; font-weight: 680; }
+  #| td { color: #14251d; }
+  #| p { line-height: 1.6; }
+  #| pre { font-family: "Cascadia Mono", "JetBrains Mono", "SFMono-Regular", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; padding: 14px; border-radius: 14px; background: #102018; color: #e9fff3; line-height: 1.55; font-size: 14px; }
   #| .actions { display: flex; gap: 10px; flex-wrap: wrap; }
-  #| button { border: 1px solid #1f7a5b; background: #1f7a5b; color: white; border-radius: 999px; padding: 10px 16px; font: inherit; cursor: pointer; }
+  #| button { border: 1px solid #1f7a5b; background: #1f7a5b; color: white; border-radius: 999px; padding: 10px 16px; font: inherit; font-weight: 650; cursor: pointer; }
   #| button.secondary { background: white; color: #1f7a5b; }
   #| .note { color: #567064; }
   #| </style>
@@ -1087,8 +1178,8 @@ extern "js" fn browser_record_demo_runtime_result(
   #|         const hasFinalNewline = merged.endsWith("\n") || merged.endsWith("\r");
   #|         const lines = merged.split(/\r?\n/);
   #|         carry = hasFinalNewline ? "" : String(lines.pop() || "");
+  #|         if (hasFinalNewline && lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
   #|         for (const line of lines) {
-  #|           if (line === "" && offset === file.size) continue;
   #|           consumeLine(line);
   #|         }
   #|         offset = end;
@@ -1158,10 +1249,21 @@ extern "js" fn browser_record_demo_runtime_result(
   #|         chunk_count: chunkCount,
   #|         line_count: lineCount,
   #|         reads_seen: readCount,
+  #|         estimated_read_count: readCount,
   #|         total_bases: totalBases,
+  #|         A_count: aCount,
+  #|         C_count: cCount,
+  #|         G_count: gCount,
+  #|         T_count: tCount,
+  #|         N_count: nCount,
+  #|         other_base_count: otherBaseCount,
+  #|         min_read_length: minReadLength == null ? 0 : minReadLength,
+  #|         max_read_length: maxReadLength,
+  #|         average_read_length: Number(avgReadLength.toFixed(2)),
   #|         total_characters: totalBases,
   #|         matching_line_count: nCount,
   #|         malformed_record_count: malformedRecordCount,
+  #|         preview_reads: previewReads,
   #|         progress_percent: 100,
   #|         llm_receives_file_contents: false,
   #|         accepted_for_skill: false
@@ -2410,7 +2512,12 @@ extern "js" fn browser_watch_runtime_protocol(
   #|       const requestText = await fetch("/api/runtime-exec/latest-request").then((response) => response.text());
   #|       if (requestText && requestText !== globalThis.__moonapLastRuntimeRequestText) {
   #|         globalThis.__moonapLastRuntimeRequestText = requestText;
-  #|         try { globalThis.__moonapLastRuntimeRequest = JSON.parse(requestText); } catch {}
+  #|         let requestJson = {};
+  #|         try { requestJson = JSON.parse(requestText); globalThis.__moonapLastRuntimeRequest = requestJson; } catch {}
+  #|         const ignoredId = String(localStorage.getItem("moonap.ignoreRuntimeRequestId") || "");
+  #|         const requestId = String(requestJson?.request_id || "");
+  #|         if (ignoredId && requestId === ignoredId) return;
+  #|         if (ignoredId && requestId && requestId !== ignoredId) localStorage.removeItem("moonap.ignoreRuntimeRequestId");
   #|         onRequest(String(requestText));
   #|       }
   #|     } catch {}
@@ -2418,7 +2525,12 @@ extern "js" fn browser_watch_runtime_protocol(
   #|       const resultText = await fetch("/api/runtime-exec/latest-result").then((response) => response.text());
   #|       if (resultText && resultText !== globalThis.__moonapLastRuntimeResultText) {
   #|         globalThis.__moonapLastRuntimeResultText = resultText;
-  #|         try { globalThis.__moonapLastRuntimeResult = JSON.parse(resultText); } catch {}
+  #|         let resultJson = {};
+  #|         try { resultJson = JSON.parse(resultText); globalThis.__moonapLastRuntimeResult = resultJson; } catch {}
+  #|         const ignoredId = String(localStorage.getItem("moonap.ignoreRuntimeRequestId") || "");
+  #|         const requestId = String(resultJson?.request_id || "");
+  #|         if (ignoredId && requestId === ignoredId) return;
+  #|         if (ignoredId && requestId && requestId !== ignoredId) localStorage.removeItem("moonap.ignoreRuntimeRequestId");
   #|         onResult(String(resultText));
   #|       }
   #|     } catch {}
@@ -3927,7 +4039,9 @@ extern "js" fn browser_run_dialog_large_fastq_analysis(
   #|     if (!dialog) throw new Error("No SKILL dialog is open.");
   #|     const readParam = (name, fallback = "") => {
   #|       const node = dialog.querySelector(`[data-param-name="${String(name)}"]`);
-  #|       return node ? String(node.value ?? fallback) : String(fallback);
+  #|       if (!node) return String(fallback);
+  #|       if (String(node.type || "").toLowerCase() === "checkbox") return node.checked ? "true" : "false";
+  #|       return String(node.value ?? fallback);
   #|     };
   #|     let fileHandle = dialog.__moonapInputFileHandle || null;
   #|     if (!fileHandle) {
@@ -4037,6 +4151,7 @@ extern "js" fn browser_run_dialog_large_fastq_analysis(
   #|       const hasFinalNewline = merged.endsWith("\n") || merged.endsWith("\r");
   #|       const lines = merged.split(/\r?\n/);
   #|       carry = hasFinalNewline ? "" : String(lines.pop() || "");
+  #|       if (hasFinalNewline && lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
   #|       for (const line of lines) consumeLine(line);
   #|       offset = end;
   #|       chunkCount += 1;
@@ -4069,8 +4184,33 @@ extern "js" fn browser_run_dialog_large_fastq_analysis(
   #|       elapsed_ms: elapsedMs,
   #|       preview_reads: previewReads,
   #|       llm_receives_file_contents: false,
+  #|       request_id: `skill-runtime-${Date.now()}`,
+  #|       runtime_mode: "file",
+  #|       result_mode: "report",
+  #|       download_name: `${String(file.name || "fastq-analysis").replace(/[^a-zA-Z0-9._-]+/g, "-")}.analysis.json`,
+  #|       download_content: JSON.stringify({
+  #|         file_name: file.name,
+  #|         file_size_bytes: file.size,
+  #|         chunk_count: chunkCount,
+  #|         total_lines: lineCount,
+  #|         estimated_read_count: readCount,
+  #|         total_bases: totalBases,
+  #|         A_count: aCount,
+  #|         C_count: cCount,
+  #|         G_count: gCount,
+  #|         T_count: tCount,
+  #|         N_count: nCount,
+  #|         other_base_count: otherBaseCount,
+  #|         min_read_length: minReadLength == null ? 0 : minReadLength,
+  #|         max_read_length: maxReadLength,
+  #|         average_read_length: Number(avgReadLength.toFixed(2)),
+  #|         malformed_record_count: malformedRecordCount,
+  #|         preview_reads: previewReads
+  #|       }, null, 2),
   #|       summary: `Analyzed ${file.name} locally: ${readCount} FastQ reads, ${totalBases} bases.`
   #|     };
+  #|     globalThis.__moonapLastRuntimeResult = result;
+  #|     globalThis.__moonapLastRuntimeReportPayload = result;
   #|     emitState("runtime-succeeded");
   #|     onDone(JSON.stringify(result, null, 2));
   #|   } catch (error) {
@@ -6892,6 +7032,12 @@ fn execute_dialog_skill() -> Unit {
       browser_run_dialog_large_fastq_analysis(
         fn(result) {
           browser_set_state(browser_pretty_json(result))
+          browser_set_transient_artifact_card(true)
+          browser_render_artifact_card(
+            "Personal SKILL result is ready", "Review the browser-local analysis report. You can open or save the report, then rerun this SKILL whenever needed.",
+            "[\"personal skill\",\"runtime succeeded\",\"report ready\"]", false,
+            false, false,
+          )
           browser_show_toast(
             "Personal SKILL analyzed the FastQ file with browser-local streaming.",
           )
@@ -6937,6 +7083,12 @@ fn execute_dialog_skill() -> Unit {
       browser_run_dialog_large_fastq_analysis(
         fn(result) {
           browser_set_state(browser_pretty_json(result))
+          browser_set_transient_artifact_card(true)
+          browser_render_artifact_card(
+            "Local SKILL result is ready", "Review the browser-local analysis report. You can open or save the report, then rerun this SKILL whenever needed.",
+            "[\"local skill\",\"runtime succeeded\",\"report ready\"]", false, false,
+            false,
+          )
           browser_show_toast(
             "Local SKILL analyzed the FastQ file with browser-local streaming.",
           )
@@ -7809,13 +7961,11 @@ fn on_runtime_request_ready(raw : String) -> Unit {
   let request_id = browser_artifact_field(raw, "request_id")
   let status = browser_artifact_field(raw, "status")
   let wasm_path = browser_artifact_field(raw, "wasm_path")
-  if !browser_has_last_artifact_source() {
-    return
-  }
   if request_id == "" || status == "" || status == "empty" {
     return
   }
   browser_set_transient_artifact_card(true)
+  browser_remember_runtime_request(raw)
   browser_set_state(browser_pretty_json(raw))
   browser_update_result_panel(raw)
   browser_update_process(
@@ -7848,13 +7998,11 @@ fn on_runtime_result_ready(raw : String) -> Unit {
   let summary = browser_artifact_field(raw, "summary")
   let display_text = browser_artifact_field(raw, "display_text")
   let download_name = browser_artifact_field(raw, "download_name")
-  if !browser_has_last_artifact_source() {
-    return
-  }
   if request_id == "" || status == "" || status == "empty" {
     return
   }
   browser_set_transient_artifact_card(true)
+  browser_remember_runtime_result(raw)
   browser_set_state(browser_pretty_json(raw))
   browser_update_result_panel(raw)
   browser_update_process(
@@ -8086,6 +8234,12 @@ fn main {
   })
   browser_on_download_runtime_artifact("result", fn() {
     browser_download_runtime_artifact("result")
+  })
+  browser_on_start_new_app(fn() {
+    browser_start_new_app()
+    browser_show_toast(
+      "Started a new APP. Enter the next prompt in the message box.",
+    )
   })
   browser_on_runtime_report_action("open", fn() {
     browser_open_runtime_report()

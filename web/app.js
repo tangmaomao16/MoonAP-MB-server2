@@ -90,6 +90,25 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app33browser__extract__m
 const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__render__artifact__card = (title, summary, metaJson, allowCompile, allowRepair, allowSave) => {
    const root = document.querySelector("#artifactActions");
    if (!root) return;
+   globalThis.__moonapLastArtifactCardArgs = {
+     title: String(title || ""),
+     summary: String(summary || ""),
+     meta_json: String(metaJson || "[]"),
+     allow_compile: Boolean(allowCompile),
+     allow_repair: Boolean(allowRepair),
+     allow_save: Boolean(allowSave)
+   };
+   const runtimeRequest = globalThis.__moonapLastRuntimeRequest || {};
+   const runtimeResult = globalThis.__moonapLastRuntimeResult || {};
+   const profileRuntime = globalThis.__moonapRuntimeProfileRuntime && typeof globalThis.__moonapRuntimeProfileRuntime === "object"
+     ? globalThis.__moonapRuntimeProfileRuntime
+     : null;
+   const showTransient = globalThis.__moonapAllowTransientArtifactCard === true;
+   if (globalThis.__moonapMinimalShell !== false && !showTransient) {
+     root.innerHTML = "";
+     root.style.display = "none";
+     return;
+   }
    let meta = [];
    try {
      const parsed = JSON.parse(String(metaJson || "[]"));
@@ -98,24 +117,1400 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__render__ar
      meta = [];
    }
    root.innerHTML = "";
+   root.style.display = "";
    const card = document.createElement("section");
    card.className = "action-card is-open";
    const metaHtml = meta.map((item) => `<span>${String(item)}</span>`).join("");
-   card.innerHTML = `
-     <strong>${String(title)}</strong>
-     <small>${String(summary)}</small>
-     <div class="action-card-meta">${metaHtml}</div>
-     <div class="action-card-actions">
-       ${allowCompile ? '<button id="compileArtifact" type="button">Run Compile Probe</button>' : ''}
-       ${allowRepair ? '<button id="repairArtifact" type="button">Repair with Error Summary</button>' : ''}
-       ${allowSave ? '<button id="savePersonalSkill" type="button">Save to Personal-SKILL-Set</button>' : ''}
-       <button id="exportSkillBundle" class="secondary" type="button">Export Source Bundle</button>
-     </div>`;
+   const wasmUrl = String(runtimeRequest?.wasm_url || "");
+   const sourceUrl = String(runtimeRequest?.source_url || "");
+   const compileReportUrl = String(runtimeRequest?.compile_report_url || "");
+   const resultUrl = String(runtimeResult?.download_url || "");
+   const requestId = String(runtimeRequest?.request_id || "");
+   const runtimeReady = String(runtimeRequest?.status || "") === "ready-for-runtime";
+   const resultRequestId = String(runtimeResult?.request_id || "");
+   const runtimeDone = String(runtimeResult?.status || "").includes("succeeded") &&
+     (requestId === "" || resultRequestId === "" || resultRequestId === requestId || resultRequestId.startsWith("skill-runtime-"));
+   const runtimeCard = runtimeReady || runtimeDone;
+   if (runtimeCard) {
+     card.className += runtimeDone ? " action-card-runtime is-complete" : " action-card-runtime is-awaiting";
+     const runtimeSpec = runtimeRequest?.runtime_spec && typeof runtimeRequest.runtime_spec === "object"
+       ? runtimeRequest.runtime_spec
+       : (runtimeRequest?.runtime_ui && typeof runtimeRequest.runtime_ui === "object" ? runtimeRequest.runtime_ui : {});
+     const runtimeFields = Array.isArray(runtimeSpec.fields) ? runtimeSpec.fields : [];
+     const taskKind = String(runtimeRequest?.task_kind || "");
+     const runtimeMode = String(runtimeRequest?.runtime_mode || runtimeSpec?.mode || "");
+     const resultMode = String(runtimeRequest?.result_mode || runtimeResult?.result_mode || runtimeSpec?.result_mode || "");
+     const currentProfileId = profileRuntime && typeof profileRuntime.profileIdForRequest === "function"
+       ? String(profileRuntime.profileIdForRequest(runtimeRequest) || "")
+       : String(runtimeRequest?.runtime_profile_override_id || runtimeRequest?.runtime_profile_id || taskKind || "");
+     const currentProfile = profileRuntime && typeof profileRuntime.lookup === "function"
+       ? profileRuntime.lookup(currentProfileId)
+       : null;
+     const inferredTaskKind = String(runtimeRequest?.inferred_task_kind || taskKind || "");
+     const isFastqRuntime = taskKind === "fastq-generator";
+     const eyebrow = runtimeDone ? "Runtime result" : "Runtime ready";
+     const statusHtml = runtimeDone
+       ? '<span>result recorded</span><span>ready to rerun</span><span>ready to save</span>'
+       : '<span>wasm prepared</span><span>awaiting local execution</span>';
+     const runtimeProfileHtml = profileRuntime && typeof profileRuntime.list === "function"
+       ? (() => {
+           const options = profileRuntime.list();
+           const optionHtml = options.map((profile) => {
+             const id = String(profile?.id || "");
+             const label = String(profile?.label || id);
+             const selected = id === currentProfileId ? ' selected' : '';
+             return `<option value="${id}"${selected}>${label}</option>`;
+           }).join("");
+           const currentLabel = String(currentProfile?.label || currentProfileId || "Unspecified");
+           const currentDescription = String(currentProfile?.description || "Choose the runtime profile whose parameter schema best matches your APP.");
+           const inferenceNote = inferredTaskKind && inferredTaskKind !== taskKind
+             ? `MoonAP originally inferred ${inferredTaskKind}, then this run was switched to ${taskKind}.`
+             : `MoonAP currently inferred ${taskKind || "generic-task"}.`;
+           return `
+             <div class="action-card-runtime-profile">
+               <div class="action-card-runtime-profile-head">
+                 <strong>Runtime profile</strong>
+                 <small>${currentLabel}</small>
+               </div>
+               <small>${currentDescription}</small>
+               <small>${inferenceNote}</small>
+               <div class="action-card-runtime-profile-controls">
+                 <label><span>Switch runtime profile</span><select id="runtimeProfileSelect">${optionHtml}</select></label>
+                 <button id="applyRuntimeProfile" class="secondary" type="button">Apply profile</button>
+               </div>
+             </div>`;
+         })()
+       : "";
+     const paramsHtml = runtimeFields.length
+       ? `<div class="action-card-params">${runtimeFields.map((field) => {
+           const name = String(field?.name || "");
+           const label = String(field?.label || name || "Parameter");
+           const help = String(field?.help || field?.description || "");
+           const type = String(field?.type || "text").toLowerCase();
+           const isBool = type === "bool" || type === "boolean" || type === "checkbox";
+           const inputType = isBool ? "checkbox" : (type === "int" || type === "float" ? "number" : "text");
+           const defaultValue = field?.default ?? "";
+           const checked = isBool && !["false", "0", "no", "off", ""].includes(String(defaultValue).trim().toLowerCase()) ? "checked" : "";
+           const attrs = [
+             `id="runtime-field-${name}"`,
+             `data-runtime-field="${name}"`,
+             `type="${inputType}"`,
+             field?.min !== undefined ? `min="${String(field.min)}"` : "",
+             field?.max !== undefined ? `max="${String(field.max)}"` : "",
+             field?.step !== undefined ? `step="${String(field.step)}"` : "",
+             isBool ? `value="true"` : `value="${String(defaultValue)}"`,
+             checked
+           ].filter(Boolean).join(" ");
+           const helpHtml = help ? `<small class="param-help">${help}</small>` : "";
+           return isBool
+             ? `<label class="checkbox-param"><input ${attrs} /><span>${label}</span>${helpHtml}</label>`
+             : `<label><span>${label}</span><input ${attrs} />${helpHtml}</label>`;
+         }).join("")}</div>`
+       : "";
+     const isFastqAnalysisRuntime = taskKind === "large-fastq-analysis" || String(runtimeSpec?.domain_profile || "").toLowerCase() === "fastq";
+     const filePickerHtml = isFastqAnalysisRuntime || runtimeMode === "file"
+       ? `<div class="action-card-file-target">
+           <label class="dialog-button secondary" for="fileInput">${isFastqAnalysisRuntime ? "Choose input FastQ file" : "Choose input file"}</label>
+           <span id="runtimeInputFileStatus">${document.querySelector("#fileInput")?.files?.[0]?.name ? `Selected: ${document.querySelector("#fileInput")?.files?.[0]?.name}` : "No input file selected yet."}</span>
+           <small>${isFastqAnalysisRuntime ? "File contents stay in this browser. MoonAP reads it in chunks and sends only summary metrics to the server." : "File contents stay in this browser."}</small>
+         </div>`
+       : "";
+     const runLabel = runtimeDone
+       ? String(runtimeSpec?.rerun_action_label || runtimeSpec?.action_label || runtimeSpec?.primary_action_label || (runtimeMode === "interactive" ? "Run again" : "Run generator again"))
+       : String(runtimeSpec?.action_label || runtimeSpec?.primary_action_label || (runtimeMode === "interactive" ? "Run game" : "Run runtime step"));
+     const lastSaveDecision = globalThis.__moonapLastSkillSaveDecision && typeof globalThis.__moonapLastSkillSaveDecision === "object"
+       ? globalThis.__moonapLastSkillSaveDecision
+       : {};
+     const saveCompleted = runtimeDone && String(lastSaveDecision?.decision || "") === "accepted-save-skill";
+     const saveLabel = "Save APP into SKILL";
+     const primaryAction = [
+       `<button id="recordDemoRuntimeResult" class="primary" type="button">${runLabel}</button>`,
+       runtimeDone && allowSave ? `<button id="savePersonalSkill" class="secondary strong" type="button">${saveLabel}</button>` : ''
+     ].filter(Boolean).join("");
+     const secondaryActions = [
+       '<button id="startNewApp" class="secondary strong" type="button">Start new APP</button>',
+       wasmUrl ? '<button id="downloadRuntimeWasm" class="secondary" type="button">Download wasm</button>' : '',
+       sourceUrl ? '<button id="downloadRuntimeSource" class="secondary" type="button">Download source</button>' : '',
+       runtimeDone && resultMode === "report" ? '<button id="openRuntimeReport" class="secondary strong" type="button">Open report</button>' : '',
+       runtimeDone && resultMode === "report" ? '<button id="saveRuntimeReport" class="secondary" type="button">Save report</button>' : '',
+       resultUrl ? `<button id="downloadRuntimeResult" class="secondary" type="button">${resultMode === "report" ? "Download raw JSON" : "Download result"}</button>` : ''
+     ].filter(Boolean).join("");
+     card.innerHTML = `
+       <div class="action-card-eyebrow">${eyebrow}</div>
+       <strong>${String(title)}</strong>
+       <small>${String(summary)}</small>
+       <div class="action-card-status">${statusHtml}</div>
+       ${runtimeProfileHtml}
+       ${filePickerHtml}
+       ${paramsHtml}
+       <div class="action-card-primary">${primaryAction}</div>
+       ${secondaryActions ? `<div class="action-card-secondary">${secondaryActions}</div>` : ''}`;
+   } else {
+     card.innerHTML = `
+       <strong>${String(title)}</strong>
+       <small>${String(summary)}</small>
+       ${metaHtml ? `<div class="action-card-meta">${metaHtml}</div>` : ''}
+       <div class="action-card-actions">
+         ${allowCompile ? '<button id="compileArtifact" type="button">Run Compile Probe</button>' : ''}
+         ${allowRepair ? '<button id="repairArtifact" type="button">Repair with Error Summary</button>' : ''}
+         ${allowSave ? '<button id="savePersonalSkill" type="button">Save APP into SKILL</button>' : ''}
+         ${runtimeReady && !runtimeDone ? '<button id="recordDemoRuntimeResult" type="button">Record Demo Result</button>' : ''}
+         ${wasmUrl ? '<button id="downloadRuntimeWasm" class="secondary" type="button">Download wasm</button>' : ''}
+         ${sourceUrl ? '<button id="downloadRuntimeSource" class="secondary" type="button">Download source</button>' : ''}
+         ${compileReportUrl ? '<button id="downloadCompileReport" class="secondary" type="button">Download compile report</button>' : ''}
+         ${resultUrl ? '<button id="downloadRuntimeResult" class="secondary" type="button">Download raw JSON</button>' : ''}
+         <button id="exportSkillBundle" class="secondary" type="button">Export Source Bundle</button>
+       </div>`;
+   }
    root.append(card);
+   const runtimeFileInput = document.querySelector("#fileInput");
+   const runtimeFileStatus = document.querySelector("#runtimeInputFileStatus");
+   if (runtimeFileInput && runtimeFileStatus) {
+     const syncRuntimeFileStatus = () => {
+       const file = runtimeFileInput.files?.[0];
+       runtimeFileStatus.textContent = file ? `Selected: ${file.name}` : "No input file selected yet.";
+     };
+     runtimeFileInput.onchange = syncRuntimeFileStatus;
+     syncRuntimeFileStatus();
+   }
+   if (runtimeCard) {
+     try { root.scrollIntoView({ behavior: "smooth", block: "end" }); } catch {}
+   }
+ };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app36browser__on__runtime__profile__apply = (onDone, onError) => {
+   if (document.__moonapRuntimeProfileApplyBound) return;
+   document.__moonapRuntimeProfileApplyBound = true;
+   document.addEventListener("click", (event) => {
+     const target = event.target;
+     if (!target || target.id !== "applyRuntimeProfile") return;
+     event.preventDefault();
+     try {
+       const runtimeRequest = globalThis.__moonapLastRuntimeRequest;
+       if (!runtimeRequest || typeof runtimeRequest !== "object") {
+         throw new Error("No runtime request is available yet.");
+       }
+       const runtime = globalThis.__moonapRuntimeProfileRuntime;
+       if (!runtime || typeof runtime.applyProfile !== "function") {
+         throw new Error("MoonAP runtime profile runtime is not ready yet.");
+       }
+       const selectedId = String(document.querySelector("#runtimeProfileSelect")?.value || "").trim();
+       if (!selectedId) throw new Error("Choose a runtime profile first.");
+       const nextRequest = runtime.applyProfile(runtimeRequest, selectedId);
+       globalThis.__moonapLastRuntimeRequest = nextRequest;
+       const selectedProfile = typeof runtime.lookup === "function" ? runtime.lookup(selectedId) : null;
+       onDone(JSON.stringify({
+         ok: true,
+         profile_id: selectedId,
+         label: String(selectedProfile?.label || selectedId),
+         task_kind: String(nextRequest.task_kind || ""),
+         runtime_mode: String(nextRequest.runtime_mode || ""),
+         result_mode: String(nextRequest.result_mode || "")
+       }, null, 2));
+     } catch (error) {
+       onError(error instanceof Error ? error.message : String(error));
+     }
+   });
+ };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app20browser__show__toast = (message) => {
+   const text = String(message || "").trim();
+   if (!text) return;
+   let toast = document.querySelector("#moonapToast");
+   if (!toast) {
+     toast = document.createElement("div");
+     toast.id = "moonapToast";
+     toast.className = "moonap-toast";
+     document.body.append(toast);
+   }
+   toast.textContent = text;
+   toast.classList.add("is-open");
+   if (toast.__moonapTimer) clearTimeout(toast.__moonapTimer);
+   toast.__moonapTimer = setTimeout(() => {
+     toast.classList.remove("is-open");
+   }, 5200);
+ };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app47browser__ensure__large__file__progress__runtime = () => {
+   if (globalThis.__moonapLargeFileProgressRuntime) return;
+   if (!document.querySelector("#moonapLargeFileProgressStyle")) {
+     const style = document.createElement("style");
+     style.id = "moonapLargeFileProgressStyle";
+     style.textContent = `
+       .large-file-progress { position: fixed; right: 28px; bottom: 28px; width: min(420px, calc(100vw - 56px)); display: grid; gap: 10px; padding: 14px 16px; border: 1px solid #cde4da; border-radius: 16px; background: rgba(247,251,249,0.98); color: #173f31; box-shadow: 0 22px 60px rgba(24,48,37,0.20); opacity: 0; transform: translateY(12px); pointer-events: none; transition: opacity 140ms ease, transform 140ms ease; z-index: 1300; }
+       .large-file-progress.is-open { opacity: 1; transform: translateY(0); }
+       .large-file-progress.is-error { border-color: #f0c7c7; background: rgba(255,247,247,0.98); color: #7a1f1f; }
+       .large-file-progress-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+       .large-file-progress-head strong { font-size: 15px; }
+       .large-file-progress-head span { font-variant-numeric: tabular-nums; font-weight: 700; }
+       .large-file-progress-track { height: 8px; border-radius: 999px; overflow: hidden; background: #e6eee9; }
+       .large-file-progress-track div { width: 0%; height: 100%; border-radius: inherit; background: #1f7a5b; transition: width 120ms ease; }
+       .large-file-progress.is-error .large-file-progress-track div { background: #b94a48; }
+       .large-file-progress-detail { font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
+     `;
+     document.head.append(style);
+   }
+   const formatBytes = (value) => {
+     const n = Number(value || 0);
+     if (n >= 1073741824) return `${(n / 1073741824).toFixed(2)} GB`;
+     if (n >= 1048576) return `${(n / 1048576).toFixed(2)} MB`;
+     if (n >= 1024) return `${(n / 1024).toFixed(1)} KB`;
+     return `${Math.max(0, Math.floor(n))} B`;
+   };
+   const ensure = () => {
+     let card = document.querySelector("#moonapLargeFileProgress");
+     if (card) return card;
+     card = document.createElement("section");
+     card.id = "moonapLargeFileProgress";
+     card.className = "large-file-progress";
+     card.setAttribute("aria-live", "polite");
+     card.innerHTML = `
+       <div class="large-file-progress-head">
+         <strong id="largeFileProgressTitle">Large file operation</strong>
+         <span id="largeFileProgressPct">0%</span>
+       </div>
+       <div class="large-file-progress-track"><div id="largeFileProgressFill"></div></div>
+       <div id="largeFileProgressDetail" class="large-file-progress-detail">Preparing...</div>
+     `;
+     document.body.append(card);
+     return card;
+   };
+   const update = (data) => {
+     const payload = data && typeof data === "object" ? data : {};
+     const card = ensure();
+     const progress = Math.max(0, Math.min(100, Number(payload.progress_percent ?? 0)));
+     const isGeneration = String(payload.result_kind || "") === "streamed-file" || String(payload.status || "").includes("write");
+     const title = payload.title || (isGeneration ? "Writing large file locally" : "Reading large file locally");
+     const processed = Number(payload.bytes_processed ?? payload.bytes_written ?? payload.file_size_bytes ?? 0);
+     const target = Number(payload.target_bytes ?? payload.file_size_bytes ?? 0);
+     const chunks = Number(payload.chunk_count || 0);
+     const reads = Number(payload.reads_seen ?? payload.line_count ?? 0);
+     const details = [
+       payload.file_name ? `File: ${String(payload.file_name)}` : "",
+       target > 0 ? `${formatBytes(processed)} / ${formatBytes(target)}` : formatBytes(processed),
+       chunks > 0 ? `${chunks} chunk(s)` : "",
+       reads > 0 ? `${reads} record/line(s)` : "",
+       payload.llm_receives_file_contents === false ? "File contents stay in this browser." : ""
+     ].filter(Boolean).join(" | ");
+     card.querySelector("#largeFileProgressTitle").textContent = String(title);
+     card.querySelector("#largeFileProgressPct").textContent = `${Math.floor(progress)}%`;
+     card.querySelector("#largeFileProgressFill").style.width = `${progress}%`;
+     card.querySelector("#largeFileProgressDetail").textContent = details || String(payload.status || "Working...");
+     card.classList.add("is-open");
+     card.classList.toggle("is-complete", progress >= 100 || String(payload.status || "") === "runtime-succeeded");
+     if (card.__moonapTimer) clearTimeout(card.__moonapTimer);
+     if (progress >= 100 || String(payload.status || "") === "runtime-succeeded") {
+       card.__moonapTimer = setTimeout(() => card.classList.remove("is-open", "is-complete"), 7000);
+     }
+   };
+   const error = (message) => {
+     const card = ensure();
+     card.querySelector("#largeFileProgressTitle").textContent = "Large file operation failed";
+     card.querySelector("#largeFileProgressPct").textContent = "failed";
+     card.querySelector("#largeFileProgressFill").style.width = "100%";
+     card.querySelector("#largeFileProgressDetail").textContent = String(message || "Unknown error");
+     card.classList.add("is-open", "is-error");
+   };
+   globalThis.__moonapLargeFileProgressRuntime = { update, error };
+ };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app42browser__ensure__runtime__profile__runtime = () => {
+   if (globalThis.__moonapRuntimeProfileRuntime) return;
+   const clone = (value) => {
+     try { return JSON.parse(JSON.stringify(value ?? null)); } catch { return value ?? null; }
+   };
+   const registry = {
+     "large-file-generation": {
+       id: "large-file-generation",
+       label: "Large-file generation",
+       description: "Browser-local streamed FastQ output with save picker, target size, read length, header prefix, seed, N rate, and quality controls.",
+       task_kind: "large-file-generation",
+       runtime_mode: "form",
+       result_mode: "download",
+       runtime_spec: {
+         mode: "form",
+         title: "Generate large browser-local file",
+         primary_action_label: "Generate with streaming writer",
+         rerun_action_label: "Generate with streaming writer again",
+         io_contract: {
+           protocol: "moonap.large-file.v1",
+           browser_local_only: true,
+           llm_receives_file_contents: false,
+           host_capability: "streamed-local-generation",
+           input_mode: "none",
+           output_mode: "browser-local-save-stream",
+           chunk_size_bytes: 4194304,
+           save_picker_required: true
+         },
+         fields: [
+           { name: "output_name", label: "Output FastQ file name", type: "text", default: "moonap-output.fastq" },
+           { name: "target_size_mb", label: "Target size in MB", type: "int", default: 128, min: 1, max: 1024, step: 1 },
+           { name: "read_length", label: "Read length", type: "int", default: 150, min: 20, max: 20000, step: 1 },
+           { name: "read_header_prefix", label: "Read header prefix", type: "text", default: "moonap_read" },
+           { name: "random_seed", label: "Random seed", type: "int", default: 42, min: 0, max: 2147483647, step: 1 },
+           { name: "n_rate", label: "N base rate", type: "float", default: 0.01, min: 0, max: 1, step: 0.001 },
+           { name: "quality_char", label: "Quality character", type: "text", default: "I" }
+         ]
+       }
+     },
+     "large-fastq-analysis": {
+       id: "large-fastq-analysis",
+       label: "Large FastQ analysis",
+       description: "Browser-local chunked FastQ analysis with read, base, structure, and preview metrics.",
+       task_kind: "large-fastq-analysis",
+       runtime_mode: "file",
+       result_mode: "report",
+       runtime_spec: {
+         mode: "file",
+         title: "Analyze large FastQ file",
+         action_label: "Run FastQ analysis",
+         rerun_action_label: "Run FastQ analysis again",
+         domain_profile: "fastq",
+         io_contract: {
+           protocol: "moonap.large-file.v1",
+           browser_local_only: true,
+           llm_receives_file_contents: false,
+           host_capability: "chunked-local-analysis",
+           input_mode: "streaming-text",
+           output_mode: "report",
+           chunk_size_bytes: 4194304,
+           carry_strategy: "fastq-record-boundary",
+           supported_extensions: ["fastq", "fq", "txt"]
+         },
+         fields: [
+           { name: "max_preview_reads", label: "Preview reads", type: "int", default: 3, min: 0, max: 20, step: 1, help: "Only controls how many reads appear in the report preview. It does not limit full-file analysis." },
+           { name: "validate_fastq_structure", label: "Validate FastQ structure", type: "bool", default: true, help: "Check @ header, + separator, and sequence/quality length for each four-line FastQ record." },
+           { name: "count_bases", label: "Count A/C/G/T/N bases", type: "bool", default: true, help: "Count base composition while streaming. Turn off only if you want a lighter structural scan." }
+         ]
+       }
+     },
+     "large-file-analysis": {
+       id: "large-file-analysis",
+       label: "Large-file analysis",
+       description: "Browser-local chunked input analysis with search text and preview controls.",
+       task_kind: "large-file-analysis",
+       runtime_mode: "file",
+       result_mode: "report",
+       runtime_spec: {
+         mode: "file",
+         title: "Analyze large browser-local file",
+         action_label: "Run streaming analysis",
+         rerun_action_label: "Run streaming analysis again",
+         io_contract: {
+           protocol: "moonap.large-file.v1",
+           browser_local_only: true,
+           llm_receives_file_contents: false,
+           host_capability: "chunked-local-analysis",
+           input_mode: "streaming-text",
+           output_mode: "report",
+           chunk_size_bytes: 4194304,
+           carry_strategy: "line-boundary",
+           supported_extensions: ["fastq", "fq", "csv", "tsv", "txt", "log", "jsonl"]
+         },
+         fields: [
+           { name: "search_text", label: "Search text (optional)", type: "text", default: "" },
+           { name: "max_preview_lines", label: "Preview lines", type: "int", default: 3, min: 0, max: 20, step: 1 }
+         ]
+       }
+     },
+     "fastq-generator": {
+       id: "fastq-generator",
+       label: "FastQ generator",
+       description: "Parameter-driven FastQ generation with read count, read length, N rate, and seed.",
+       task_kind: "fastq-generator",
+       runtime_mode: "form",
+       result_mode: "download",
+       runtime_spec: {
+         mode: "form",
+         title: "Generate FastQ file",
+         primary_action_label: "Run generator",
+         rerun_action_label: "Run generator again",
+         fields: [
+           { name: "read_count", label: "Read count", type: "int", default: 10000, min: 1, max: 2000000, step: 1 },
+           { name: "read_length", label: "Read length", type: "int", default: 150, min: 20, max: 20000, step: 1 },
+           { name: "n_rate", label: "N rate", type: "float", default: 0.01, min: 0, max: 1, step: 0.001 },
+           { name: "random_seed", label: "Random seed", type: "int", default: 42, min: 0, max: 2147483647, step: 1 }
+         ]
+       }
+     },
+     "fastq-analysis": {
+       id: "fastq-analysis",
+       label: "FastQ analysis",
+       description: "File-input FastQ analysis profile.",
+       task_kind: "fastq-analysis",
+       runtime_mode: "file",
+       result_mode: "report",
+       runtime_spec: {
+         mode: "file",
+         title: "Analyze FastQ file",
+         action_label: "Run analysis",
+         rerun_action_label: "Run analysis again",
+         fields: []
+       }
+     },
+     "generic-form": {
+       id: "generic-form",
+       label: "Generic form app",
+       description: "Fallback profile for browser-local apps that mainly need a simple parameter form.",
+       task_kind: "generic-task",
+       runtime_mode: "form",
+       result_mode: "text",
+       runtime_spec: {
+         mode: "form",
+         title: "Run browser-local app",
+         primary_action_label: "Run app",
+         rerun_action_label: "Run app again",
+         fields: []
+       }
+     },
+     "generic-file": {
+       id: "generic-file",
+       label: "Generic file analysis",
+       description: "Fallback profile for apps that should start from a browser file picker.",
+       task_kind: "generic-task",
+       runtime_mode: "file",
+       result_mode: "report",
+       runtime_spec: {
+         mode: "file",
+         title: "Analyze local file",
+         action_label: "Run file analysis",
+         rerun_action_label: "Run file analysis again",
+         fields: []
+       }
+     }
+   };
+   const orderedIds = ["large-file-generation", "large-fastq-analysis", "large-file-analysis", "fastq-generator", "fastq-analysis", "generic-form", "generic-file"];
+   const normalizeProfileId = (value) => registry[String(value || "").trim()] ? String(value || "").trim() : "";
+   const runtimeSpecOf = (request) => request?.runtime_spec && typeof request.runtime_spec === "object"
+     ? request.runtime_spec
+     : (request?.runtime_ui && typeof request.runtime_ui === "object" ? request.runtime_ui : {});
+   const profileIdForRequest = (request) => {
+     const explicit = normalizeProfileId(request?.runtime_profile_override_id || request?.runtime_profile_id || request?.task_kind);
+     if (explicit) return explicit;
+     const runtimeSpec = runtimeSpecOf(request);
+     if (String(runtimeSpec?.domain_profile || "").toLowerCase() === "fastq") return "large-fastq-analysis";
+     const hostCapability = String(runtimeSpec?.io_contract?.host_capability || "");
+     if (hostCapability === "streamed-local-generation") return "large-file-generation";
+     if (hostCapability === "chunked-local-analysis") return "large-file-analysis";
+     const mode = String(request?.runtime_mode || runtimeSpec?.mode || "");
+     return mode === "file" ? "generic-file" : "generic-form";
+   };
+   const applyProfile = (request, selectedId) => {
+     const id = normalizeProfileId(selectedId);
+     const profile = registry[id];
+     if (!profile) throw new Error(`Unknown runtime profile: ${String(selectedId || "")}`);
+     const base = request && typeof request === "object" ? request : {};
+     const inferredTaskKind = String(base.inferred_task_kind || base.task_kind || "");
+     const runtimeSpec = clone(profile.runtime_spec) || {};
+     runtimeSpec.profile_id = id;
+     runtimeSpec.profile_label = String(profile.label || id);
+     runtimeSpec.selection_source = "user-selected";
+     if (inferredTaskKind) runtimeSpec.inferred_task_kind = inferredTaskKind;
+     return Object.assign({}, base, {
+       inferred_task_kind: inferredTaskKind,
+       task_kind: String(profile.task_kind || base.task_kind || "generic-task"),
+       runtime_mode: String(profile.runtime_mode || runtimeSpec.mode || base.runtime_mode || "form"),
+       result_mode: String(profile.result_mode || base.result_mode || "text"),
+       runtime_profile_id: id,
+       runtime_profile_override_id: id,
+       runtime_profile_label: String(profile.label || id),
+       runtime_spec: runtimeSpec,
+       runtime_ui: clone(runtimeSpec) || runtimeSpec
+     });
+   };
+   globalThis.__moonapRuntimeProfileRuntime = {
+     list: () => orderedIds.map((id) => clone(registry[id])),
+     lookup: (id) => clone(registry[normalizeProfileId(id)] || null),
+     profileIdForRequest,
+     applyProfile
+   };
  };
 const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app30browser__clear__artifact__card = () => {
    const root = document.querySelector("#artifactActions");
-   if (root) root.innerHTML = "";
+   if (root) {
+     root.innerHTML = "";
+     if (globalThis.__moonapMinimalShell !== false) root.style.display = "none";
+   }
+ };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__start__new__app = () => {
+   const runtimeRequest = globalThis.__moonapLastRuntimeRequest || {};
+   const runtimeResult = globalThis.__moonapLastRuntimeResult || {};
+   const requestId = String(runtimeResult.request_id || runtimeRequest.request_id || "");
+   if (requestId) {
+     localStorage.setItem("moonap.ignoreRuntimeRequestId", requestId);
+   }
+   globalThis.__moonapLastRuntimeRequest = {};
+   globalThis.__moonapLastRuntimeResult = {};
+   globalThis.__moonapLastRuntimeReportPayload = null;
+   globalThis.__moonapLastRuntimeRequestText = "";
+   globalThis.__moonapLastRuntimeResultText = "";
+   globalThis.__moonapAllowTransientArtifactCard = false;
+   const actions = document.querySelector("#artifactActions");
+   if (actions) {
+     actions.innerHTML = "";
+     if (globalThis.__moonapMinimalShell !== false) actions.style.display = "none";
+   }
+   const messages = document.querySelector("#messages");
+   if (messages) messages.innerHTML = "";
+   const progress = document.querySelector("#largeFileProgressCard");
+   if (progress) progress.classList.remove("is-open", "is-error");
+   const state = document.querySelector("#state");
+   if (state) state.textContent = "{\n  \"status\": \"new-app\"\n}";
+   const processStage = document.querySelector("#processStage");
+   const processResult = document.querySelector("#processResult");
+   const processLog = document.querySelector("#processLog");
+   if (processStage) processStage.textContent = "new-app";
+   if (processResult) processResult.textContent = "ready";
+   if (processLog) processLog.textContent = "Start from a new user prompt.";
+   const textarea = document.querySelector("#message");
+   if (textarea) {
+     textarea.value = "";
+     textarea.classList.remove("suggested");
+     textarea.focus();
+   }
+   try { window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }); } catch {}
+ };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app28browser__on__start__new__app = (handler) => document.addEventListener("click", (event) => {
+   if (event.target?.id !== "startNewApp") return;
+   event.preventDefault();
+   event.stopPropagation();
+   try {
+     handler();
+   } catch (error) {
+     alert(`MoonAP start-new failed: ${error instanceof Error ? error.message : String(error)}`);
+   }
+ });
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app39browser__set__transient__artifact__card = (open) => {
+   globalThis.__moonapAllowTransientArtifactCard = Boolean(open);
+   const root = document.querySelector("#artifactActions");
+   if (!root) return;
+   if (!open && globalThis.__moonapMinimalShell !== false) {
+     root.style.display = "none";
+   }
+ };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app35browser__remember__runtime__request = (raw) => {
+   const text = String(raw || "");
+   globalThis.__moonapLastRuntimeRequestText = text;
+   try {
+     globalThis.__moonapLastRuntimeRequest = JSON.parse(text);
+   } catch {
+     globalThis.__moonapLastRuntimeRequest = {};
+   }
+ };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app34browser__remember__runtime__result = (raw) => {
+   const text = String(raw || "");
+   globalThis.__moonapLastRuntimeResultText = text;
+   try {
+     globalThis.__moonapLastRuntimeResult = JSON.parse(text);
+   } catch {
+     globalThis.__moonapLastRuntimeResult = {};
+   }
+ };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app36browser__download__runtime__artifact = (kind) => {
+   const runtimeRequest = globalThis.__moonapLastRuntimeRequest || {};
+   const runtimeResult = globalThis.__moonapLastRuntimeResult || {};
+   const url = kind === "wasm"
+     ? String(runtimeRequest?.wasm_url || "")
+     : kind === "source"
+       ? String(runtimeRequest?.source_url || "")
+       : kind === "compile-report"
+         ? String(runtimeRequest?.compile_report_url || "")
+         : String(runtimeResult?.download_url || "");
+   if (!url) {
+     throw new Error(`No runtime artifact URL is available for ${String(kind)}.`);
+   }
+   const link = document.createElement("a");
+   link.href = url;
+   link.download = "";
+   document.body.append(link);
+   link.click();
+   link.remove();
+ };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app30browser__open__runtime__report = () => {
+   const report = globalThis.__moonapReportRuntime?.buildHtml?.();
+   if (!report) throw new Error("No browser report is available yet.");
+   const blob = new Blob([report], { type: "text/html;charset=utf-8" });
+   const url = URL.createObjectURL(blob);
+   window.open(url, "_blank", "noopener,noreferrer");
+   setTimeout(() => URL.revokeObjectURL(url), 60000);
+ };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app30browser__save__runtime__report = async () => {
+   const runtime = globalThis.__moonapReportRuntime;
+   const report = runtime?.buildHtml?.();
+   if (!report) throw new Error("No browser report is available yet.");
+   const name = runtime?.reportFileName?.() || "moonap-report.html";
+   if (typeof window.showSaveFilePicker === "function") {
+     const handle = await window.showSaveFilePicker({
+       suggestedName: name,
+       types: [{ description: "HTML report", accept: { "text/html": [".html"] } }]
+     });
+     const writable = await handle.createWritable();
+     await writable.write(new Blob([report], { type: "text/html;charset=utf-8" }));
+     await writable.close();
+     return;
+   }
+   const blob = new Blob([report], { type: "text/html;charset=utf-8" });
+   const url = URL.createObjectURL(blob);
+   const link = document.createElement("a");
+   link.href = url;
+   link.download = name;
+   document.body.append(link);
+   link.click();
+   link.remove();
+   URL.revokeObjectURL(url);
+ };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app32browser__ensure__report__runtime = () => {
+   if (globalThis.__moonapReportRuntime) return;
+   const escapeHtml = (value) => String(value ?? "")
+     .replaceAll("&", "&amp;")
+     .replaceAll("<", "&lt;")
+     .replaceAll(">", "&gt;")
+     .replaceAll('"', "&quot;");
+   const decodeText = (value) => String(value ?? "")
+     .replaceAll("\\r\\n", "\n")
+     .replaceAll("\\n", "\n")
+     .replaceAll("\\t", "\t");
+   const asNumber = (value) => Number.isFinite(Number(value)) ? Number(value) : null;
+   const formatBytes = (value) => {
+     const n = Number(value || 0);
+     if (!Number.isFinite(n) || n <= 0) return "0 B";
+     const units = ["B", "KB", "MB", "GB", "TB"];
+     let size = n;
+     let unit = 0;
+     while (size >= 1024 && unit < units.length - 1) { size /= 1024; unit += 1; }
+     return `${size.toFixed(unit === 0 ? 0 : 2)} ${units[unit]}`;
+   };
+   const currentReportData = () => {
+     const raw = globalThis.__moonapLastRuntimeReportPayload;
+     const result = globalThis.__moonapLastRuntimeResult || {};
+     if (raw && typeof raw === "object" && String(raw.request_id || "") === String(result.request_id || raw.request_id || "")) {
+       return { ...result, ...raw };
+     }
+     return result;
+   };
+   const rows = (items) => items
+     .filter(([, value]) => value !== undefined && value !== null && String(value) !== "")
+     .map(([label, value]) => `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value)}</td></tr>`)
+     .join("");
+   const buildHtml = () => {
+     const data = currentReportData();
+     if (!data || typeof data !== "object" || !String(data.request_id || data.summary || data.display_text || "").trim()) return "";
+     const title = String(data.result_kind || "").includes("fastq") ? "MoonAP Large FastQ Analysis Report" : "MoonAP Runtime Report";
+     const displayText = decodeText(data.display_text || data.download_content || data.summary || "");
+     const previewReads = Array.isArray(data.preview_reads) ? data.preview_reads : [];
+     const baseCounts = [
+       ["A", data.A_count],
+       ["C", data.C_count],
+       ["G", data.G_count],
+       ["T", data.T_count],
+       ["N", data.N_count],
+       ["Other", data.other_base_count]
+     ];
+     const baseTotal = baseCounts.reduce((sum, [, value]) => sum + (asNumber(value) || 0), 0);
+     const baseRows = baseCounts
+       .filter(([, value]) => value !== undefined && value !== null)
+       .map(([base, value]) => {
+         const n = asNumber(value) || 0;
+         const pct = baseTotal > 0 ? `${((n / baseTotal) * 100).toFixed(2)}%` : "-";
+         return `<tr><th>${escapeHtml(base)}</th><td>${escapeHtml(n)}</td><td>${escapeHtml(pct)}</td></tr>`;
+       }).join("");
+     const previewHtml = previewReads.length > 0
+       ? previewReads.map((read, index) => `<article class="preview-read"><h3>Preview read ${index + 1}</h3><pre>${escapeHtml(decodeText(read))}</pre></article>`).join("")
+       : (displayText ? `<pre>${escapeHtml(displayText)}</pre>` : "<p>No preview reads were captured.</p>");
+     return `<!doctype html>
+ <html lang="en">
+ <head>
+ <meta charset="utf-8" />
+ <meta name="viewport" content="width=device-width, initial-scale=1" />
+ <title>${escapeHtml(title)}</title>
+ <style>
+ :root { color-scheme: light; font-family: "Segoe UI", "Aptos", "Helvetica Neue", sans-serif; color: #17261f; background: #f2f5ef; font-variant-numeric: tabular-nums; }
+ body { margin: 0; padding: 32px; font-size: 16px; line-height: 1.55; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+ main { max-width: 1040px; margin: 0 auto; display: grid; gap: 22px; }
+ header { padding: 28px; border-radius: 24px; background: linear-gradient(135deg, #ffffff, #e7f2eb); border: 1px solid #cfe1d6; }
+ h1 { margin: 0 0 10px; font-size: clamp(30px, 4vw, 52px); line-height: 1.05; letter-spacing: -0.04em; font-weight: 750; }
+ section { padding: 22px; border-radius: 20px; background: rgba(255,255,255,0.86); border: 1px solid #d8e5dc; box-shadow: 0 16px 40px rgba(43,74,55,0.08); }
+ h2 { margin: 0 0 14px; font-size: 22px; line-height: 1.2; letter-spacing: -0.02em; font-weight: 720; }
+ table { width: 100%; border-collapse: collapse; }
+ th, td { text-align: left; border-bottom: 1px solid #e4ece7; padding: 11px 8px; vertical-align: middle; line-height: 1.45; }
+ th { width: 34%; color: #315241; font-weight: 680; }
+ td { color: #14251d; }
+ p { line-height: 1.6; }
+ pre { font-family: "Cascadia Mono", "JetBrains Mono", "SFMono-Regular", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; padding: 14px; border-radius: 14px; background: #102018; color: #e9fff3; line-height: 1.55; font-size: 14px; }
+ .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+ button { border: 1px solid #1f7a5b; background: #1f7a5b; color: white; border-radius: 999px; padding: 10px 16px; font: inherit; font-weight: 650; cursor: pointer; }
+ button.secondary { background: white; color: #1f7a5b; }
+ .note { color: #567064; }
+ </style>
+ </head>
+ <body>
+ <main>
+ <header>
+ <h1>${escapeHtml(title)}</h1>
+ <p>${escapeHtml(data.summary || "Browser-local report generated by MoonAP.")}</p>
+ <p class="note">File contents stayed in this browser. The report contains summary metrics and small previews only.</p>
+ <div class="actions"><button onclick="window.print()">Print / Save as PDF</button><button class="secondary" onclick="navigator.clipboard?.writeText(document.body.innerText)">Copy text</button></div>
+ </header>
+ <section><h2>File</h2><table>${rows([
+   ["File name", data.file_name],
+   ["File size", data.file_size_bytes !== undefined ? `${formatBytes(data.file_size_bytes)} (${data.file_size_bytes} bytes)` : ""],
+   ["Chunk count", data.chunk_count],
+   ["Chunk size", data.chunk_size_bytes !== undefined ? `${formatBytes(data.chunk_size_bytes)} (${data.chunk_size_bytes} bytes)` : ""],
+   ["Request ID", data.request_id]
+ ])}</table></section>
+ <section><h2>FastQ Summary</h2><table>${rows([
+   ["Estimated read count", data.estimated_read_count || data.reads_seen],
+   ["Total lines", data.total_lines || data.line_count],
+   ["Total bases", data.total_bases],
+   ["Malformed records", data.malformed_record_count],
+   ["Min read length", data.min_read_length],
+   ["Max read length", data.max_read_length],
+   ["Average read length", data.average_read_length],
+   ["Elapsed ms", data.elapsed_ms]
+ ])}</table></section>
+ ${baseRows ? `<section><h2>Base Composition</h2><table><tr><th>Base</th><th>Count</th><th>Percent</th></tr>${baseRows}</table></section>` : ""}
+ <section><h2>Preview / Raw Report</h2>${previewHtml}</section>
+ </main>
+ </body>
+ </html>`;
+   };
+   const reportFileName = () => {
+     const data = currentReportData();
+     const base = String(data?.file_name || data?.result_kind || "moonap-report").replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "moonap-report";
+     return `${base}.report.html`;
+   };
+   globalThis.__moonapReportRuntime = { buildHtml, reportFileName };
+ };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__record__demo__runtime__result = async (onDone, onError) => {
+   try {
+     const runtimeRequest = globalThis.__moonapLastRuntimeRequest;
+     if (!runtimeRequest || typeof runtimeRequest !== "object") {
+       throw new Error("No runtime request is available yet.");
+     }
+     const requestId = String(runtimeRequest.request_id || "");
+     if (!requestId) throw new Error("MoonAP runtime request_id is missing.");
+     const sourceUrl = String(runtimeRequest.source_url || "");
+     const wasmUrl = String(runtimeRequest.wasm_url || "");
+     const taskKind = String(runtimeRequest.task_kind || "");
+     const runtimeMode = String(runtimeRequest.runtime_mode || "");
+     const runtimeSpec = runtimeRequest?.runtime_spec && typeof runtimeRequest.runtime_spec === "object"
+       ? runtimeRequest.runtime_spec
+       : (runtimeRequest?.runtime_ui && typeof runtimeRequest.runtime_ui === "object" ? runtimeRequest.runtime_ui : {});
+     const ioContract = runtimeSpec?.io_contract && typeof runtimeSpec.io_contract === "object"
+       ? runtimeSpec.io_contract
+       : {};
+     const runtimeFields = Array.isArray(runtimeSpec.fields) ? runtimeSpec.fields : [];
+     const runtimeInputs = {};
+     for (const field of runtimeFields) {
+       const name = String(field?.name || "");
+       if (!name) continue;
+       const type = String(field?.type || "text").toLowerCase();
+       const fallback = field?.default;
+       const node = document.querySelector(`#runtime-field-${name}`);
+       const raw = type === "bool" || type === "boolean" || type === "checkbox" ? (node?.checked ? "true" : "false") : node?.value;
+       const text = String(raw ?? fallback ?? "");
+       runtimeInputs[name] = type === "int"
+         ? Number.parseInt(text, 10)
+         : type === "float"
+           ? Number.parseFloat(text)
+           : (type === "bool" || type === "boolean" || type === "checkbox")
+             ? text === "true"
+             : text;
+     }
+     const chunkSize = Math.max(256 * 1024, Number(ioContract.chunk_size_bytes) || (4 * 1024 * 1024));
+     const emitProgress = (data) => {
+       try {
+         const payload = Object.assign({
+           uploaded_bytes: 0,
+           llm_receives_file_contents: false
+         }, data || {});
+         const text = JSON.stringify(payload, null, 2);
+         const stateNode = document.querySelector("#state");
+         if (stateNode) stateNode.textContent = text;
+         const panel = document.querySelector("#resultPanel");
+         panel?.classList.add("is-open");
+         const setText = (selector, value) => {
+           const node = document.querySelector(selector);
+           if (node) node.textContent = String(value);
+         };
+         const formatBytes = (value) => {
+           const n = Number(value || 0);
+           if (n >= 1073741824) return `${(n / 1073741824).toFixed(2)} GB`;
+           if (n >= 1048576) return `${(n / 1048576).toFixed(2)} MB`;
+           if (n >= 1024) return `${(n / 1024).toFixed(1)} KB`;
+           return `${n} B`;
+         };
+         const fill = document.querySelector("#progressFill");
+         const progress = Math.max(0, Math.min(100, Number(payload.progress_percent ?? 0)));
+         if (fill) fill.style.width = `${progress}%`;
+         globalThis.__moonapLargeFileProgressRuntime?.update?.(payload);
+         setText("#resultStatus", payload.status || "running");
+         setText("#resultTitle",
+           String(payload.result_kind || "") === "streamed-file"
+             ? "Browser-local large-file generation"
+             : "Browser-local large-file analysis"
+         );
+         setText("#metricFile", payload.file_name || payload.download_name || "-");
+         setText("#metricProcessed", formatBytes(payload.bytes_processed ?? payload.file_size_bytes ?? 0));
+         setText("#metricReads", payload.reads_seen ?? payload.line_count ?? payload.chunk_count ?? 0);
+         setText("#metricTarget", payload.matching_line_count ?? payload.bytes_written ?? 0);
+         setText("#metricBases", payload.total_bases ?? payload.total_characters ?? payload.summary ?? "0");
+         setText("#metricUploaded", formatBytes(payload.uploaded_bytes ?? 0));
+       } catch {}
+     };
+     const runLargeFileAnalysisPayload = async () => {
+       const file = document.querySelector("#fileInput")?.files?.[0];
+       if (!file) {
+         throw new Error("Choose a local file first. MoonAP large-file analysis runs browser-locally in chunks.");
+       }
+       const searchText = String(runtimeInputs.search_text || "");
+       const maxPreviewLines = Math.max(0, Math.min(20, Number(runtimeInputs.max_preview_lines) || 3));
+       let offset = 0;
+       let carry = "";
+       let lineCount = 0;
+       let matchingLineCount = 0;
+       let totalCharacters = 0;
+       let chunkCount = 0;
+       const previewLines = [];
+       const started = performance.now();
+       while (offset < file.size) {
+         const end = Math.min(offset + chunkSize, file.size);
+         const text = await file.slice(offset, end).text();
+         const merged = carry + text;
+         const hasFinalNewline = merged.endsWith("\n") || merged.endsWith("\r");
+         const lines = merged.split(/\r?\n/);
+         carry = hasFinalNewline ? "" : String(lines.pop() || "");
+         for (const line of lines) {
+           lineCount += 1;
+           totalCharacters += line.length;
+           if (searchText !== "" && line.includes(searchText)) matchingLineCount += 1;
+           if (previewLines.length < maxPreviewLines) previewLines.push(line.slice(0, 240));
+         }
+         offset = end;
+         chunkCount += 1;
+         emitProgress({
+           status: "streaming-read",
+           result_kind: "large-file-report",
+           file_name: file.name,
+           file_size_bytes: file.size,
+           chunk_size_bytes: chunkSize,
+           chunk_count: chunkCount,
+           bytes_processed: offset,
+           progress_percent: file.size === 0 ? 100 : Math.floor((offset / file.size) * 100),
+           line_count: lineCount,
+           matching_line_count: matchingLineCount,
+           total_characters: totalCharacters
+         });
+         await new Promise((resolve) => setTimeout(resolve, 0));
+       }
+       if (carry !== "") {
+         lineCount += 1;
+         totalCharacters += carry.length;
+         if (searchText !== "" && carry.includes(searchText)) matchingLineCount += 1;
+         if (previewLines.length < maxPreviewLines) previewLines.push(carry.slice(0, 240));
+       }
+       const elapsedMs = Math.round(performance.now() - started);
+       const summary = searchText === ""
+         ? `Streamed ${file.name} locally in ${chunkCount} chunk(s).`
+         : `Streamed ${file.name} locally and counted lines containing "${searchText}".`;
+       const reportText = [
+         "MoonAP Large File Analysis",
+         `request_id: ${requestId}`,
+         `file_name: ${file.name}`,
+         `file_size_bytes: ${file.size}`,
+         `chunk_size_bytes: ${chunkSize}`,
+         `chunk_count: ${chunkCount}`,
+         `line_count: ${lineCount}`,
+         `matching_line_count: ${matchingLineCount}`,
+         `total_characters: ${totalCharacters}`,
+         `elapsed_ms: ${elapsedMs}`,
+         `search_text: ${searchText === "" ? "(none)" : searchText}`,
+         "",
+         "Preview lines:",
+         ...(previewLines.length === 0 ? ["(none captured)"] : previewLines)
+       ].join("\n");
+       return {
+         run_id: String(runtimeRequest.run_id || ""),
+         request_id: requestId,
+         status: "runtime-succeeded",
+         result_kind: "large-file-report",
+         runtime_inputs: runtimeInputs,
+         summary,
+         display_text: reportText,
+         stdout_text: `Browser-local chunked analysis completed for ${requestId}.`,
+         download_name: "moonap-large-file-analysis.txt",
+         download_content: reportText,
+         file_name: file.name,
+         file_size_bytes: file.size,
+         bytes_processed: file.size,
+         chunk_size_bytes: chunkSize,
+         chunk_count: chunkCount,
+         line_count: lineCount,
+         matching_line_count: matchingLineCount,
+         total_characters: totalCharacters,
+         progress_percent: 100,
+         llm_receives_file_contents: false,
+         accepted_for_skill: false
+       };
+     };
+     const runLargeFastqAnalysisPayload = async () => {
+       const file = document.querySelector("#fileInput")?.files?.[0];
+       if (!file) {
+         throw new Error("Choose a local FastQ file first. MoonAP large FastQ analysis runs browser-locally in chunks.");
+       }
+       const parsedPreviewReads = Number(runtimeInputs.max_preview_reads);
+       const maxPreviewReads = Math.max(0, Math.min(20, Number.isFinite(parsedPreviewReads) ? parsedPreviewReads : 3));
+       const validateStructure = !["false", "0", "no", "off"].includes(String(runtimeInputs.validate_fastq_structure || "true").trim().toLowerCase());
+       const countBases = !["false", "0", "no", "off"].includes(String(runtimeInputs.count_bases || "true").trim().toLowerCase());
+       let offset = 0;
+       let carry = "";
+       let chunkCount = 0;
+       let lineCount = 0;
+       let readCount = 0;
+       let totalBases = 0;
+       let aCount = 0;
+       let cCount = 0;
+       let gCount = 0;
+       let tCount = 0;
+       let nCount = 0;
+       let otherBaseCount = 0;
+       let minReadLength = null;
+       let maxReadLength = 0;
+       let malformedRecordCount = 0;
+       const previewReads = [];
+       const recordLines = [];
+       const countSequence = (sequence) => {
+         const length = sequence.length;
+         totalBases += length;
+         minReadLength = minReadLength == null ? length : Math.min(minReadLength, length);
+         maxReadLength = Math.max(maxReadLength, length);
+         if (!countBases) return;
+         for (let i = 0; i < sequence.length; i += 1) {
+           const ch = sequence[i].toUpperCase();
+           if (ch === "A") aCount += 1;
+           else if (ch === "C") cCount += 1;
+           else if (ch === "G") gCount += 1;
+           else if (ch === "T") tCount += 1;
+           else if (ch === "N") nCount += 1;
+           else otherBaseCount += 1;
+         }
+       };
+       const consumeRecord = (header, sequence, plus, quality) => {
+         const malformed = validateStructure && (!String(header || "").startsWith("@") || String(plus || "") !== "+" || String(sequence || "").length !== String(quality || "").length);
+         if (malformed) malformedRecordCount += 1;
+         readCount += 1;
+         countSequence(String(sequence || ""));
+         if (previewReads.length < maxPreviewReads) {
+           previewReads.push(`${header}\n${String(sequence || "").slice(0, 240)}\n${plus}\n${String(quality || "").slice(0, 240)}`);
+         }
+       };
+       const consumeLine = (line) => {
+         lineCount += 1;
+         recordLines.push(String(line || ""));
+         if (recordLines.length === 4) {
+           consumeRecord(recordLines[0], recordLines[1], recordLines[2], recordLines[3]);
+           recordLines.length = 0;
+         }
+       };
+       const started = performance.now();
+       while (offset < file.size) {
+         const end = Math.min(offset + chunkSize, file.size);
+         const text = await file.slice(offset, end).text();
+         const merged = carry + text;
+         const hasFinalNewline = merged.endsWith("\n") || merged.endsWith("\r");
+         const lines = merged.split(/\r?\n/);
+         carry = hasFinalNewline ? "" : String(lines.pop() || "");
+         if (hasFinalNewline && lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+         for (const line of lines) {
+           consumeLine(line);
+         }
+         offset = end;
+         chunkCount += 1;
+         emitProgress({
+           status: "streaming-fastq-analysis",
+           result_kind: "large-fastq-report",
+           file_name: file.name,
+           file_size_bytes: file.size,
+           chunk_size_bytes: chunkSize,
+           chunk_count: chunkCount,
+           bytes_processed: offset,
+           progress_percent: file.size === 0 ? 100 : Math.floor((offset / file.size) * 100),
+           line_count: lineCount,
+           reads_seen: readCount,
+           total_bases: totalBases,
+           total_characters: totalBases,
+           matching_line_count: nCount,
+           llm_receives_file_contents: false
+         });
+         await new Promise((resolve) => setTimeout(resolve, 0));
+       }
+       if (carry !== "") consumeLine(carry);
+       if (recordLines.length > 0) malformedRecordCount += 1;
+       const elapsedMs = Math.round(performance.now() - started);
+       const avgReadLength = readCount === 0 ? 0 : totalBases / readCount;
+       const reportText = [
+         "MoonAP Large FastQ Analysis",
+         `request_id: ${requestId}`,
+         `file_name: ${file.name}`,
+         `file_size_bytes: ${file.size}`,
+         `chunk_size_bytes: ${chunkSize}`,
+         `chunk_count: ${chunkCount}`,
+         `total_lines: ${lineCount}`,
+         `estimated_read_count: ${readCount}`,
+         `total_bases: ${totalBases}`,
+         `A_count: ${aCount}`,
+         `C_count: ${cCount}`,
+         `G_count: ${gCount}`,
+         `T_count: ${tCount}`,
+         `N_count: ${nCount}`,
+         `other_base_count: ${otherBaseCount}`,
+         `min_read_length: ${minReadLength == null ? 0 : minReadLength}`,
+         `max_read_length: ${maxReadLength}`,
+         `average_read_length: ${avgReadLength.toFixed(2)}`,
+         `malformed_record_count: ${malformedRecordCount}`,
+         `elapsed_ms: ${elapsedMs}`,
+         "",
+         "Preview reads:",
+         ...(previewReads.length === 0 ? ["(none captured)"] : previewReads)
+       ].join("\n");
+       return {
+         run_id: String(runtimeRequest.run_id || ""),
+         request_id: requestId,
+         status: "runtime-succeeded",
+         result_kind: "large-fastq-report",
+         runtime_inputs: runtimeInputs,
+         summary: `Analyzed ${file.name} locally: ${readCount} FastQ reads, ${totalBases} bases.`,
+         display_text: reportText,
+         stdout_text: `Browser-local FastQ analysis completed for ${requestId}.`,
+         download_name: "moonap-large-fastq-analysis.txt",
+         download_content: reportText,
+         file_name: file.name,
+         file_size_bytes: file.size,
+         bytes_processed: file.size,
+         chunk_size_bytes: chunkSize,
+         chunk_count: chunkCount,
+         line_count: lineCount,
+         reads_seen: readCount,
+         estimated_read_count: readCount,
+         total_bases: totalBases,
+         A_count: aCount,
+         C_count: cCount,
+         G_count: gCount,
+         T_count: tCount,
+         N_count: nCount,
+         other_base_count: otherBaseCount,
+         min_read_length: minReadLength == null ? 0 : minReadLength,
+         max_read_length: maxReadLength,
+         average_read_length: Number(avgReadLength.toFixed(2)),
+         total_characters: totalBases,
+         matching_line_count: nCount,
+         malformed_record_count: malformedRecordCount,
+         preview_reads: previewReads,
+         progress_percent: 100,
+         llm_receives_file_contents: false,
+         accepted_for_skill: false
+       };
+     };
+     const runLargeFileGenerationPayload = async () => {
+       if (typeof window.showSaveFilePicker !== "function") {
+         throw new Error("This browser does not support streamed save-file output yet.");
+       }
+       const encoder = new TextEncoder();
+       const outputNameRaw = String(runtimeInputs.output_name || "moonap-output.fastq").trim() || "moonap-output.fastq";
+       const fileNameRuntime = globalThis.__moonapFileNameRuntime;
+       const outputName = fileNameRuntime?.sanitize(outputNameRaw, "moonap-output.fastq") || "moonap-output.fastq";
+       const targetSizeMb = Math.max(1, Math.min(1024, Number(runtimeInputs.target_size_mb) || 128));
+       const targetBytes = targetSizeMb * 1024 * 1024;
+       const readLength = Math.max(20, Math.min(20000, Number(runtimeInputs.read_length ?? runtimeInputs.line_length) || 150));
+       const headerPrefixRaw = runtimeInputs.read_header_prefix || runtimeInputs.header_prefix || "moonap_read";
+       const headerPrefix = fileNameRuntime?.sanitizeToken(headerPrefixRaw, "moonap_read") || "moonap_read";
+       const nRate = Math.max(0, Math.min(1, Number(runtimeInputs.n_rate) || 0.01));
+       const qualityChar = String(runtimeInputs.quality_char || "I").slice(0, 1) || "I";
+       let seed = Math.max(0, Math.floor(Number(runtimeInputs.random_seed) || 42)) >>> 0;
+       const bases = ["A", "C", "G", "T"];
+       const rand = () => {
+         seed = (seed * 1664525 + 1013904223) >>> 0;
+         return seed / 4294967296;
+       };
+       const fileHandle = await window.showSaveFilePicker({
+         suggestedName: outputName,
+         types: [{ description: "FastQ files", accept: { "text/plain": [".fastq", ".fq", ".txt"] } }]
+       });
+       const writable = await fileHandle.createWritable();
+       let bytesWritten = 0;
+       let readIndex = 0;
+       let chunkCount = 0;
+       const started = performance.now();
+       const materializeRecord = (index) => {
+         let seq = "";
+         for (let i = 0; i < readLength; i += 1) {
+           seq += rand() < nRate ? "N" : bases[Math.floor(rand() * bases.length)];
+         }
+         return `@${headerPrefix}_${index}\n${seq}\n+\n${qualityChar.repeat(readLength)}\n`;
+       };
+       while (bytesWritten < targetBytes) {
+         const records = [];
+         let chunkBytes = 0;
+         while (chunkBytes < chunkSize && bytesWritten + chunkBytes < targetBytes) {
+           const record = materializeRecord(readIndex);
+           const bytes = encoder.encode(record);
+           const remaining = targetBytes - bytesWritten - chunkBytes;
+           if (bytes.length > remaining) {
+             break;
+           }
+           records.push(record);
+           chunkBytes += bytes.length;
+           readIndex += 1;
+         }
+         if (records.length === 0) break;
+         const chunkText = records.join("");
+         await writable.write(chunkText);
+         bytesWritten += encoder.encode(chunkText).length;
+         chunkCount += 1;
+         emitProgress({
+           status: "streaming-write",
+           result_kind: "streamed-file",
+           file_name: outputName,
+           chunk_size_bytes: chunkSize,
+           chunk_count: chunkCount,
+           bytes_written: bytesWritten,
+           bytes_processed: bytesWritten,
+           target_bytes: targetBytes,
+           progress_percent: targetBytes === 0 ? 100 : Math.floor((bytesWritten / targetBytes) * 100),
+           total_characters: bytesWritten,
+           reads_seen: readIndex
+         });
+         await new Promise((resolve) => setTimeout(resolve, 0));
+       }
+       await writable.close();
+       const elapsedMs = Math.round(performance.now() - started);
+       const displayText = [
+         "MoonAP Large File Generation",
+         `request_id: ${requestId}`,
+         `output_name: ${outputName}`,
+         `target_size_mb: ${targetSizeMb}`,
+         `bytes_written: ${bytesWritten}`,
+         `chunk_size_bytes: ${chunkSize}`,
+         `chunk_count: ${chunkCount}`,
+         `elapsed_ms: ${elapsedMs}`,
+         `fastq_reads_written: ${readIndex}`,
+         `read_length: ${readLength}`,
+         `read_header_prefix: ${headerPrefix}`,
+         `n_rate: ${nRate}`,
+         `quality_char: ${qualityChar}`
+       ].join("\n");
+       return {
+         run_id: String(runtimeRequest.run_id || ""),
+         request_id: requestId,
+         status: "runtime-succeeded",
+         result_kind: "streamed-file",
+         runtime_inputs: runtimeInputs,
+         summary: `Generated ${outputName} locally with browser streaming output (${readIndex} FastQ reads).`,
+         display_text: displayText,
+         stdout_text: `Browser-local streamed generation completed for ${requestId}.`,
+         download_name: "",
+         download_content: "",
+         file_name: outputName,
+         bytes_written: bytesWritten,
+         bytes_processed: bytesWritten,
+         reads_seen: readIndex,
+         chunk_size_bytes: chunkSize,
+         chunk_count: chunkCount,
+         progress_percent: 100,
+         llm_receives_file_contents: false,
+         accepted_for_skill: false
+       };
+     };
+     const buildFastqPayload = () => {
+       const readCount = Math.max(1, Math.min(1000000, Number(runtimeInputs.read_count) || 10000));
+       const readLength = Math.max(1, Math.min(10000, Number(runtimeInputs.read_length) || 150));
+       const nRate = Math.max(0, Math.min(1, Number(runtimeInputs.n_rate) || 0.01));
+       const originalSeed = Number(runtimeInputs.random_seed) || 42;
+       let seed = originalSeed;
+       const bases = ["A", "C", "G", "T"];
+       const rand = () => {
+         seed = (seed * 1664525 + 1013904223) >>> 0;
+         return seed / 4294967296;
+       };
+       const chunks = [];
+       let nCount = 0;
+       let totalBases = 0;
+       for (let read = 0; read < readCount; read += 1) {
+         let seq = "";
+         for (let i = 0; i < readLength; i += 1) {
+           totalBases += 1;
+           if (rand() < nRate) {
+             seq += "N";
+             nCount += 1;
+           } else {
+             seq += bases[Math.floor(rand() * bases.length)];
+           }
+         }
+         chunks.push(`@moonap_${read}\n${seq}\n+\n${"I".repeat(readLength)}\n`);
+       }
+       const blob = new Blob(chunks, { type: "text/plain;charset=utf-8" });
+       const url = URL.createObjectURL(blob);
+       const link = document.createElement("a");
+       link.href = url;
+       link.download = "moonap-demo.fastq";
+       document.body.append(link);
+       link.click();
+       link.remove();
+       setTimeout(() => URL.revokeObjectURL(url), 1000);
+       return {
+         run_id: String(runtimeRequest.run_id || ""),
+         request_id: requestId,
+         status: "runtime-succeeded",
+         result_kind: "fastq-file",
+         runtime_inputs: runtimeInputs,
+         summary: `Generated moonap-demo.fastq with ${readCount} reads of length ${readLength}.`,
+         display_text: `FastQ file generated and downloaded in the browser.\nread_count=${readCount}\nread_length=${readLength}\nn_rate=${nRate}\nrandom_seed=${originalSeed}\nexpected_n_count=${nCount}\ntotal_bases=${totalBases}`,
+         stdout_text: `Browser-local FastQ generation completed for ${requestId}.`,
+         download_name: "",
+         download_content: "",
+         accepted_for_skill: false
+       };
+     };
+     const buildGenericPayload = (summary, displayText, resultKind = "text") => {
+       return {
+         run_id: String(runtimeRequest.run_id || ""),
+         request_id: requestId,
+         status: "runtime-succeeded",
+         result_kind: resultKind,
+         runtime_inputs: runtimeInputs,
+         summary,
+         display_text: displayText,
+         stdout_text: `Browser-local runtime step completed for ${requestId}.`,
+         download_name: "runtime-preview.txt",
+         download_content: `MoonAP runtime result\nrequest_id: ${requestId}\ntask_kind: ${taskKind}\nsource_url: ${sourceUrl}\nwasm_url: ${wasmUrl}\n`,
+         accepted_for_skill: false
+       };
+     };
+     let payload;
+     if (taskKind === "large-fastq-analysis" || String(runtimeSpec.domain_profile || "").toLowerCase() === "fastq") {
+       payload = await runLargeFastqAnalysisPayload();
+     } else if (String(ioContract.host_capability || "") === "chunked-local-analysis" || taskKind === "large-file-analysis") {
+       payload = await runLargeFileAnalysisPayload();
+     } else if (String(ioContract.host_capability || "") === "streamed-local-generation" || taskKind === "large-file-generation") {
+       payload = await runLargeFileGenerationPayload();
+     } else if (taskKind === "fastq-generator") {
+       payload = buildFastqPayload();
+     } else if (taskKind === "excel-generator") {
+       payload = buildGenericPayload(
+         "MoonAP prepared an Excel-like generator runtime step. Download-oriented browser generation is the next task-specific executor to implement.",
+         `Task kind: ${taskKind}\nruntime_mode: ${runtimeMode}\nThe runtime form has been rendered from runtime_spec. A dedicated Excel generator executor is still pending.`
+       );
+     } else if (taskKind === "fastq-analysis" || taskKind === "finance-report-analysis") {
+       payload = buildGenericPayload(
+         "MoonAP prepared an analysis runtime step. File-input analysis executor is still pending.",
+         `Task kind: ${taskKind}\nruntime_mode: ${runtimeMode}\nThe browser can now distinguish file-analysis tasks, but the task-specific analysis executor is still pending.`,
+         "report"
+       );
+     } else if (taskKind === "browser-game") {
+       payload = buildGenericPayload(
+         "MoonAP prepared an interactive game runtime step. Interactive host execution is still pending.",
+         `Task kind: ${taskKind}\nruntime_mode: ${runtimeMode}\nThe browser can now distinguish interactive tasks, but the task-specific game host is still pending.`,
+         "interactive-view"
+       );
+     } else {
+       payload = buildGenericPayload(
+         "MoonAP recorded a browser-side runtime result for the compiled wasm artifact.",
+         `Demo runtime result recorded for ${requestId}. Source URL: ${sourceUrl || "n/a"}. wasm URL: ${wasmUrl || "n/a"}.`
+       );
+     }
+     if (String(payload?.result_kind || "").includes("report") || resultMode === "report") {
+       globalThis.__moonapLastRuntimeReportPayload = payload;
+     }
+     const response = await fetch("/api/task/execute", {
+       method: "POST",
+       headers: { "Content-Type": "application/json; charset=utf-8" },
+       body: JSON.stringify(payload)
+     });
+     const text = await response.text();
+     if (!response.ok) throw new Error(text || `Runtime execute failed (${response.status})`);
+     if (payload && (taskKind === "large-file-analysis" || taskKind === "large-fastq-analysis" || taskKind === "large-file-generation")) {
+       globalThis.__moonapLargeFileProgressRuntime?.update?.({ ...payload, progress_percent: 100, status: "runtime-succeeded" });
+     }
+     onDone(String(text));
+   } catch (error) {
+     globalThis.__moonapLargeFileProgressRuntime?.error?.(error instanceof Error ? error.message : String(error));
+     onError(error instanceof Error ? error.message : String(error));
+   }
+ };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app33browser__register__runtime__ready = async (onDone, onError) => {
+   try {
+     const artifact = globalThis.__moonapLastArtifact;
+     const compileReport = globalThis.__moonapLastCompileReport;
+     const source = String(artifact?.moonbit_source || "");
+     if (!source.trim()) throw new Error("No captured MoonBit source is available for runtime registration.");
+     if (!compileReport || typeof compileReport !== "object" || compileReport.ok !== true) {
+       throw new Error("MoonAP runtime registration requires a successful compile report.");
+     }
+     const requestStage = artifact?.moonap_adaptation_used
+       ? "moonap-adaptation"
+       : artifact?.quality_assessment_used
+         ? "quality-repair"
+         : artifact?.compile_summary_used
+           ? "compile-repair"
+           : "browser-direct";
+     const envelope = [
+       `TASK_TITLE\t${String(artifact?.name || "MoonBit task")}`,
+       `ORIGINAL_PROMPT\t${String(artifact?.prompt || "")}`,
+       `LLM_PROVIDER\t${String(artifact?.llm_provider || "")}`,
+       `LLM_MODEL\t${String(artifact?.llm_model || "")}`,
+       `REQUEST_STAGE\t${String(requestStage)}`,
+       `COMPILE_OK\t${String(Boolean(compileReport.ok))}`,
+       `WASM_PATH\t${String(compileReport.wasm_path || "")}`,
+       "SOURCE_BEGIN",
+       source,
+       "SOURCE_END",
+       "COMPILE_REPORT_BEGIN",
+       JSON.stringify(compileReport, null, 2),
+       "COMPILE_REPORT_END",
+       "RAW_RESPONSE_BEGIN",
+       String(artifact?.llm_response_preview || ""),
+       "RAW_RESPONSE_END"
+     ].join("\n");
+     fetch("/api/logs/moonap-runtime.log", {
+       method: "POST",
+       headers: { "Content-Type": "text/plain; charset=utf-8" },
+       body: JSON.stringify({
+         ts: new Date().toISOString(),
+         kind: "runtime-exec",
+         label: "runtime-request-register-attempt",
+         text: String(artifact?.prompt || "")
+       }) + "\n",
+       keepalive: true
+     }).catch(() => {});
+     const response = await fetch("/api/runtime-exec/register-ready", {
+       method: "POST",
+       headers: { "Content-Type": "text/plain; charset=utf-8" },
+       body: envelope
+     });
+     const text = await response.text();
+     if (!response.ok) throw new Error(text || `Runtime registration failed (${response.status})`);
+     fetch("/api/logs/moonap-runtime.log", {
+       method: "POST",
+       headers: { "Content-Type": "text/plain; charset=utf-8" },
+       body: JSON.stringify({
+         ts: new Date().toISOString(),
+         kind: "runtime-exec",
+         label: "runtime-request-register-succeeded",
+         text: String(text || "")
+       }) + "\n",
+       keepalive: true
+     }).catch(() => {});
+     onDone(String(text));
+   } catch (error) {
+     fetch("/api/logs/moonap-runtime.log", {
+       method: "POST",
+       headers: { "Content-Type": "text/plain; charset=utf-8" },
+       body: JSON.stringify({
+         ts: new Date().toISOString(),
+         kind: "runtime-exec",
+         label: "runtime-request-register-failed",
+         text: String(error instanceof Error ? error.message : String(error))
+       }) + "\n",
+       keepalive: true
+     }).catch(() => {});
+     onError(error instanceof Error ? error.message : String(error));
+   }
  };
 const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__store__compile__report = (raw) => {
    try {
@@ -310,41 +1705,45 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app57browser__repair__la
      try { missingSignals = JSON.parse(String(assessment?.missing_signals_json || "[]")); } catch {}
      try { preserveConstraints = JSON.parse(String(assessment?.preserve_constraints_json || "[]")); } catch {}
      const originalTask = String(artifact?.prompt || "Generate MoonBit code for the requested task.");
-     const systemPrompt = [
-       "You are improving MoonBit code for MoonAP after the native compile probe already succeeded.",
-       "Target language: MoonBit 0.9.",
-       "Return ONLY the revised contents of cmd/main/main.mbt.",
-       "Do NOT return markdown fences, explanations, bullet lists, moon.pkg, or moon.mod.json.",
-       "Any non-code text is a failed repair.",
-       "Preserve compilability under wasm-gc while improving the task-specific quality signals.",
-       "Preserve the original task goal."
-     ].join("\\n");
-     const userPrompt = [
-       "Read this MoonBit 0.9 primer first and follow it strictly:",
-       String(knowledgePack || ""),
-       "",
-       `Original task: ${originalTask}`,
-       "",
-       "System assessment after a successful compile:",
-       `- task_kind: ${String(assessment?.task_kind || "general-moonbit")}`,
-       `- title: ${String(assessment?.title || "System assessment failed")}`,
-       `- summary: ${String(assessment?.summary || "")}`,
-       `- repair_hint: ${String(assessment?.repair_hint || "")}`,
-       "",
-       "Machine-detected missing signals:",
-       ...(Array.isArray(missingSignals) && missingSignals.length > 0 ? missingSignals.map((item) => `- ${String(item)}`) : ["- none listed; improve task structure conservatively"]),
-       "",
-       "Constraints to preserve:",
-       ...(Array.isArray(preserveConstraints) && preserveConstraints.length > 0 ? preserveConstraints.map((item) => `- ${String(item)}`) : ["- preserve the original task goal", "- keep wasm-gc compatibility"]),
-       "",
-       "Current source:",
-       source,
-       "",
-       "Please revise the source so it still compiles and better satisfies the system assessment.",
-       "Return the full corrected cmd/main/main.mbt file and nothing else."
-     ].join("\\n");
-     updatePrompts("quality-repair / full", systemPrompt, userPrompt);
+     const buildQualityRepairPrompts = (llm) => {
+       const systemPrompt = [
+         "You are an AI coder.",
+         "You only write MoonBit code.",
+         "Your job is to improve MoonBit code for the user's task after compile already succeeded.",
+         "Return only the full contents of cmd/main/main.mbt."
+       ].join("\\n");
+       const userPrompt = [
+         `Original task: ${originalTask}`,
+         "",
+         "System assessment:",
+         `- task_kind: ${String(assessment?.task_kind || "general-moonbit")}`,
+         `- title: ${String(assessment?.title || "System assessment failed")}`,
+         `- summary: ${String(assessment?.summary || "")}`,
+         `- repair_hint: ${String(assessment?.repair_hint || "")}`,
+         "",
+         "Missing signals:",
+         ...(Array.isArray(missingSignals) && missingSignals.length > 0 ? missingSignals.map((item) => `- ${String(item)}`) : ["- none listed; improve conservatively"]),
+         "",
+         "Constraints to preserve:",
+         ...(Array.isArray(preserveConstraints) && preserveConstraints.length > 0 ? preserveConstraints.map((item) => `- ${String(item)}`) : ["- preserve the original task goal", "- keep wasm-gc compatibility"]),
+         "",
+         "Current source:",
+         source,
+         "",
+         "Revise the source so it still compiles and better satisfies the system assessment.",
+         "Return the full corrected cmd/main/main.mbt file and nothing else."
+       ].join("\\n");
+       return {
+         modeText: "quality-repair / frontier-direct",
+         systemPrompt,
+         userPrompt
+       };
+     };
      const requestJson = async (llm) => {
+       const promptPack = buildQualityRepairPrompts(llm);
+       const systemPrompt = promptPack.systemPrompt;
+       const userPrompt = promptPack.userPrompt;
+       updatePrompts(promptPack.modeText, systemPrompt, userPrompt);
        if (llm.provider === "gemini") {
          const url = `${llm.baseUrl}/v1beta/models/${encodeURIComponent(llm.model)}:generateContent`;
          const json = await proxyPost(url, {
@@ -473,6 +1872,192 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app32browser__compile__l
      onError(error instanceof Error ? error.message : String(error));
    }
  };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app65browser__should__adapt__last__artifact__for__large__file__runtime = () => {
+   const artifact = globalThis.__moonapLastArtifact;
+   if (!artifact || typeof artifact !== "object") return false;
+   if (artifact.moonap_adaptation_used) return false;
+   const source = String(artifact?.moonbit_source || "");
+   if (!source.trim()) return false;
+   const text = `${String(artifact?.prompt || "")}\n${source}`.toLowerCase();
+   const wantsLarge = text.includes("large file") || text.includes("large-file") || text.includes("1gb") || text.includes("streamed") || text.includes("streaming") || text.includes("chunk");
+   const wantsGeneration = text.includes("generate") || text.includes("generator") || text.includes("output") || text.includes("write") || text.includes("writing") || text.includes("save");
+   const wantsAnalysis = text.includes("analy") || text.includes("count") || text.includes("scan") || text.includes("parse") || text.includes("report");
+   return wantsLarge && (wantsGeneration || wantsAnalysis);
+ };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app57browser__adapt__last__artifact__for__large__file__runtime = async (onDone, onError) => {
+   try {
+     const artifact = globalThis.__moonapLastArtifact;
+     const source = String(artifact?.moonbit_source || "");
+     if (!source.trim()) throw new Error("No compiled MoonBit source is available for MoonAP runtime adaptation.");
+     if (artifact?.moonap_adaptation_used) throw new Error("MoonAP runtime adaptation has already been applied.");
+     const prompt = String(artifact?.prompt || "");
+     const lower = `${prompt}\n${source}`.toLowerCase();
+     const wantsGeneration = lower.includes("generate") || lower.includes("generator") || lower.includes("output") || lower.includes("write") || lower.includes("writing") || lower.includes("save");
+     const adapterKind = wantsGeneration ? "large-file-generation" : "large-file-analysis";
+     const saved = (() => {
+       try {
+         const parsed = JSON.parse(localStorage.getItem("moonap.llm.router.v1") || "{}");
+         return parsed && typeof parsed === "object" ? parsed : {};
+       } catch {
+         return {};
+       }
+     })();
+     const providers = Array.isArray(saved.providers)
+       ? saved.providers.filter((item) => item.enabled && String(item.apiKey || "").trim() !== "" && String(item.test_status || "") !== "failed")
+       : [];
+     if (providers.length === 0) throw new Error("No enabled LLM provider is available for MoonAP runtime adaptation.");
+     const cursor = Number.isFinite(saved.cursor) ? saved.cursor : 0;
+     const start = ((cursor % providers.length) + providers.length) % providers.length;
+     const ordered = providers.slice(start).concat(providers.slice(0, start));
+     const setText = (selector, value) => {
+       const node = document.querySelector(selector);
+       if (node) node.textContent = String(value || "");
+     };
+     const extractSource = typeof globalThis.__moonapExtractMoonBitSource === "function"
+       ? globalThis.__moonapExtractMoonBitSource
+       : (value) => String(value || "");
+     const systemPrompt = [
+       "You are an AI coder.",
+       "You only write MoonBit code.",
+       "Adapt already-compiling MoonBit business code to the MoonAP large-file runtime contract.",
+       "Return only the full contents of cmd/main/main.mbt."
+     ].join("\n");
+     const generationContract = [
+       "Required adapter functions:",
+       "- fn moonap_runtime_spec() -> String",
+       "- fn moonap_preview(params_json : String) -> String",
+       "- fn moonap_generate_chunk(params_json : String, start_index : Int, max_bytes : Int) -> String",
+       "",
+       "moonap_runtime_spec() returns JSON text with profile_id=large-file-generation.",
+       "Use platform fields output_name, target_size_mb, chunk_size_bytes.",
+       "Add app fields useful for the business logic, such as read_length, header_prefix, line_template, random_seed, n_rate, or quality_char.",
+       "moonap_generate_chunk should return a chunk of generated text using start_index as the record or line index."
+     ].join("\n");
+     const analysisContract = [
+       "Required adapter functions:",
+       "- fn moonap_runtime_spec() -> String",
+       "- fn moonap_init(params_json : String) -> String",
+       "- fn moonap_analyze_chunk(state_json : String, chunk_text : String) -> String",
+       "- fn moonap_finish(state_json : String) -> String",
+       "",
+       "moonap_runtime_spec() returns JSON text with profile_id=large-file-analysis.",
+       "Use platform fields input_file, chunk_size_bytes, max_preview_lines.",
+       "Add app fields useful for the business logic, such as search_text, min_quality, target_base, or count options."
+     ].join("\n");
+     const userPrompt = [
+       "Original user task:",
+       prompt,
+       "",
+       "MoonAP adaptation target:",
+       adapterKind,
+       "",
+       "Keep existing business functions. Do not rewrite from scratch. Do not use imports. Keep the adapted file compilable.",
+       adapterKind === "large-file-generation" ? generationContract : analysisContract,
+       "",
+       "Already compiling MoonBit source:",
+       "```moonbit",
+       source,
+       "```"
+     ].join("\n");
+     setText("#promptMode", "moonap-adaptation / frontier-direct");
+     setText("#promptSystem", systemPrompt);
+     setText("#promptUser", userPrompt);
+     const proxyPost = async (url, headers, body) => {
+       const envelope = [
+         `URL\t${String(url)}`,
+         ...Object.entries(headers || {}).map(([key, value]) => `HEADER\t${String(key)}\t${String(value).replace(/\r?\n/g, " ")}`),
+         "BODY",
+         String(body)
+       ].join("\n");
+       const response = await fetch("/api/llm/proxy", {
+         method: "POST",
+         headers: { "Content-Type": "text/plain; charset=utf-8" },
+         body: envelope
+       });
+       const text = await response.text();
+       let json = {};
+       try {
+         json = JSON.parse(text);
+       } catch {
+         throw new Error(`Provider returned non-JSON (${response.status}): ${String(text || "").slice(0, 240)}`);
+       }
+       if (!response.ok) throw new Error(`Provider/proxy error (${response.status}): ${JSON.stringify(json).slice(0, 500)}`);
+       return json;
+     };
+     const requestJson = async (item) => {
+       if (String(item.key || "") === "gemini") throw new Error("Gemini adaptation path is not enabled in the minimal implementation yet.");
+       const rawBaseUrl = String(item.baseUrl || "").trim();
+       const baseUrl = rawBaseUrl.endsWith("/") ? rawBaseUrl.slice(0, -1) : rawBaseUrl;
+       let url = `${baseUrl}/chat/completions`;
+       if (String(item.key || "") === "zai") {
+         if (baseUrl.endsWith("/chat/completions")) {
+           url = baseUrl;
+         } else if (baseUrl === "https://open.bigmodel.cn" || baseUrl === "https://open.bigmodel.cn/") {
+           url = "https://open.bigmodel.cn/api/paas/v4/chat/completions";
+         } else if (!baseUrl.includes("/api/paas/v4")) {
+           url = `${baseUrl}/api/paas/v4/chat/completions`;
+         }
+       }
+       const headers = {
+         "Content-Type": "application/json",
+         "Authorization": `Bearer ${String(item.apiKey || "")}`
+       };
+       if (String(item.key || "") === "openrouter") {
+         headers["HTTP-Referer"] = "http://127.0.0.1:3000";
+         headers["X-Title"] = "MoonAP";
+       }
+       return await proxyPost(url, headers, JSON.stringify({
+         model: item.model,
+         messages: [
+           { role: "system", content: systemPrompt },
+           { role: "user", content: userPrompt }
+         ],
+         temperature: 0.1
+       }));
+     };
+     let adapted = null;
+     let selected = null;
+     const failures = [];
+     for (let index = 0; index < ordered.length; index += 1) {
+       const item = ordered[index];
+       try {
+         const json = await requestJson(item);
+         const text = String(json?.choices?.[0]?.message?.content || "").trim();
+         if (!text) throw new Error(`${String(item.key || "provider")} returned no adapted MoonBit source.`);
+         adapted = { source: text, raw: json };
+         selected = item;
+         const nextCursor = (start + index + 1) % providers.length;
+         localStorage.setItem("moonap.llm.router.v1", JSON.stringify({
+           providers: Array.isArray(saved.providers) ? saved.providers : providers,
+           cursor: nextCursor,
+           savedAt: saved.savedAt || new Date().toISOString()
+         }));
+         break;
+       } catch (error) {
+         failures.push(`${String(item.key || "provider")}/${String(item.model || "model")}: ${error instanceof Error ? error.message : String(error)}`);
+       }
+     }
+     if (!adapted || !selected) throw new Error(`All enabled providers failed during MoonAP runtime adaptation. ${failures.join(" | ")}`);
+     const cleaned = extractSource(String(adapted.source || ""));
+     const nextArtifact = {
+       ...(artifact || {}),
+       moonbit_source: cleaned,
+       llm_provider: String(selected.key || "unknown"),
+       llm_model: String(selected.model || "unknown"),
+       moonap_adaptation_used: {
+         adapter_kind: adapterKind,
+         provider: String(selected.key || "unknown"),
+         model: String(selected.model || "unknown")
+       },
+       llm_response_preview: JSON.stringify(adapted.raw).slice(0, 1200),
+       created_at: new Date().toISOString()
+     };
+     globalThis.__moonapLastArtifact = nextArtifact;
+     onDone(JSON.stringify(nextArtifact, null, 2));
+   } catch (error) {
+     onError(error instanceof Error ? error.message : String(error));
+   }
+ };
 const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app55browser__repair__last__artifact__with__compile__summary = async (formalVerification, knowledgePack, onDone, onError) => {
    try {
      const artifact = globalThis.__moonapLastArtifact;
@@ -537,62 +2122,50 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app55browser__repair__la
        setText("#promptUser", userPromptText || "No LLM prompt captured yet.");
      };
      const originalTask = String(artifact?.prompt || "Generate a Personal FastQ Generator in MoonBit.");
-     const lowerTask = originalTask.toLowerCase();
-     const isFastqTask = lowerTask.includes("fastq") && lowerTask.includes("moonbit");
-     const systemPrompt = [
-       "You are repairing MoonBit code for MoonAP.",
-       "Target language: MoonBit 0.9.",
-       "Return ONLY the repaired contents of cmd/main/main.mbt.",
-       "Do NOT return markdown fences, explanations, bullet lists, quoted compiler messages, moon.pkg, or moon.mod.json.",
-       "Do NOT describe the errors before writing code.",
-       "Do NOT think aloud. Do NOT say 'Okay', 'I need to', 'Let me', or similar phrases.",
-       "Any non-code text is a failed repair.",
-       "Keep the task behavior and default parameters unchanged.",
-       "Preserve the original task goal, not just compilability.",
-       "",
-       "Follow the MoonBit primer in the user prompt before using any stale prior memory."
-     ].join("\\n");
-     const fastqConstraints = isFastqTask ? [
-       "",
-       "FastQ-specific repair constraints:",
-       "- main must return the generated FastQ String.",
-       "- Do NOT replace the final generated String with ignore(...) or let _ = ....",
-       "- Keep the header, sequence, plus line, and quality-line generation logic.",
-       "- Prefer the smallest repair that preserves the FastQ task semantics."
-     ] : [];
-     const userPrompt = [
-       "Read this MoonBit 0.9 primer first and follow it strictly:",
-       String(knowledgePack || ""),
-       "",
-       `Original task: ${originalTask}`,
-       "",
-       "Current compile summary:",
-       `- error_kind: ${String(report.summary_kind || report.stage || "compiler-error")}`,
-       `- primary_file: ${String(report.primary_file || "cmd/main/main.mbt")}`,
-       `- primary_line: ${String(report.primary_line || 0)}`,
-       `- likely_cause: ${String(report.likely_cause || "")}`,
-       `- repair_hint: ${String(report.repair_hint || "")}`,
-       "",
-       repairMode === "raw" ? "Raw compiler output:" : "Trimmed compiler output:",
-       String(repairMode === "raw" ? (report.output || report.trimmed_output || "") : (report.trimmed_output || report.output || "")),
-       "",
-       "Current source:",
-       source,
-       ...fastqConstraints,
-       "",
-       "Please repair only what is needed to make this compile under wasm-gc.",
-       "Return the full corrected cmd/main/main.mbt file and nothing else."
-     ].join("\\n");
-     updatePrompts("repair / full", systemPrompt, userPrompt);
+     const compilerExcerpt = String(repairMode === "raw" ? (report.output || report.trimmed_output || "") : (report.trimmed_output || report.output || "")).trim();
+     const priorConversation = Array.isArray(artifact?.conversation_history)
+       ? artifact.conversation_history
+           .filter((item) => item && (item.role === "user" || item.role === "assistant") && String(item.content || "").trim() !== "")
+           .map((item) => ({ role: String(item.role), content: String(item.content) }))
+       : [{ role: "user", content: originalTask }, { role: "assistant", content: source }];
+     const buildRepairPrompts = (llm) => {
+       const systemPrompt = [
+         "You are an AI coder.",
+         "You only write MoonBit code.",
+         "Your job is to repair MoonBit code for the user's task.",
+         "Return only the full contents of cmd/main/main.mbt."
+       ].join("\\n");
+       const repairUserPrompt = [
+         "The previous MoonBit file failed to compile under wasm-gc.",
+         "",
+         "Compiler error:",
+         compilerExcerpt,
+         "",
+         "Fix the file and return the full corrected cmd/main/main.mbt only."
+       ].join("\\n");
+       return {
+         modeText: "repair / frontier-conversation",
+         systemPrompt,
+         userPrompt: `${priorConversation.map((item) => `${String(item.role).toUpperCase()}:\n${String(item.content)}`).join("\\n\\n---\\n\\n")}\\n\\n---\\n\\nUSER:\\n${repairUserPrompt}`,
+         openaiMessages: [
+           { role: "system", content: systemPrompt },
+           ...priorConversation,
+           { role: "user", content: repairUserPrompt }
+         ],
+         geminiUserPrompt: `${priorConversation.map((item) => `${String(item.role).toUpperCase()}:\n${String(item.content)}`).join("\\n\\n---\\n\\n")}\\n\\n---\\n\\nUSER:\\n${repairUserPrompt}`
+       };
+     };
      const requestJson = async (llm) => {
+       const promptPack = buildRepairPrompts(llm);
+       updatePrompts(promptPack.modeText, promptPack.systemPrompt, promptPack.userPrompt);
        if (llm.provider === "gemini") {
          const url = `${llm.baseUrl}/v1beta/models/${encodeURIComponent(llm.model)}:generateContent`;
          const json = await proxyPost(url, {
            "Content-Type": "application/json",
            "x-goog-api-key": String(llm.apiKey || "")
          }, JSON.stringify({
-           system_instruction: { parts: [{ text: systemPrompt }] },
-           contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+           system_instruction: { parts: [{ text: promptPack.systemPrompt }] },
+           contents: [{ role: "user", parts: [{ text: promptPack.geminiUserPrompt }] }],
            generationConfig: { temperature: 0.1 }
          }));
          const text = (json?.candidates?.[0]?.content?.parts || []).map((part) => String(part?.text || "")).join("\\n").trim();
@@ -621,10 +2194,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app55browser__repair__la
        }
        const json = await proxyPost(url, headers, JSON.stringify({
          model: llm.model,
-         messages: [
-           { role: "system", content: systemPrompt },
-           { role: "user", content: userPrompt }
-         ],
+         messages: promptPack.openaiMessages,
          temperature: 0.1
        }));
        const text = String(json?.choices?.[0]?.message?.content || "").trim();
@@ -693,6 +2263,11 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app55browser__repair__la
      const nextArtifact = {
        ...(artifact || {}),
        moonbit_source: cleaned,
+       conversation_history: [
+         ...priorConversation,
+         { role: "user", content: `Compiler error:\n${compilerExcerpt}` },
+         { role: "assistant", content: cleaned }
+       ],
        llm_provider: selected.provider || "unknown",
        llm_model: selected.model || "unknown",
        llm_rotated: Boolean(selected.rotated),
@@ -743,6 +2318,11 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app30browser__update__re
    let data = {};
    try { data = JSON.parse(String(raw)); } catch { data = { status: "error" }; }
    const panel = document.querySelector("#resultPanel");
+   if (globalThis.__moonapMinimalShell !== false) {
+     if (panel) panel.style.display = "none";
+     globalThis.__moonapLastVisibleResult = data;
+     return;
+   }
    panel?.classList.add("is-open");
    const setText = (selector, value) => {
      const node = document.querySelector(selector);
@@ -759,14 +2339,717 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app30browser__update__re
    const fill = document.querySelector("#progressFill");
    if (fill) fill.style.width = `${pct}%`;
    setText("#resultStatus", data.status || "ready");
-   setText("#resultTitle", data.status === "generated" ? "Synthetic FastQ generated locally" : "Browser-local FastQ analysis");
-   setText("#metricFile", data.file_name || "-");
+   const isRuntime = String(data.status || "").startsWith("runtime") || String(data.status || "").includes("ready-for-runtime");
+   const resultKind = String(data.result_kind || "");
+   setText("#resultTitle", isRuntime
+     ? (data.status === "ready-for-runtime" ? "MoonAP runtime request is ready" : "MoonAP runtime result")
+     : resultKind === "streamed-file"
+       ? "Browser-local large-file generation"
+       : resultKind === "large-file-report"
+         ? "Browser-local large-file analysis"
+         : (data.status === "generated" ? "Synthetic FastQ generated locally" : "Browser-local FastQ analysis"));
+   setText("#metricFile", data.file_name || data.download_name || "-");
    setText("#metricProcessed", bytes(data.bytes_processed ?? data.file_size_bytes ?? 0));
    setText("#metricReads", data.reads_seen ?? data.read_count ?? "0");
    setText("#metricTarget", data.target_base_count ?? data.expected_n_count ?? "0");
-   setText("#metricBases", data.total_bases ?? "0");
+   setText("#metricBases", data.total_bases ?? data.summary ?? "0");
    setText("#metricUploaded", bytes(data.uploaded_bytes ?? 0));
  };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app33browser__watch__runtime__protocol = (onRequest, onResult, onSaveDecision) => {
+   const poll = async () => {
+     try {
+       const requestText = await fetch("/api/runtime-exec/latest-request").then((response) => response.text());
+       if (requestText && requestText !== globalThis.__moonapLastRuntimeRequestText) {
+         globalThis.__moonapLastRuntimeRequestText = requestText;
+         let requestJson = {};
+         try { requestJson = JSON.parse(requestText); globalThis.__moonapLastRuntimeRequest = requestJson; } catch {}
+         const ignoredId = String(localStorage.getItem("moonap.ignoreRuntimeRequestId") || "");
+         const requestId = String(requestJson?.request_id || "");
+         if (ignoredId && requestId === ignoredId) return;
+         if (ignoredId && requestId && requestId !== ignoredId) localStorage.removeItem("moonap.ignoreRuntimeRequestId");
+         onRequest(String(requestText));
+       }
+     } catch {}
+     try {
+       const resultText = await fetch("/api/runtime-exec/latest-result").then((response) => response.text());
+       if (resultText && resultText !== globalThis.__moonapLastRuntimeResultText) {
+         globalThis.__moonapLastRuntimeResultText = resultText;
+         let resultJson = {};
+         try { resultJson = JSON.parse(resultText); globalThis.__moonapLastRuntimeResult = resultJson; } catch {}
+         const ignoredId = String(localStorage.getItem("moonap.ignoreRuntimeRequestId") || "");
+         const requestId = String(resultJson?.request_id || "");
+         if (ignoredId && requestId === ignoredId) return;
+         if (ignoredId && requestId && requestId !== ignoredId) localStorage.removeItem("moonap.ignoreRuntimeRequestId");
+         onResult(String(resultText));
+       }
+     } catch {}
+     try {
+       const decisionText = await fetch("/api/skill-export/save-decision").then((response) => response.text());
+       if (decisionText && decisionText !== globalThis.__moonapLastSkillSaveDecisionText) {
+         globalThis.__moonapLastSkillSaveDecisionText = decisionText;
+         try { globalThis.__moonapLastSkillSaveDecision = JSON.parse(decisionText); } catch {}
+         onSaveDecision(String(decisionText));
+       }
+     } catch {}
+   };
+   if (!globalThis.__moonapRuntimeWatcherStarted) {
+     globalThis.__moonapRuntimeWatcherStarted = true;
+     poll();
+     setInterval(poll, 2000);
+   }
+ };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app39browser__ensure__virtual__path__runtime = () => {
+   if (globalThis.__moonapVirtualPathRuntime) return;
+   // This normalizes MoonAP virtual archive paths, not host OS paths.
+   const normalize = (value) => String(value == null ? "" : value)
+     .trim()
+     .replace(/\\/g, "/")
+     .replace(/^\/+/, "")
+     .replace(/\/+/g, "/")
+     .replace(/\/$/, "");
+   const split = (value) => normalize(value).split("/").filter(Boolean);
+   const lastSegment = (value) => {
+     const parts = split(value);
+     return parts.length === 0 ? "" : String(parts[parts.length - 1] || "");
+   };
+   globalThis.__moonapVirtualPathRuntime = { normalize, split, lastSegment };
+ };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app36browser__ensure__file__name__runtime = () => {
+   if (globalThis.__moonapFileNameRuntime) return;
+   const coerceFallback = (fallback) => String(fallback || "moonap-output.fastq");
+   const sanitize = (value, fallback = "moonap-output.fastq") => {
+     const base = String(value == null ? "" : value).trim() || coerceFallback(fallback);
+     const cleaned = base
+       .replace(/[\u0000-\u001f]/g, "_")
+       .replace(/[\\/:*?"<>|]+/g, "_")
+       .replace(/\s+/g, " ")
+       .trim()
+       .replace(/[. ]+$/g, "");
+     return cleaned || coerceFallback(fallback);
+   };
+   const sanitizeToken = (value, fallback = "moonap_read") => {
+     const cleaned = String(value == null ? "" : value)
+       .trim()
+       .replace(/[^A-Za-z0-9_.:-]+/g, "_")
+       .replace(/^_+|_+$/g, "");
+     return cleaned || String(fallback || "moonap_read");
+   };
+   globalThis.__moonapFileNameRuntime = { sanitize, sanitizeToken };
+ };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app36browser__ensure__skill__zip__runtime = () => {
+   if (globalThis.__moonapSkillZipRuntime) return;
+   const pathRuntime = globalThis.__moonapVirtualPathRuntime;
+   if (!pathRuntime || typeof pathRuntime.normalize !== "function") {
+     throw new Error("MoonAP virtual path runtime is not ready yet.");
+   }
+   const encoder = new TextEncoder();
+   const decoder = new TextDecoder();
+   const crcTable = new Uint32Array(256);
+   for (let n = 0; n < 256; n += 1) {
+     let c = n;
+     for (let k = 0; k < 8; k += 1) {
+       c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+     }
+     crcTable[n] = c >>> 0;
+   }
+   const crc32 = (bytes) => {
+     let crc = 0xFFFFFFFF;
+     for (let i = 0; i < bytes.length; i += 1) {
+       crc = crcTable[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
+     }
+     return (crc ^ 0xFFFFFFFF) >>> 0;
+   };
+   const toUint8 = (value) => {
+     if (value instanceof Uint8Array) return value;
+     if (value instanceof ArrayBuffer) return new Uint8Array(value);
+     if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
+     return encoder.encode(String(value == null ? "" : value));
+   };
+   const concatUint8 = (chunks) => {
+     const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+     const merged = new Uint8Array(total);
+     let offset = 0;
+     for (const chunk of chunks) {
+       merged.set(chunk, offset);
+       offset += chunk.length;
+     }
+     return merged;
+   };
+   const zipName = (path, isDir) => {
+     const clean = pathRuntime.normalize(path || "");
+     return isDir ? (clean.endsWith("/") ? clean : `${clean}/`) : clean.replace(/\/+$/, "");
+   };
+   const getDosDateTime = (value) => {
+     const date = value instanceof Date ? value : new Date();
+     const year = Math.min(127, Math.max(0, date.getFullYear() - 1980));
+     const month = date.getMonth() + 1;
+     const day = date.getDate();
+     const hour = date.getHours();
+     const minute = date.getMinutes();
+     const second = Math.floor(date.getSeconds() / 2);
+     return {
+       time: ((hour & 0x1F) << 11) | ((minute & 0x3F) << 5) | (second & 0x1F),
+       date: ((year & 0x7F) << 9) | ((month & 0x0F) << 5) | (day & 0x1F)
+     };
+   };
+   const makeZip = async (entries) => {
+     const normalized = Array.isArray(entries) ? entries : [];
+     const localChunks = [];
+     const centralChunks = [];
+     let offset = 0;
+     let count = 0;
+     for (const entry of normalized) {
+       const isDir = Boolean(entry?.directory);
+       const name = zipName(entry?.path || "", isDir);
+       if (!name) continue;
+       const nameBytes = encoder.encode(name);
+       const bytes = isDir ? new Uint8Array(0) : toUint8(entry?.bytes ?? entry?.text ?? "");
+       const crc = isDir ? 0 : crc32(bytes);
+       const { time, date } = getDosDateTime(entry?.date);
+       const local = new Uint8Array(30 + nameBytes.length);
+       const localView = new DataView(local.buffer);
+       localView.setUint32(0, 0x04034b50, true);
+       localView.setUint16(4, 20, true);
+       localView.setUint16(6, 0x0800, true);
+       localView.setUint16(8, 0, true);
+       localView.setUint16(10, time, true);
+       localView.setUint16(12, date, true);
+       localView.setUint32(14, crc, true);
+       localView.setUint32(18, bytes.length, true);
+       localView.setUint32(22, bytes.length, true);
+       localView.setUint16(26, nameBytes.length, true);
+       localView.setUint16(28, 0, true);
+       local.set(nameBytes, 30);
+       localChunks.push(local);
+       if (bytes.length > 0) localChunks.push(bytes);
+       const central = new Uint8Array(46 + nameBytes.length);
+       const centralView = new DataView(central.buffer);
+       centralView.setUint32(0, 0x02014b50, true);
+       centralView.setUint16(4, 20, true);
+       centralView.setUint16(6, 20, true);
+       centralView.setUint16(8, 0x0800, true);
+       centralView.setUint16(10, 0, true);
+       centralView.setUint16(12, time, true);
+       centralView.setUint16(14, date, true);
+       centralView.setUint32(16, crc, true);
+       centralView.setUint32(20, bytes.length, true);
+       centralView.setUint32(24, bytes.length, true);
+       centralView.setUint16(28, nameBytes.length, true);
+       centralView.setUint16(30, 0, true);
+       centralView.setUint16(32, 0, true);
+       centralView.setUint16(34, 0, true);
+       centralView.setUint16(36, 0, true);
+       centralView.setUint32(38, isDir ? 0x10 : 0, true);
+       centralView.setUint32(42, offset, true);
+       central.set(nameBytes, 46);
+       centralChunks.push(central);
+       offset += local.length + bytes.length;
+       count += 1;
+     }
+     const centralSize = centralChunks.reduce((sum, chunk) => sum + chunk.length, 0);
+     const end = new Uint8Array(22);
+     const endView = new DataView(end.buffer);
+     endView.setUint32(0, 0x06054b50, true);
+     endView.setUint16(8, count, true);
+     endView.setUint16(10, count, true);
+     endView.setUint32(12, centralSize, true);
+     endView.setUint32(16, offset, true);
+     return concatUint8([...localChunks, ...centralChunks, end]);
+   };
+   const findEndRecord = (bytes) => {
+     for (let i = bytes.length - 22; i >= 0; i -= 1) {
+       if (bytes[i] === 0x50 && bytes[i + 1] === 0x4b && bytes[i + 2] === 0x05 && bytes[i + 3] === 0x06) {
+         return i;
+       }
+     }
+     return -1;
+   };
+   const inflateRaw = async (bytes) => {
+     if (typeof DecompressionStream !== "function") {
+       throw new Error("This browser cannot extract compressed ZIP files yet.");
+     }
+     const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+     return new Uint8Array(await new Response(stream).arrayBuffer());
+   };
+   const unzip = async (bytesLike) => {
+     const bytes = toUint8(bytesLike);
+     const endOffset = findEndRecord(bytes);
+     if (endOffset < 0) throw new Error("ZIP end-of-directory record not found.");
+     const endView = new DataView(bytes.buffer, bytes.byteOffset + endOffset, 22);
+     const totalEntries = endView.getUint16(10, true);
+     const centralOffset = endView.getUint32(16, true);
+     const results = [];
+     let cursor = centralOffset;
+     for (let index = 0; index < totalEntries; index += 1) {
+       const centralView = new DataView(bytes.buffer, bytes.byteOffset + cursor, 46);
+       if (centralView.getUint32(0, true) !== 0x02014b50) {
+         throw new Error("ZIP central directory entry is invalid.");
+       }
+       const method = centralView.getUint16(10, true);
+       const compressedSize = centralView.getUint32(20, true);
+       const nameLength = centralView.getUint16(28, true);
+       const extraLength = centralView.getUint16(30, true);
+       const commentLength = centralView.getUint16(32, true);
+       const localOffset = centralView.getUint32(42, true);
+       const nameBytes = bytes.subarray(cursor + 46, cursor + 46 + nameLength);
+       const rawPath = decoder.decode(nameBytes);
+       const directory = /[\\/]$/.test(rawPath);
+       const path = pathRuntime.normalize(rawPath);
+       const localView = new DataView(bytes.buffer, bytes.byteOffset + localOffset, 30);
+       if (localView.getUint32(0, true) !== 0x04034b50) {
+         throw new Error(`ZIP local file header is invalid for ${path}.`);
+       }
+       const localNameLength = localView.getUint16(26, true);
+       const localExtraLength = localView.getUint16(28, true);
+       const dataStart = localOffset + 30 + localNameLength + localExtraLength;
+       const compressedBytes = bytes.subarray(dataStart, dataStart + compressedSize);
+       let data = new Uint8Array(0);
+       if (!directory) {
+         if (method === 0) {
+           data = new Uint8Array(compressedBytes);
+         } else if (method === 8) {
+           data = await inflateRaw(compressedBytes);
+         } else {
+           throw new Error(`ZIP compression method ${method} is not supported for ${path}.`);
+         }
+       }
+       if (!path) {
+         cursor += 46 + nameLength + extraLength + commentLength;
+         continue;
+       }
+       results.push({ path, directory, bytes: data });
+       cursor += 46 + nameLength + extraLength + commentLength;
+     }
+     return results;
+   };
+   globalThis.__moonapSkillZipRuntime = { makeZip, unzip };
+ };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app29browser__request__skill__save = async (onDone, onError) => {
+   try {
+     const runtimeResult = globalThis.__moonapLastRuntimeResult;
+     const runtimeRequest = globalThis.__moonapLastRuntimeRequest;
+     const artifact = globalThis.__moonapLastArtifact;
+     if (!runtimeResult || typeof runtimeResult !== "object") {
+       throw new Error("No runtime result is available yet.");
+     }
+     if (!runtimeRequest || typeof runtimeRequest !== "object") {
+       throw new Error("No runtime request is available yet.");
+     }
+     if (!artifact || typeof artifact !== "object") {
+       throw new Error("No generated MoonBit artifact is available yet.");
+     }
+     const requestId = String(runtimeResult.request_id || "");
+     const status = String(runtimeResult.status || "");
+     if (!requestId || !status.includes("succeeded")) {
+       throw new Error("MoonAP requires a successful runtime result before saving as a SKILL.");
+     }
+     const rootHandle = globalThis.__moonapSkillExportRootHandle;
+     if (!rootHandle || typeof rootHandle.getDirectoryHandle !== "function") {
+       throw new Error("Choose a save location before exporting this SKILL.");
+     }
+     const taskKind = String(runtimeRequest.task_kind || "generic");
+     const inferredTaskKind = String(runtimeRequest.inferred_task_kind || "");
+     const runtimeProfileId = String(runtimeRequest.runtime_profile_override_id || runtimeRequest.runtime_profile_id || "");
+     const runtimeProfileLabel = String(runtimeRequest.runtime_profile_label || runtimeProfileId || "");
+     const runtimeMode = String(runtimeRequest.runtime_mode || "form");
+     const resultMode = String(runtimeRequest.result_mode || "text");
+     const runtimeSpec = runtimeRequest?.runtime_spec && typeof runtimeRequest.runtime_spec === "object"
+       ? runtimeRequest.runtime_spec
+       : (runtimeRequest?.runtime_ui && typeof runtimeRequest.runtime_ui === "object" ? runtimeRequest.runtime_ui : {});
+     const fields = Array.isArray(runtimeSpec.fields) ? runtimeSpec.fields : [];
+     const descriptionMap = {
+       "fastq-generator": "Generate a synthetic FastQ file for testing, demos, or pipeline validation.",
+       "fastq-analysis": "Analyze a FastQ file and report summary metrics.",
+       "large-fastq-analysis": "Analyze a large FastQ file with chunked browser-local streaming and report read/base metrics.",
+       "large-file-analysis": "Analyze a large browser-local file with chunked local streaming and report summary metrics.",
+       "large-file-generation": "Generate a large browser-local file with chunked streaming output instead of buffering the whole artifact in memory.",
+       "excel-generator": "Generate a synthetic financial spreadsheet file.",
+       "finance-report-analysis": "Analyze a financial report file and produce a browser-local report.",
+       "browser-game": "Run a browser-local interactive game skill."
+     };
+     const enteredName = String(globalThis.__moonapSkillExportName || "").trim();
+     if (!enteredName) {
+       throw new Error("Enter a SKILL name before exporting.");
+     }
+     if (/[\\/:*?"<>|]/.test(enteredName)) {
+       throw new Error("SKILL name contains characters that cannot be used in a folder name on this computer.");
+     }
+     if (enteredName.endsWith(".") || enteredName.endsWith(" ")) {
+       throw new Error("SKILL name cannot end with a dot or space.");
+     }
+     const folderName = enteredName;
+     const defaultDescription = String(descriptionMap[taskKind] || `Run a reusable APP for ${taskKind}.`);
+     const description = String(globalThis.__moonapSkillExportDescription || "").trim() || defaultDescription;
+     const sourceText = String(artifact?.moonbit_source || "");
+     const wasmUrl = String(runtimeRequest?.wasm_url || "");
+     if (!wasmUrl) {
+       throw new Error("MoonAP runtime request does not include a wasm_url.");
+     }
+     const fetchBinary = async (path) => {
+       const response = await fetch(path);
+       if (!response.ok) throw new Error(`Failed to fetch ${path} (${response.status})`);
+       return new Uint8Array(await response.arrayBuffer());
+     };
+     const zipRuntime = globalThis.__moonapSkillZipRuntime;
+     if (!zipRuntime || typeof zipRuntime.makeZip !== "function") {
+       throw new Error("MoonAP ZIP runtime is not ready yet.");
+     }
+     const wasmBytes = await fetchBinary(wasmUrl);
+     const writeText = async (dirHandle, fileName, text) => {
+       const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
+       const writable = await fileHandle.createWritable();
+       await writable.write(String(text || ""));
+       await writable.close();
+     };
+     const writeBinary = async (dirHandle, fileName, bytes) => {
+       const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
+       const writable = await fileHandle.createWritable();
+       await writable.write(bytes);
+       await writable.close();
+     };
+     const ensurePersonalSkillRuntime = () => {
+       if (globalThis.__moonapPersonalSkillRuntime) return globalThis.__moonapPersonalSkillRuntime;
+       const DB_NAME = "moonap.personal.skill.handles.v1";
+       const STORE_NAME = "handles";
+       const openDb = () => new Promise((resolve, reject) => {
+         const request = indexedDB.open(DB_NAME, 1);
+         request.onupgradeneeded = () => {
+           const db = request.result;
+           if (!db.objectStoreNames.contains(STORE_NAME)) {
+             db.createObjectStore(STORE_NAME);
+           }
+         };
+         request.onsuccess = () => resolve(request.result);
+         request.onerror = () => reject(request.error || new Error("Failed to open Personal SKILL database."));
+       });
+       const withStore = async (mode, work) => {
+         const db = await openDb();
+         return await new Promise((resolve, reject) => {
+           const transaction = db.transaction(STORE_NAME, mode);
+           const store = transaction.objectStore(STORE_NAME);
+           let settled = false;
+           const finishResolve = (value) => {
+             if (settled) return;
+             settled = true;
+             resolve(value);
+           };
+           const finishReject = (error) => {
+             if (settled) return;
+             settled = true;
+             reject(error);
+           };
+           transaction.oncomplete = () => finishResolve(undefined);
+           transaction.onerror = () => finishReject(transaction.error || new Error("Personal SKILL database transaction failed."));
+           transaction.onabort = () => finishReject(transaction.error || new Error("Personal SKILL database transaction was aborted."));
+           Promise.resolve(work(store, finishResolve, finishReject)).catch(finishReject);
+         }).finally(() => db.close());
+       };
+       const runtime = {
+         cache: {},
+         putHandle: async (id, handle) => {
+           await withStore("readwrite", (store, resolve, reject) => {
+             const request = store.put(handle, String(id || ""));
+             request.onsuccess = () => resolve(true);
+             request.onerror = () => reject(request.error || new Error("Failed to save Personal SKILL handle."));
+           });
+         }
+       };
+       globalThis.__moonapPersonalSkillRuntime = runtime;
+       return runtime;
+     };
+     const skillDir = await rootHandle.getDirectoryHandle(folderName, { create: true });
+     const programDir = await skillDir.getDirectoryHandle("program", { create: true });
+     const inputLines = fields.length === 0
+       ? ["- none"]
+       : fields.map((field) => {
+           const name = String(field?.name || "input");
+           const label = String(field?.label || name);
+           const kind = String(field?.type || field?.kind || "text");
+           const defaultValue = field?.default;
+           const suffix = defaultValue === undefined ? "" : ` (default: ${String(defaultValue)})`;
+           return `- ${name}: ${label} [${kind}]${suffix}`;
+         });
+     const outputText = resultMode === "download"
+       ? `A downloadable artifact. Latest result summary: ${String(runtimeResult.summary || "")}`
+       : resultMode === "report"
+         ? `A browser-visible report. Latest result summary: ${String(runtimeResult.summary || "")}`
+         : resultMode === "interactive"
+           ? `An interactive browser-local result. Latest result summary: ${String(runtimeResult.summary || "")}`
+           : String(runtimeResult.summary || "A browser-visible runtime result.");
+     const keyAttributes = [
+       `- task kind: ${taskKind}`,
+       runtimeProfileId ? `- runtime profile: ${runtimeProfileId}` : "",
+       runtimeProfileLabel && runtimeProfileLabel !== runtimeProfileId ? `- runtime profile label: ${runtimeProfileLabel}` : "",
+       inferredTaskKind && inferredTaskKind !== taskKind ? `- inferred task kind: ${inferredTaskKind}` : "",
+       `- runtime mode: ${runtimeMode}`,
+       `- result mode: ${resultMode}`,
+       "- wasm path: program/main.wasm"
+     ].filter(Boolean);
+     if (sourceText.trim()) keyAttributes.push("- moonbit source path: program/main.mbt");
+     const skillMd = [
+       "---",
+       `name: ${folderName}`,
+       `description: ${description}`,
+       "---",
+       "",
+       "# Key Attributes",
+       ...keyAttributes,
+       "",
+       "# Inputs",
+       ...inputLines,
+       "",
+       "# Output",
+       outputText,
+       "",
+       "# Runtime Spec",
+       "```json",
+       JSON.stringify(runtimeSpec, null, 2),
+       "```"
+     ].join("\n");
+     await writeText(skillDir, "SKILL.md", skillMd);
+     await writeBinary(programDir, "main.wasm", wasmBytes);
+     if (sourceText.trim()) {
+       await writeText(programDir, "main.mbt", sourceText);
+     }
+     const exportZip = globalThis.__moonapSkillExportZipEnabled !== false;
+     let exportedZipName = "";
+     if (exportZip) {
+       const zipEntries = [
+         { path: folderName, directory: true },
+         { path: `${folderName}/program`, directory: true },
+         { path: `${folderName}/SKILL.md`, text: skillMd },
+         { path: `${folderName}/program/main.wasm`, bytes: wasmBytes }
+       ];
+       if (sourceText.trim()) {
+         zipEntries.push({ path: `${folderName}/program/main.mbt`, text: sourceText });
+       }
+       const zipBytes = await zipRuntime.makeZip(zipEntries);
+       exportedZipName = `${folderName}.zip`;
+       await writeBinary(rootHandle, exportedZipName, zipBytes);
+     }
+     let skills = [];
+     try {
+       const parsed = JSON.parse(localStorage.getItem("moonap.personal.skills") || "[]");
+       skills = Array.isArray(parsed) ? parsed : [];
+     } catch {}
+     const skillRecord = {
+       id: `personal.${folderName}`,
+       name: enteredName,
+       description,
+       task_kind: taskKind,
+       inferred_task_kind: inferredTaskKind,
+       runtime_profile_id: runtimeProfileId,
+       runtime_mode: runtimeMode,
+       result_mode: resultMode,
+       folder_name: folderName,
+       runtime_ready: true,
+       export_root_name: String(rootHandle.name || ""),
+       saved_at: new Date().toISOString()
+     };
+     skills = skills.filter((item) => String(item?.id || "") !== skillRecord.id);
+     skills.unshift(skillRecord);
+     try { localStorage.setItem("moonap.personal.skills", JSON.stringify(skills)); } catch {}
+     await ensurePersonalSkillRuntime().putHandle(skillRecord.id, skillDir);
+     const response = await fetch("/api/skill-export/save-decision", {
+       method: "POST",
+       headers: { "Content-Type": "application/json; charset=utf-8" },
+       body: JSON.stringify({
+         request_id: requestId,
+         decision: "accepted-save-skill",
+         reason: `User accepted the runtime result and exported this workflow as a SKILL folder named ${folderName}.`
+       })
+     });
+     const text = await response.text();
+     if (!response.ok) throw new Error(text || `Skill save decision failed (${response.status})`);
+     const parsed = (() => { try { return JSON.parse(String(text || "{}")); } catch { return {}; } })();
+     parsed.exported_folder_name = folderName;
+     parsed.exported_root_name = String(rootHandle.name || "");
+     parsed.exported_zip_name = exportedZipName;
+     onDone(JSON.stringify(parsed, null, 2));
+   } catch (error) {
+     onError(error instanceof Error ? error.message : String(error));
+   }
+ };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app36browser__open__skill__export__dialog = () => {
+   let dialog = document.querySelector("#skillExportDialog");
+   if (!dialog) {
+     dialog = document.createElement("dialog");
+     dialog.id = "skillExportDialog";
+     dialog.className = "skill-dialog skill-export-dialog";
+     dialog.innerHTML = `
+       <form method="dialog" class="skill-dialog-body">
+         <div class="dialog-head"><span>PERSONAL SKILL</span><strong>Save APP as SKILL</strong></div>
+         <p class="dialog-summary">Choose a SKILL name, review the prefilled description and edit it if needed, then choose where to save the SKILL folder. Nothing will be written until you click Save SKILL. When you choose a save location, the browser may ask for permission to create files in that local directory.</p>
+         <div class="dialog-fields">
+           <label><span>SKILL name</span><input id="skillExportName" type="text" /></label>
+           <label><span>Description (prefilled, editable)</span><textarea id="skillExportDescription" rows="3"></textarea></label>
+           <label class="skill-export-zip-toggle">
+             <input id="skillExportZipEnabled" type="checkbox" checked />
+             <span>Also generate a .zip package for publishing or sharing</span>
+           </label>
+           <div class="skill-export-path">
+             <div class="skill-export-path-meta">
+               <span>Save location</span>
+               <small id="skillExportPathLabel">No folder selected yet.</small>
+             </div>
+             <button id="skillExportChoosePath" class="dialog-button secondary" type="button">Choose or change save folder</button>
+           </div>
+         </div>
+         <div class="dialog-actions">
+           <button id="skillExportCancel" class="dialog-button" type="button">Cancel</button>
+           <button id="skillExportConfirm" class="dialog-button primary" type="button">Save SKILL</button>
+         </div>
+       </form>`;
+     document.body.append(dialog);
+   }
+   const runtimeRequest = globalThis.__moonapLastRuntimeRequest || {};
+   const artifact = globalThis.__moonapLastArtifact || {};
+   const taskKind = String(runtimeRequest.task_kind || "generic");
+   const defaultDescriptionMap = {
+     "fastq-generator": "Generate a synthetic FastQ file for testing, demos, or pipeline validation.",
+     "fastq-analysis": "Analyze a FastQ file and report summary metrics.",
+     "large-fastq-analysis": "Analyze a large FastQ file with chunked browser-local streaming and report read/base metrics.",
+     "large-file-analysis": "Analyze a large browser-local file with chunked local streaming and report summary metrics.",
+     "large-file-generation": "Generate a large browser-local file with chunked streaming output instead of buffering the whole artifact in memory.",
+     "excel-generator": "Generate a synthetic financial spreadsheet file.",
+     "finance-report-analysis": "Analyze a financial report file and produce a browser-local report.",
+     "browser-game": "Run a browser-local interactive game skill."
+   };
+   const defaultName = String(globalThis.__moonapSkillExportName || artifact?.name || artifact?.skill?.folder_name || taskKind || "moonap-skill").trim() || "moonap-skill";
+   const defaultDescription = String(globalThis.__moonapSkillExportDescription || defaultDescriptionMap[taskKind] || `Run a reusable APP for ${taskKind}.`);
+   const nameInput = document.querySelector("#skillExportName");
+   const descriptionInput = document.querySelector("#skillExportDescription");
+   const zipInput = document.querySelector("#skillExportZipEnabled");
+   const pathLabel = document.querySelector("#skillExportPathLabel");
+   if (nameInput) nameInput.value = defaultName;
+   if (descriptionInput) descriptionInput.value = defaultDescription;
+   if (zipInput) zipInput.checked = globalThis.__moonapSkillExportZipEnabled !== false;
+   const rootHandle = globalThis.__moonapSkillExportRootHandle;
+   if (pathLabel) {
+     pathLabel.textContent = rootHandle && rootHandle.name
+       ? `Selected folder: ${String(rootHandle.name)}`
+       : "No folder selected yet.";
+   }
+   dialog.showModal();
+ };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app37browser__close__skill__export__dialog = () => document.querySelector("#skillExportDialog")?.close();
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app36browser__choose__skill__export__path = async (onDone, onError) => {
+   try {
+     if (typeof window.showDirectoryPicker !== "function") {
+       throw new Error("This browser does not support directory selection for SKILL export.");
+     }
+     const handle = await window.showDirectoryPicker({ mode: "readwrite" });
+     globalThis.__moonapSkillExportRootHandle = handle;
+     const ensurePersonalSkillRuntime = () => {
+       if (globalThis.__moonapPersonalSkillRuntime && typeof globalThis.__moonapPersonalSkillRuntime.putRootHandle === "function") {
+         return globalThis.__moonapPersonalSkillRuntime;
+       }
+       const DB_NAME = "moonap.personal.skill.handles.v1";
+       const STORE_NAME = "handles";
+       const ROOT_KEY = "__root__";
+       const openDb = () => new Promise((resolve, reject) => {
+         const request = indexedDB.open(DB_NAME, 1);
+         request.onupgradeneeded = () => {
+           const db = request.result;
+           if (!db.objectStoreNames.contains(STORE_NAME)) {
+             db.createObjectStore(STORE_NAME);
+           }
+         };
+         request.onsuccess = () => resolve(request.result);
+         request.onerror = () => reject(request.error || new Error("Failed to open Personal SKILL database."));
+       });
+       const withStore = async (mode, work) => {
+         const db = await openDb();
+         return await new Promise((resolve, reject) => {
+           const transaction = db.transaction(STORE_NAME, mode);
+           const store = transaction.objectStore(STORE_NAME);
+           let settled = false;
+           const finishResolve = (value) => {
+             if (settled) return;
+             settled = true;
+             resolve(value);
+           };
+           const finishReject = (error) => {
+             if (settled) return;
+             settled = true;
+             reject(error);
+           };
+           transaction.oncomplete = () => finishResolve(undefined);
+           transaction.onerror = () => finishReject(transaction.error || new Error("Personal SKILL database transaction failed."));
+           transaction.onabort = () => finishReject(transaction.error || new Error("Personal SKILL database transaction was aborted."));
+           Promise.resolve(work(store, finishResolve, finishReject)).catch(finishReject);
+         }).finally(() => db.close());
+       };
+       const runtime = {
+         putRootHandle: async (rootHandle) => {
+           await withStore("readwrite", (store, resolve, reject) => {
+             const request = store.put(rootHandle, ROOT_KEY);
+             request.onsuccess = () => resolve(true);
+             request.onerror = () => reject(request.error || new Error("Failed to save Personal SKILL root handle."));
+           });
+         }
+       };
+       globalThis.__moonapPersonalSkillRuntime = {
+         ...(globalThis.__moonapPersonalSkillRuntime || {}),
+         ...runtime
+       };
+       return globalThis.__moonapPersonalSkillRuntime;
+     };
+     await ensurePersonalSkillRuntime().putRootHandle(handle);
+     const exportLabel = document.querySelector("#skillExportPathLabel");
+     if (exportLabel) exportLabel.textContent = `Selected folder: ${String(handle?.name || "")}`;
+     const panelLabel = document.querySelector("#personalSkillRootLabel");
+     if (panelLabel) panelLabel.textContent = handle && handle.name
+       ? `Selected folder: ${String(handle.name)}`
+       : "No local Personal SKILL folder selected yet.";
+     onDone(String(handle?.name || ""));
+   } catch (error) {
+     onError(error instanceof Error ? error.message : String(error));
+   }
+ };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app40browser__on__skill__export__choose__path = (handler) => document.addEventListener("click", (event) => {
+   if (event.target?.id !== "skillExportChoosePath") return;
+   event.preventDefault();
+   event.stopPropagation();
+   try {
+     handler();
+   } catch (error) {
+     alert(`MoonAP skill export path selection failed: ${error instanceof Error ? error.message : String(error)}`);
+   }
+ });
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app42browser__on__personal__skill__choose__path = (handler) => document.addEventListener("click", (event) => {
+   if (event.target?.id !== "personalSkillChoosePath") return;
+   event.preventDefault();
+   event.stopPropagation();
+   try {
+     handler();
+   } catch (error) {
+     alert(`MoonAP local Personal SKILL folder selection failed: ${error instanceof Error ? error.message : String(error)}`);
+   }
+ });
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app35browser__on__skill__export__confirm = (handler) => document.addEventListener("click", (event) => {
+   if (event.target?.id !== "skillExportConfirm") return;
+   event.preventDefault();
+   event.stopPropagation();
+   try {
+     globalThis.__moonapSkillExportName = String(document.querySelector("#skillExportName")?.value || "").trim();
+     globalThis.__moonapSkillExportDescription = String(document.querySelector("#skillExportDescription")?.value || "").trim();
+     globalThis.__moonapSkillExportZipEnabled = Boolean(document.querySelector("#skillExportZipEnabled")?.checked ?? true);
+     handler();
+   } catch (error) {
+     alert(`MoonAP skill export failed: ${error instanceof Error ? error.message : String(error)}`);
+   }
+ });
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app34browser__on__skill__export__cancel = (handler) => document.addEventListener("click", (event) => {
+   if (event.target?.id !== "skillExportCancel") return;
+   event.preventDefault();
+   event.stopPropagation();
+   try {
+     handler();
+   } catch (error) {
+     console.error("MoonAP skill export cancel failed:", error);
+   }
+ });
 const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app23browser__message__value = () => String(document.querySelector("#message")?.value || "").trim();
 const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app32browser__prepare__message__input = (defaultText) => {
    const textarea = document.querySelector("#message");
@@ -782,6 +3065,24 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app32browser__prepare__m
      textarea.addEventListener("input", applyTone);
      textarea.dataset.moonapPrepared = "true";
    }
+ };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__enable__minimal__shell = () => {
+   globalThis.__moonapMinimalShell = true;
+   const hide = (selector) => {
+     const node = document.querySelector(selector);
+     if (node) node.style.display = "none";
+   };
+   hide("#onboardingCard");
+   hide("#resultPanel");
+   hide("#artifactActions");
+   hide("#modePanel");
+   hide("#privacyStrip");
+   const shell = document.querySelector(".app-shell");
+   shell?.classList.remove("details-open");
+   const drawer = document.querySelector("#detailsDrawer");
+   if (drawer) drawer.style.display = "";
+   const detailsButton = document.querySelector("#detailsToggle");
+   if (detailsButton) detailsButton.style.display = "";
  };
 const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__restore__formal__verification = () => {
    const enabled = localStorage.getItem("moonap.formalVerification") === "true";
@@ -1000,6 +3301,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__on__onboar
    });
  };
 const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app28browser__open__skill__dialog = (skillId) => {
+   const pathRuntime = globalThis.__moonapVirtualPathRuntime;
    let dialog = document.querySelector("#skillDialog");
    if (!dialog) {
      dialog = document.createElement("dialog");
@@ -1010,7 +3312,15 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app28browser__open__skil
          <div class="dialog-head"><span id="dialogScope">SKILL</span><strong id="dialogTitle">Configure SKILL</strong></div>
          <p id="dialogSummary" class="dialog-summary"></p>
          <div id="dialogFields" class="dialog-fields"></div>
-         <div class="dialog-actions"><button id="dialogCancel" class="dialog-button" type="button">Cancel</button><button id="dialogRun" class="dialog-button primary" type="button">Run</button></div>
+         <div id="dialogInputTarget" class="dialog-output-target" style="display:none;">
+           <button id="dialogChooseInput" class="dialog-button secondary" type="button">Choose input FastQ file</button>
+           <span id="dialogInputStatus">No input file selected yet.</span>
+         </div>
+         <div id="dialogOutputTarget" class="dialog-output-target" style="display:none;">
+           <button id="dialogChooseOutput" class="dialog-button secondary" type="button">Choose output file/location</button>
+           <span id="dialogOutputStatus">No output file selected yet.</span>
+         </div>
+         <div class="dialog-actions"><button id="dialogCancel" class="dialog-button" type="button">Cancel</button><button id="dialogOpenSource" class="dialog-button secondary" type="button" style="display:none;">View on GitHub</button><button id="dialogRun" class="dialog-button primary" type="button">Run</button></div>
        </form>`;
      document.body.append(dialog);
    }
@@ -1018,21 +3328,157 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app28browser__open__skil
    const title = document.querySelector("#dialogTitle");
    const summary = document.querySelector("#dialogSummary");
    const fields = document.querySelector("#dialogFields");
+   const runButton = document.querySelector("#dialogRun");
+   const outputTarget = document.querySelector("#dialogOutputTarget");
+   const outputStatus = document.querySelector("#dialogOutputStatus");
+   const chooseOutput = document.querySelector("#dialogChooseOutput");
+   const inputTarget = document.querySelector("#dialogInputTarget");
+   const inputStatus = document.querySelector("#dialogInputStatus");
+   const chooseInput = document.querySelector("#dialogChooseInput");
+   const openSourceButton = document.querySelector("#dialogOpenSource");
    const set = (node, value) => { if (node) node.textContent = String(value); };
    if (!dialog || !fields) return;
    fields.innerHTML = "";
+   dialog.__moonapOutputFileHandle = null;
+   dialog.__moonapInputFileHandle = null;
    dialog.dataset.skillId = String(skillId);
-   const addField = (id, label, value, mode = "numeric") => {
+   dialog.dataset.taskKind = "";
+   dialog.dataset.skillSource = "";
+   dialog.dataset.externalUrl = "";
+   dialog.dataset.downloadUrl = "";
+   dialog.dataset.folderPath = "";
+   if (runButton) runButton.textContent = "Run";
+   if (openSourceButton) openSourceButton.style.display = "none";
+   if (inputTarget) inputTarget.style.display = "none";
+   set(inputStatus, "No input file selected yet.");
+   if (outputTarget) outputTarget.style.display = "none";
+   set(outputStatus, "No output file selected yet.");
+   const addField = (id, label, value, mode = "numeric", fieldName = "", help = "", fieldType = "") => {
      const item = document.createElement("label");
-     item.textContent = label;
+     const isBool = ["bool", "boolean", "checkbox"].includes(String(fieldType || "").toLowerCase());
+     if (isBool) item.className = "checkbox-param";
      const input = document.createElement("input");
      input.id = `param-${id}`;
-     input.value = value;
-     input.inputMode = mode;
-     item.append(input);
+     input.type = isBool ? "checkbox" : "text";
+     if (isBool) {
+       input.checked = !["false", "0", "no", "off", ""].includes(String(value ?? "").trim().toLowerCase());
+       input.value = "true";
+     } else {
+       input.value = value;
+       input.inputMode = mode;
+     }
+     if (fieldName) input.dataset.paramName = String(fieldName);
+     const labelSpan = document.createElement("span");
+     labelSpan.textContent = label;
+     if (isBool) {
+       item.append(input, labelSpan);
+     } else {
+       item.append(labelSpan, input);
+     }
+     if (help) {
+       const helpNode = document.createElement("small");
+       helpNode.className = "param-help";
+       helpNode.textContent = String(help);
+       item.append(helpNode);
+     }
      fields.append(item);
    };
-   if (skillId.includes("moonbit.fastq-generator")) {
+   const loadedPersonal = globalThis.__moonapPersonalSkillCache && typeof globalThis.__moonapPersonalSkillCache === "object"
+     ? globalThis.__moonapPersonalSkillCache[String(skillId)]
+     : null;
+   const loadedHubSkill = globalThis.__moonapHubSkillCache && typeof globalThis.__moonapHubSkillCache === "object"
+     ? globalThis.__moonapHubSkillCache[String(skillId)]
+     : null;
+   if (loadedPersonal && typeof loadedPersonal === "object") {
+     const runtimeSpec = loadedPersonal.runtime_spec && typeof loadedPersonal.runtime_spec === "object"
+       ? loadedPersonal.runtime_spec
+       : {};
+     const runtimeFields = Array.isArray(runtimeSpec.fields) ? runtimeSpec.fields : [];
+     const mapFieldId = (name) => {
+       const normalized = String(name || "").trim().toLowerCase();
+       if (normalized === "read_count") return "readCount";
+       if (normalized === "read_length") return "readLength";
+       if (normalized === "random_seed") return "seed";
+       if (normalized === "n_rate") return "nRate";
+       if (normalized === "n_rate_per_mille") return "nRatePerMille";
+       if (normalized === "target_base") return "targetBase";
+       return normalized.replace(/[^a-z0-9]+([a-z0-9])/g, (_, char) => String(char || "").toUpperCase()) || "input";
+     };
+     set(scope, "1.1 Personal-SKILL-Set");
+     set(title, String(loadedPersonal.name || "Personal SKILL"));
+     set(summary, String(loadedPersonal.description || runtimeSpec.title || "Run this saved Personal SKILL locally without asking the LLM again."));
+     dialog.dataset.taskKind = String(loadedPersonal.task_kind || "");
+     for (const field of runtimeFields) {
+       const name = String(field?.name || "input");
+       const labelText = String(field?.label || name);
+       const defaultValue = field?.default == null ? "" : String(field.default);
+       const kind = String(field?.kind || field?.type || "text").toLowerCase();
+       const inputMode = kind === "float" || kind === "decimal"
+         ? "decimal"
+         : kind === "text"
+           ? "text"
+           : "numeric";
+       addField(mapFieldId(name), labelText, defaultValue, inputMode, name, String(field?.help || field?.description || ""), kind);
+     }
+     dialog.dataset.skillSource = "personal";
+     if (String(loadedPersonal.task_kind || "") === "large-file-generation" && outputTarget) {
+       outputTarget.style.display = "";
+     }
+     if (String(loadedPersonal.task_kind || "") === "large-fastq-analysis" && inputTarget) {
+       inputTarget.style.display = "";
+     }
+   } else if (loadedHubSkill && typeof loadedHubSkill === "object") {
+     const runtimeSpec = loadedHubSkill.runtime_spec && typeof loadedHubSkill.runtime_spec === "object"
+       ? loadedHubSkill.runtime_spec
+       : {};
+     const runtimeFields = Array.isArray(runtimeSpec.fields) ? runtimeSpec.fields : [];
+     const sourceKind = String(loadedHubSkill.source || "hub");
+     const scopeLabel = sourceKind === "local"
+       ? "1.2 Local-SKILL-Hub"
+       : "1.3 Cloud-SKILL-Hub";
+     const versionText = String(loadedHubSkill.version || "");
+     const pathText = pathRuntime && typeof pathRuntime.normalize === "function"
+       ? pathRuntime.normalize(loadedHubSkill.relative_path || loadedHubSkill.folder_path || "")
+       : String(loadedHubSkill.relative_path || loadedHubSkill.folder_path || "");
+     const metaLine = [versionText ? `version ${versionText}` : "", pathText ? `path ${pathText}` : ""].filter(Boolean).join(" | ");
+     set(scope, scopeLabel);
+     set(title, String(loadedHubSkill.name || "SKILL"));
+     const baseSummary = String(loadedHubSkill.description || "MoonAP SKILL entry.");
+     const installSummary = sourceKind === "cloud"
+       ? `${baseSummary}\n\nCloud SKILLs must be installed to Local-SKILL-Hub before they can be run. Click Install to Local SKILL Hub first, then open the installed Local SKILL to configure parameters and run it.`
+       : baseSummary;
+     set(summary, metaLine ? `${installSummary}\n${metaLine}` : installSummary);
+     dialog.dataset.taskKind = String(loadedHubSkill.task_kind || "");
+     dialog.dataset.skillSource = sourceKind;
+     const externalUrl = String(loadedHubSkill.external_url || loadedHubSkill.folder_url || loadedHubSkill.repository_url || "");
+     dialog.dataset.externalUrl = externalUrl;
+     if (openSourceButton && externalUrl) openSourceButton.style.display = "";
+     dialog.dataset.downloadUrl = String(loadedHubSkill.download_url || "");
+     dialog.dataset.folderPath = pathText;
+     if (sourceKind !== "cloud") {
+       for (const field of runtimeFields) {
+         const name = String(field?.name || "input");
+         const labelText = String(field?.label || name);
+         const defaultValue = field?.default == null ? "" : String(field.default);
+         const kind = String(field?.kind || field?.type || "text").toLowerCase();
+         const inputMode = kind === "float" || kind === "decimal"
+           ? "decimal"
+           : kind === "text"
+             ? "text"
+             : "numeric";
+         addField(name, labelText, defaultValue, inputMode, name, String(field?.help || field?.description || ""), kind);
+       }
+     }
+     if (sourceKind !== "cloud" && String(loadedHubSkill.task_kind || "") === "large-file-generation" && outputTarget) {
+       outputTarget.style.display = "";
+     }
+     if (sourceKind !== "cloud" && String(loadedHubSkill.task_kind || "") === "large-fastq-analysis" && inputTarget) {
+       inputTarget.style.display = "";
+     }
+     if (runButton) {
+       runButton.textContent = sourceKind === "cloud" ? "Install to Local SKILL Hub" : "Run";
+     }
+   } else if (skillId.includes("moonbit.fastq-generator")) {
      set(scope, "SKILL-Hub / MoonBit");
      set(title, "MoonBit FastQ Generator");
      set(summary, "Ask the active LLM router to generate a MoonBit FastQ generator program, then run a real compile probe automatically.");
@@ -1056,9 +3502,9 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app28browser__open__skil
      addField("benchmarkLevel", "Benchmark level (1-5)", "1");
    } else if (skillId.includes("free-llm-eval")) {
      set(scope, "SKILL-Hub / Experiments");
-     set(title, "Free LLM MoonBit Eval");
-     set(summary, "Run L1-L3 MoonBit experiments against every enabled provider/model, then persist raw JSON plus a readable markdown summary.");
-     addField("evalMaxLevel", "Max benchmark level (1-3)", "3");
+     set(title, "Free LLM FastQ Eval");
+     set(summary, "Run the single task 'Generate a FastQ file generator.' against every enabled provider/model using the minimal prompt plus direct compile-repair strategy, then persist raw JSON plus a readable markdown summary.");
+     addField("evalRepairRounds", "Max repair rounds (1-3)", "2");
    } else if (skillId.includes("fastq-base-counter")) {
      set(scope, "SKILL-Hub / Research / FastQ");
      set(title, "FastQ Base Counter");
@@ -1073,15 +3519,388 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app28browser__open__skil
      set(title, skillId.includes("gomoku") ? "Gomoku" : "Excel Max Amount Row");
      set(summary, "This SKILL is registered in MoonAP-SKILL-Hub. Full execution UI will follow the FastQ MVP.");
    }
+   if (chooseOutput) {
+     chooseOutput.onclick = async (event) => {
+       event.preventDefault();
+       event.stopPropagation();
+       try {
+         if (typeof window.showSaveFilePicker !== "function") {
+           throw new Error("This browser does not support selecting a streamed output file yet.");
+         }
+         const fileNameRuntime = globalThis.__moonapFileNameRuntime;
+         const outputInput = dialog.querySelector(`[data-param-name="output_name"]`);
+         const outputNameRaw = String(outputInput?.value || "moonap-output.fastq").trim() || "moonap-output.fastq";
+         const outputName = fileNameRuntime?.sanitize(outputNameRaw, "moonap-output.fastq") || "moonap-output.fastq";
+         const handle = await window.showSaveFilePicker({
+           suggestedName: outputName,
+           types: [{ description: "FastQ files", accept: { "text/plain": [".fastq", ".fq", ".txt"] } }]
+         });
+         dialog.__moonapOutputFileHandle = handle;
+         if (outputInput) outputInput.value = String(handle?.name || outputName);
+         set(outputStatus, `Selected: ${String(handle?.name || outputName)}`);
+       } catch (error) {
+         set(outputStatus, `Output file not selected: ${error instanceof Error ? error.message : String(error)}`);
+       }
+     };
+   }
+   if (chooseInput) {
+     chooseInput.onclick = async (event) => {
+       event.preventDefault();
+       event.stopPropagation();
+       try {
+         if (typeof window.showOpenFilePicker !== "function") {
+           throw new Error("This browser does not support selecting a local input file yet.");
+         }
+         const handles = await window.showOpenFilePicker({
+           multiple: false,
+           types: [{ description: "FastQ files", accept: { "text/plain": [".fastq", ".fq", ".txt"] } }]
+         });
+         const handle = Array.isArray(handles) ? handles[0] : null;
+         if (!handle) throw new Error("No input file selected.");
+         dialog.__moonapInputFileHandle = handle;
+         set(inputStatus, `Selected: ${String(handle.name || "local FastQ file")}`);
+       } catch (error) {
+         set(inputStatus, `Input file not selected: ${error instanceof Error ? error.message : String(error)}`);
+       }
+     };
+   }
    dialog.showModal();
  };
 const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app29browser__close__skill__dialog = () => document.querySelector("#skillDialog")?.close();
 const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app26browser__dialog__skill__id = () => String(document.querySelector("#skillDialog")?.dataset?.skillId || "");
-const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app22browser__dialog__param = (name) => String(document.querySelector(`#param-${String(name)}`)?.value || "");
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app22browser__dialog__param = (name) => {
+   const direct = document.querySelector(`#param-${String(name)}`);
+   if (direct) return String(direct.value || "");
+   const byDataName = document.querySelector(`[data-param-name="${String(name)}"]`);
+   return String(byDataName?.value || "");
+ };
 const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app27browser__dialog__param__int = (name, fallback) => {
-   const raw = document.querySelector(`#param-${String(name)}`)?.value;
+   const direct = document.querySelector(`#param-${String(name)}`);
+   const raw = direct
+     ? direct.value
+     : document.querySelector(`[data-param-name="${String(name)}"]`)?.value;
    const value = Number.parseInt(String(raw || ""), 10);
    return Number.isFinite(value) && value > 0 ? value : fallback;
+ };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app34browser__dialog__skill__task__kind = () => String(document.querySelector("#skillDialog")?.dataset?.taskKind || "");
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app30browser__dialog__skill__source = () => String(document.querySelector("#skillDialog")?.dataset?.skillSource || "");
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app45browser__run__dialog__large__file__generation = async (onDone, onError) => {
+   try {
+     const dialog = document.querySelector("#skillDialog");
+     if (!dialog) throw new Error("No SKILL dialog is open.");
+     const readParam = (name, fallback = "") => {
+       const node = dialog.querySelector(`[data-param-name="${String(name)}"]`);
+       if (!node) return String(fallback);
+       if (String(node.type || "").toLowerCase() === "checkbox") return node.checked ? "true" : "false";
+       return String(node.value ?? fallback);
+     };
+     const fileNameRuntime = globalThis.__moonapFileNameRuntime;
+     const outputNameRaw = readParam("output_name", "moonap-output.fastq").trim() || "moonap-output.fastq";
+     let outputName = fileNameRuntime?.sanitize(outputNameRaw, "moonap-output.fastq") || "moonap-output.fastq";
+     const targetSizeMb = Math.max(1, Math.min(1024, Number.parseInt(readParam("target_size_mb", "128"), 10) || 128));
+     const readLength = Math.max(20, Math.min(20000, Number.parseInt(readParam("read_length", "150"), 10) || 150));
+     const headerPrefix = fileNameRuntime?.sanitizeToken(readParam("read_header_prefix", "moonap_read"), "moonap_read") || "moonap_read";
+     const nRate = Math.max(0, Math.min(1, Number.parseFloat(readParam("n_rate", "0.01")) || 0.01));
+     const qualityChar = readParam("quality_char", "I").slice(0, 1) || "I";
+     let seed = Math.max(0, Number.parseInt(readParam("random_seed", "42"), 10) || 42) >>> 0;
+     if (typeof window.showSaveFilePicker !== "function") {
+       throw new Error("This browser does not support streamed save-file output yet.");
+     }
+     const selectedFileHandle = dialog.__moonapOutputFileHandle || null;
+     dialog.close();
+     const fileHandle = selectedFileHandle || await window.showSaveFilePicker({
+       suggestedName: outputName,
+       types: [{ description: "FastQ files", accept: { "text/plain": [".fastq", ".fq", ".txt"] } }]
+     });
+     outputName = String(fileHandle?.name || outputName);
+     const writable = await fileHandle.createWritable();
+     const encoder = new TextEncoder();
+     const chunkSize = 4 * 1024 * 1024;
+     const targetBytes = targetSizeMb * 1024 * 1024;
+     const bases = ["A", "C", "G", "T"];
+     const rand = () => {
+       seed = (seed * 1664525 + 1013904223) >>> 0;
+       return seed / 4294967296;
+     };
+     const materializeRecord = (index) => {
+       let seq = "";
+       for (let i = 0; i < readLength; i += 1) {
+         seq += rand() < nRate ? "N" : bases[Math.floor(rand() * bases.length)];
+       }
+       return `@${headerPrefix}_${index}\n${seq}\n+\n${qualityChar.repeat(readLength)}\n`;
+     };
+     const started = performance.now();
+     let bytesWritten = 0;
+     let readIndex = 0;
+     let chunkCount = 0;
+     const setText = (selector, value) => {
+       const node = document.querySelector(selector);
+       if (node) node.textContent = String(value ?? "");
+     };
+     const emitState = (status) => {
+       const progress = targetBytes === 0 ? 100 : Math.min(100, Math.floor((bytesWritten / targetBytes) * 100));
+       const payload = {
+         status,
+         result_kind: "streamed-file",
+         file_name: outputName,
+         target_size_mb: targetSizeMb,
+         bytes_written: bytesWritten,
+         bytes_processed: bytesWritten,
+         target_bytes: targetBytes,
+         reads_seen: readIndex,
+         chunk_count: chunkCount,
+         progress_percent: progress,
+         llm_receives_file_contents: false
+       };
+       setText("#state", JSON.stringify(payload, null, 2));
+       setText("#processProvider", "Personal SKILL");
+       setText("#processStage", "skill-runtime");
+       setText("#processResult", status === "runtime-succeeded" ? "succeeded" : "running");
+       setText("#processLog", status === "runtime-succeeded"
+         ? `Generated ${outputName} with ${readIndex} FastQ reads.`
+         : `Writing ${outputName}: ${progress}%`);
+       const panel = document.querySelector("#resultPanel");
+       panel?.classList.add("is-open");
+       setText("#resultStatus", status);
+       setText("#resultTitle", "Browser-local large-file generation");
+       setText("#metricFile", outputName);
+       setText("#metricReads", String(readIndex));
+       const fill = document.querySelector("#progressFill");
+       if (fill) fill.style.width = `${progress}%`;
+       globalThis.__moonapLargeFileProgressRuntime?.update?.(payload);
+     };
+     emitState("streaming-write");
+     while (bytesWritten < targetBytes) {
+       const records = [];
+       let chunkBytes = 0;
+       while (chunkBytes < chunkSize && bytesWritten + chunkBytes < targetBytes) {
+         const record = materializeRecord(readIndex);
+         const bytes = encoder.encode(record);
+         if (bytes.length > targetBytes - bytesWritten - chunkBytes) break;
+         records.push(record);
+         chunkBytes += bytes.length;
+         readIndex += 1;
+       }
+       if (records.length === 0) break;
+       const chunkText = records.join("");
+       await writable.write(chunkText);
+       bytesWritten += encoder.encode(chunkText).length;
+       chunkCount += 1;
+       emitState("streaming-write");
+       await new Promise((resolve) => setTimeout(resolve, 0));
+     }
+     await writable.close();
+     const elapsedMs = Math.round(performance.now() - started);
+     const result = {
+       status: "runtime-succeeded",
+       result_kind: "streamed-file",
+       file_name: outputName,
+       bytes_written: bytesWritten,
+       reads_seen: readIndex,
+       chunk_count: chunkCount,
+       elapsed_ms: elapsedMs,
+       llm_receives_file_contents: false,
+       summary: `Generated ${outputName} locally with browser streaming output (${readIndex} FastQ reads).`
+     };
+     emitState("runtime-succeeded");
+     onDone(JSON.stringify(result, null, 2));
+   } catch (error) {
+     globalThis.__moonapLargeFileProgressRuntime?.error?.(error instanceof Error ? error.message : String(error));
+     onError(error instanceof Error ? error.message : String(error));
+   }
+ };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app44browser__run__dialog__large__fastq__analysis = async (onDone, onError) => {
+   try {
+     const dialog = document.querySelector("#skillDialog");
+     if (!dialog) throw new Error("No SKILL dialog is open.");
+     const readParam = (name, fallback = "") => {
+       const node = dialog.querySelector(`[data-param-name="${String(name)}"]`);
+       if (!node) return String(fallback);
+       if (String(node.type || "").toLowerCase() === "checkbox") return node.checked ? "true" : "false";
+       return String(node.value ?? fallback);
+     };
+     let fileHandle = dialog.__moonapInputFileHandle || null;
+     if (!fileHandle) {
+       if (typeof window.showOpenFilePicker !== "function") {
+         throw new Error("This browser does not support selecting a local input file yet.");
+       }
+       const handles = await window.showOpenFilePicker({
+         multiple: false,
+         types: [{ description: "FastQ files", accept: { "text/plain": [".fastq", ".fq", ".txt"] } }]
+       });
+       fileHandle = Array.isArray(handles) ? handles[0] : null;
+     }
+     if (!fileHandle || typeof fileHandle.getFile !== "function") throw new Error("Choose an input FastQ file first.");
+     dialog.close();
+     const file = await fileHandle.getFile();
+     const chunkSize = 4 * 1024 * 1024;
+     const parsedPreviewReads = Number.parseInt(readParam("max_preview_reads", "3"), 10);
+     const maxPreviewReads = Math.max(0, Math.min(20, Number.isFinite(parsedPreviewReads) ? parsedPreviewReads : 3));
+     const validateStructure = !["false", "0", "no", "off"].includes(readParam("validate_fastq_structure", "true").trim().toLowerCase());
+     const countBases = !["false", "0", "no", "off"].includes(readParam("count_bases", "true").trim().toLowerCase());
+     let offset = 0;
+     let carry = "";
+     let chunkCount = 0;
+     let lineCount = 0;
+     let readCount = 0;
+     let totalBases = 0;
+     let aCount = 0, cCount = 0, gCount = 0, tCount = 0, nCount = 0, otherBaseCount = 0;
+     let minReadLength = null;
+     let maxReadLength = 0;
+     let malformedRecordCount = 0;
+     const previewReads = [];
+     const recordLines = [];
+     const setText = (selector, value) => {
+       const node = document.querySelector(selector);
+       if (node) node.textContent = String(value ?? "");
+     };
+     const countSequence = (sequence) => {
+       const length = sequence.length;
+       totalBases += length;
+       minReadLength = minReadLength == null ? length : Math.min(minReadLength, length);
+       maxReadLength = Math.max(maxReadLength, length);
+       if (!countBases) return;
+       for (let i = 0; i < sequence.length; i += 1) {
+         const ch = sequence[i].toUpperCase();
+         if (ch === "A") aCount += 1;
+         else if (ch === "C") cCount += 1;
+         else if (ch === "G") gCount += 1;
+         else if (ch === "T") tCount += 1;
+         else if (ch === "N") nCount += 1;
+         else otherBaseCount += 1;
+       }
+     };
+     const consumeRecord = (header, sequence, plus, quality) => {
+       const malformed = validateStructure && (!String(header || "").startsWith("@") || String(plus || "") !== "+" || String(sequence || "").length !== String(quality || "").length);
+       if (malformed) malformedRecordCount += 1;
+       readCount += 1;
+       countSequence(String(sequence || ""));
+       if (previewReads.length < maxPreviewReads) previewReads.push(`${header}\n${String(sequence || "").slice(0, 240)}\n${plus}\n${String(quality || "").slice(0, 240)}`);
+     };
+     const consumeLine = (line) => {
+       lineCount += 1;
+       recordLines.push(String(line || ""));
+       if (recordLines.length === 4) {
+         consumeRecord(recordLines[0], recordLines[1], recordLines[2], recordLines[3]);
+         recordLines.length = 0;
+       }
+     };
+     const emitState = (status) => {
+       const progress = file.size === 0 ? 100 : Math.min(100, Math.floor((offset / file.size) * 100));
+       const payload = {
+         status,
+         result_kind: "large-fastq-report",
+         file_name: file.name,
+         file_size_bytes: file.size,
+         bytes_processed: offset,
+         chunk_count: chunkCount,
+         line_count: lineCount,
+         reads_seen: readCount,
+         total_bases: totalBases,
+         matching_line_count: nCount,
+         progress_percent: progress,
+         llm_receives_file_contents: false
+       };
+       setText("#state", JSON.stringify(payload, null, 2));
+       setText("#processProvider", String(dialog.dataset.skillSource || "") === "personal" ? "Personal SKILL" : "Local SKILL");
+       setText("#processStage", "skill-runtime");
+       setText("#processResult", status === "runtime-succeeded" ? "succeeded" : "running");
+       setText("#processLog", status === "runtime-succeeded" ? `Analyzed ${file.name}: ${readCount} FastQ reads.` : `Analyzing ${file.name}: ${progress}%`);
+       document.querySelector("#resultPanel")?.classList.add("is-open");
+       setText("#resultStatus", status);
+       setText("#resultTitle", "Browser-local large FastQ analysis");
+       setText("#metricFile", file.name);
+       setText("#metricProcessed", `${Math.floor(offset / 1048576)} MB`);
+       setText("#metricReads", String(readCount));
+       setText("#metricTarget", String(nCount));
+       setText("#metricBases", String(totalBases));
+       const fill = document.querySelector("#progressFill");
+       if (fill) fill.style.width = `${progress}%`;
+       globalThis.__moonapLargeFileProgressRuntime?.update?.(payload);
+     };
+     emitState("streaming-fastq-analysis");
+     const started = performance.now();
+     while (offset < file.size) {
+       const end = Math.min(offset + chunkSize, file.size);
+       const text = await file.slice(offset, end).text();
+       const merged = carry + text;
+       const hasFinalNewline = merged.endsWith("\n") || merged.endsWith("\r");
+       const lines = merged.split(/\r?\n/);
+       carry = hasFinalNewline ? "" : String(lines.pop() || "");
+       if (hasFinalNewline && lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+       for (const line of lines) consumeLine(line);
+       offset = end;
+       chunkCount += 1;
+       emitState("streaming-fastq-analysis");
+       await new Promise((resolve) => setTimeout(resolve, 0));
+     }
+     if (carry !== "") consumeLine(carry);
+     if (recordLines.length > 0) malformedRecordCount += 1;
+     const elapsedMs = Math.round(performance.now() - started);
+     const avgReadLength = readCount === 0 ? 0 : totalBases / readCount;
+     const result = {
+       status: "runtime-succeeded",
+       result_kind: "large-fastq-report",
+       file_name: file.name,
+       file_size_bytes: file.size,
+       chunk_count: chunkCount,
+       total_lines: lineCount,
+       estimated_read_count: readCount,
+       total_bases: totalBases,
+       A_count: aCount,
+       C_count: cCount,
+       G_count: gCount,
+       T_count: tCount,
+       N_count: nCount,
+       other_base_count: otherBaseCount,
+       min_read_length: minReadLength == null ? 0 : minReadLength,
+       max_read_length: maxReadLength,
+       average_read_length: Number(avgReadLength.toFixed(2)),
+       malformed_record_count: malformedRecordCount,
+       elapsed_ms: elapsedMs,
+       preview_reads: previewReads,
+       llm_receives_file_contents: false,
+       request_id: `skill-runtime-${Date.now()}`,
+       runtime_mode: "file",
+       result_mode: "report",
+       download_name: `${String(file.name || "fastq-analysis").replace(/[^a-zA-Z0-9._-]+/g, "-")}.analysis.json`,
+       download_content: JSON.stringify({
+         file_name: file.name,
+         file_size_bytes: file.size,
+         chunk_count: chunkCount,
+         total_lines: lineCount,
+         estimated_read_count: readCount,
+         total_bases: totalBases,
+         A_count: aCount,
+         C_count: cCount,
+         G_count: gCount,
+         T_count: tCount,
+         N_count: nCount,
+         other_base_count: otherBaseCount,
+         min_read_length: minReadLength == null ? 0 : minReadLength,
+         max_read_length: maxReadLength,
+         average_read_length: Number(avgReadLength.toFixed(2)),
+         malformed_record_count: malformedRecordCount,
+         preview_reads: previewReads
+       }, null, 2),
+       summary: `Analyzed ${file.name} locally: ${readCount} FastQ reads, ${totalBases} bases.`
+     };
+     globalThis.__moonapLastRuntimeResult = result;
+     globalThis.__moonapLastRuntimeReportPayload = result;
+     emitState("runtime-succeeded");
+     onDone(JSON.stringify(result, null, 2));
+   } catch (error) {
+     globalThis.__moonapLargeFileProgressRuntime?.error?.(error instanceof Error ? error.message : String(error));
+     onError(error instanceof Error ? error.message : String(error));
+   }
+ };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app30browser__dialog__external__url = () => String(document.querySelector("#skillDialog")?.dataset?.externalUrl || "");
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app30browser__dialog__download__url = () => String(document.querySelector("#skillDialog")?.dataset?.downloadUrl || "");
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app29browser__dialog__folder__path = () => String(document.querySelector("#skillDialog")?.dataset?.folderPath || "");
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app28browser__open__external__url = (url) => {
+   const text = String(url || "").trim();
+   if (!text) return;
+   window.open(text, "_blank", "noopener,noreferrer");
  };
 const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__on__dialog__run = (handler) => document.addEventListener("click", (event) => {
    if (event.target?.id === "dialogRun") {
@@ -1092,6 +3911,18 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__on__dialog
      setTimeout(() => {
        if (globalThis.__moonapAllowDownload === "dialog-run") globalThis.__moonapAllowDownload = "";
      }, 0);
+   }
+ });
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app33browser__on__dialog__open__source = (handler) => document.addEventListener("click", (event) => {
+   if (event.target?.id === "dialogOpenSource") {
+     event.preventDefault();
+     event.stopPropagation();
+     try {
+       handler();
+     } catch (error) {
+       console.error("MoonAP source open failed:", error);
+       alert(`MoonAP source open failed: ${error instanceof Error ? error.message : String(error)}`);
+     }
    }
  });
 const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app27browser__on__dialog__cancel = (handler) => document.addEventListener("click", (event) => {
@@ -1213,31 +4044,18 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app26browser__open__llm_
      },
      {
        key: "nvidia",
-       enabled: true,
+       enabled: false,
        baseUrl: "https://integrate.api.nvidia.com/v1",
        models: [
-         { id: "meta/llama-4-maverick-17b-128e-instruct", enabled: true },
-         { id: "qwen/qwen2.5-coder-32b-instruct", enabled: false },
-         { id: "meta/llama-4-scout-17b-16e-instruct", enabled: false },
-         { id: "meta/llama-3.3-70b-instruct", enabled: false }
+         { id: "meta/llama-4-maverick-17b-128e-instruct", enabled: true }
        ]
      },
      {
        key: "zai",
-       enabled: true,
+       enabled: false,
        baseUrl: "https://open.bigmodel.cn/api/paas/v4",
        models: [
-         { id: "glm-5.1", enabled: true },
-         { id: "glm-5-turbo", enabled: false },
-         { id: "glm-5", enabled: false },
-         { id: "glm-4.7", enabled: false },
-         { id: "glm-4.7-flash", enabled: false },
-         { id: "glm-4.7-flashx", enabled: false },
-         { id: "glm-4.6", enabled: false },
-         { id: "glm-4.5-air", enabled: false },
-         { id: "glm-4.5-airx", enabled: false },
-         { id: "glm-4-long", enabled: false },
-         { id: "glm-4-flashx-250414", enabled: false }
+         { id: "glm-5.1", enabled: true }
        ]
      },
      {
@@ -1245,12 +4063,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app26browser__open__llm_
        enabled: false,
        baseUrl: "https://generativelanguage.googleapis.com",
        models: [
-         { id: "gemini-3-flash-preview", enabled: false },
-         { id: "gemini-3.1-flash-lite-preview", enabled: false },
-         { id: "gemini-2.5-flash", enabled: false },
-         { id: "gemini-2.5-flash-lite", enabled: false },
-         { id: "gemini-2-flash", enabled: false },
-         { id: "gemini-2-flash-lite", enabled: false }
+         { id: "gemini-2.5-flash", enabled: false }
        ]
      },
      {
@@ -1258,11 +4071,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app26browser__open__llm_
        enabled: false,
        baseUrl: "https://api.siliconflow.cn/v1",
        models: [
-         { id: "THUDM/glm-4-9b-chat", enabled: false },
-         { id: "Qwen/Qwen2-7B-Instruct", enabled: false },
-         { id: "internlm/internlm2_5-7b-chat", enabled: false },
-         { id: "mistralai/Mistral-7B-Instruct-v0.2", enabled: false },
-         { id: "THUDM/chatglm3-6b", enabled: false }
+         { id: "Qwen/Qwen2.5-Coder-32B-Instruct", enabled: false }
        ]
      },
      {
@@ -1270,9 +4079,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app26browser__open__llm_
        enabled: false,
        baseUrl: "https://openrouter.ai/api/v1",
        models: [
-         { id: "qwen/qwen3-coder:free", enabled: false },
-         { id: "nvidia/nemotron-3-super-120b-a12b:free", enabled: false },
-         { id: "openrouter/free", enabled: false }
+         { id: "openrouter/auto", enabled: false }
        ]
      }
    ];
@@ -1354,11 +4161,14 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app26browser__open__llm_
      syncDisabled();
    };
    bind("openai", { enable: "routerEnableOpenAI", model: "routerModelsOpenAI", base: "routerBaseOpenAI", key: "routerKeyOpenAI" });
-   bind("gemini", { enable: "routerEnableGemini", model: "routerModelsGemini", base: "routerBaseGemini", key: "routerKeyGemini" });
-   bind("siliconflow", { enable: "routerEnableSiliconFlow", model: "routerModelsSiliconFlow", base: "routerBaseSiliconFlow", key: "routerKeySiliconFlow" });
    bind("nvidia", { enable: "routerEnableNVIDIA", model: "routerModelsNVIDIA", base: "routerBaseNVIDIA", key: "routerKeyNVIDIA" });
    bind("zai", { enable: "routerEnableZAI", model: "routerModelsZAI", base: "routerBaseZAI", key: "routerKeyZAI" });
+   bind("gemini", { enable: "routerEnableGemini", model: "routerModelsGemini", base: "routerBaseGemini", key: "routerKeyGemini" });
+   bind("siliconflow", { enable: "routerEnableSiliconFlow", model: "routerModelsSiliconFlow", base: "routerBaseSiliconFlow", key: "routerKeySiliconFlow" });
    bind("openrouter", { enable: "routerEnableOpenRouter", model: "routerModelsOpenRouter", base: "routerBaseOpenRouter", key: "routerKeyOpenRouter" });
+   document.querySelectorAll(".router-row").forEach((node) => {
+     node.style.display = "";
+   });
    const verification = localStorage.getItem("moonap.formalVerification") === "true";
    const toggle = document.querySelector("#routerFormalVerification");
    if (toggle) toggle.checked = verification;
@@ -1396,6 +4206,12 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__llm__summa
 const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app27browser__render__onboarding = () => {
    const root = document.querySelector("#onboardingCard");
    if (!root) return;
+   if (globalThis.__moonapMinimalShell !== false) {
+     root.innerHTML = "";
+     root.classList.remove("is-open");
+     root.style.display = "none";
+     return;
+   }
    const benchmarkPrompt = "Write the smallest valid cmd/main/main.mbt that compiles under wasm-gc and returns the string hello moonbit. Return only the file contents.";
    const textarea = document.querySelector("#message");
    const currentValue = String(textarea?.value || "").trim();
@@ -1860,50 +4676,33 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app36browser__generate__
      const ordered = providers.slice(start).concat(providers.slice(0, start));
      const lowerTaskTitle = String(taskTitle || "").toLowerCase();
      const lowerPrompt = String(prompt || "").toLowerCase();
-     const isFastqTask = (lowerTaskTitle.includes("fastq") || lowerPrompt.includes("fastq")) && lowerPrompt.includes("moonbit");
-     const systemPrompt = (simpleMode || isFastqTask)
-       ? [
-           "You write MoonBit code.",
-           "Return ONLY cmd/main/main.mbt.",
-           "No markdown fences.",
-           "No explanations.",
-           "Use valid MoonBit syntax only."
-         ].join("\\n")
-       : [
-           "You are generating MoonBit code for MoonAP.",
-           "Target language: MoonBit 0.9.",
-           "Output contract:",
-           "- Return ONLY the contents of cmd/main/main.mbt.",
-           "- Do NOT return markdown fences.",
-           "- Do NOT return explanations.",
-           "- Do NOT return moon.pkg or moon.mod.json.",
-           "- Use valid MoonBit syntax only.",
-           "- The MoonBit primer in the user prompt overrides stale prior memory."
-         ].join("\\n");
-     const userPrompt = isFastqTask
-       ? [
-           `MoonAP task title: ${String(taskTitle || "MoonBit task")}`,
-           "",
-           String(prompt),
-           "",
-           "FastQ-specific constraints:",
-           "- main must return the generated FastQ String.",
-           "- Use MoonBit basics only; avoid imports and unknown library APIs.",
-           "- Do not use var, mut, Rust imports, or type suffixes.",
-           "- Prefer small pure helper functions over imperative loops if unsure.",
-           "",
-           "Again: return ONLY cmd/main/main.mbt source."
-         ].join("\\n")
-       : [
-           "Read this MoonBit 0.9 primer first and follow it strictly:",
-           String(knowledgePack || ""),
-           "",
-           `MoonAP task title: ${String(taskTitle || "MoonBit task")}`,
-           "",
-           String(prompt),
-           "",
-           "Again: return ONLY cmd/main/main.mbt source."
-         ].join("\\n");
+     const inferTaskKind = () => {
+       if (lowerPrompt.includes("fastq") || lowerTaskTitle.includes("fastq")) return "fastq-generator";
+       if (lowerPrompt.includes("excel") || lowerPrompt.includes("xlsx") || lowerPrompt.includes("spreadsheet")) return "excel-analysis";
+       if ((lowerPrompt.includes("browser") && lowerPrompt.includes("game")) || lowerTaskTitle.includes("game")) return "browser-game";
+       return "generic-moonbit";
+     };
+     const taskAdapterLines = (taskKind) => {
+       if (taskKind === "fastq-generator") {
+         return [
+           "- generate one or more valid FastQ records",
+           "- each record should include header, sequence, plus line, and quality line"
+         ];
+       }
+       if (taskKind === "excel-analysis") {
+         return [
+           "- assume the task logic should work on spreadsheet-like tabular input",
+           "- keep the result representation simple and easy for MoonAP to inspect or display"
+         ];
+       }
+       if (taskKind === "browser-game") {
+         return [
+           "- keep the gameplay loop simple and direct",
+           "- keep the program structure easy to compile and run inside MoonAP"
+         ];
+       }
+       return [];
+     };
      const updatePrompts = (modeText, systemPromptText, userPromptText) => {
        const setText = (selector, value) => {
          const node = document.querySelector(selector);
@@ -1913,7 +4712,21 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app36browser__generate__
        setText("#promptSystem", systemPromptText || "No LLM prompt captured yet.");
        setText("#promptUser", userPromptText || "No LLM prompt captured yet.");
      };
-     updatePrompts(isFastqTask ? "codegen / minimal-fastq" : (simpleMode ? "codegen / simple" : "codegen / full"), systemPrompt, userPrompt);
+     const buildCodegenPrompts = (llm) => {
+       const taskKind = inferTaskKind();
+       const systemPrompt = [
+         "You are an AI coder.",
+         "You only write MoonBit code.",
+         "Your job is to write MoonBit code for the user's task.",
+         "Return only the full contents of cmd/main/main.mbt."
+       ].join("\\n");
+       const userPrompt = String(prompt || "");
+       return {
+         modeText: "codegen / frontier-direct",
+         systemPrompt,
+         userPrompt
+       };
+     };
      const proxyPost = async (url, headers, body) => {
        const envelope = [
          `URL\t${String(url)}`,
@@ -1947,20 +4760,25 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app36browser__generate__
        return json;
      };
      const requestJson = async (llm) => {
+       const promptPack = buildCodegenPrompts(llm);
+       updatePrompts(promptPack.modeText, promptPack.systemPrompt, promptPack.userPrompt);
+       const codegenConversationHistory = [
+         { role: "user", content: String(prompt || "") }
+       ];
        if (llm.provider === "gemini") {
          const url = `${llm.baseUrl}/v1beta/models/${encodeURIComponent(llm.model)}:generateContent`;
          const json = await proxyPost(
            url,
            { "Content-Type": "application/json", "x-goog-api-key": String(llm.apiKey || "") },
            JSON.stringify({
-             system_instruction: { parts: [{ text: systemPrompt }] },
-             contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+             system_instruction: { parts: [{ text: promptPack.systemPrompt }] },
+             contents: [{ role: "user", parts: [{ text: promptPack.userPrompt }] }],
              generationConfig: { temperature: 0.2 }
            })
          );
          const text = (json?.candidates?.[0]?.content?.parts || []).map((part) => String(part?.text || "")).join("\\n").trim();
          if (!text) throw new Error("Gemini returned no MoonBit source.");
-         return { source: text, raw: json };
+         return { source: text, raw: json, conversation_history: codegenConversationHistory };
        }
        const rawBaseUrl = String(llm.baseUrl || "").trim();
        const baseUrl = rawBaseUrl.endsWith("/") ? rawBaseUrl.slice(0, -1) : rawBaseUrl;
@@ -1988,15 +4806,15 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app36browser__generate__
          JSON.stringify({
            model: llm.model,
            messages: [
-             { role: "system", content: systemPrompt },
-             { role: "user", content: userPrompt }
+             { role: "system", content: promptPack.systemPrompt },
+             { role: "user", content: promptPack.userPrompt }
            ],
            temperature: 0.2
          })
        );
        const text = String(json?.choices?.[0]?.message?.content || "").trim();
        if (!text) throw new Error(`${llm.provider} returned no MoonBit source.`);
-       return { source: text, raw: json };
+       return { source: text, raw: json, conversation_history: codegenConversationHistory };
      };
      let generated = null;
      let llm = null;
@@ -2082,6 +4900,10 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app36browser__generate__
          parameters: {}
        },
        moonbit_source: source,
+       conversation_history: [
+         ...(Array.isArray(generated?.conversation_history) ? generated.conversation_history : [{ role: "user", content: String(prompt || "") }]),
+         { role: "assistant", content: source }
+       ],
        knowledge_pack_version: "moonbit-primer-v1",
        llm_response_preview: JSON.stringify(generated.raw).slice(0, 1200),
        wasm_runtime: {
@@ -2250,26 +5072,55 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__run__free_
        const text = await response.text();
        return JSON.parse(text);
      };
+     const assessFastqSource = (sourceText) => {
+       const source = String(sourceText || "");
+       const lower = source.toLowerCase();
+       const hasImport = /\bimport\b/.test(lower);
+       const hasMain = /\bfn\s+main\b/.test(source);
+       const fnNames = Array.from(source.matchAll(/\bfn\s+([A-Za-z_][A-Za-z0-9_]*)/g)).map((item) => String(item[1] || ""));
+       const helperNames = fnNames.filter((item) => item !== "main");
+       const hasFastqHeader = source.includes("@SEQ") || source.includes("@moonap") || source.includes("\"@\"") || source.includes("@read");
+       const hasFastqPlus = source.includes("\\n+\\n") || source.includes("\"+\"") || source.includes("+\\n");
+       const hasQuality = source.includes("IIII") || lower.includes("qual");
+       const hasSequenceLogic = /A|C|G|T|N/.test(source) && (/\bif\b|\bmatch\b|\bfor\b|\bwhile\b/.test(source) || helperNames.length > 0);
+       const missingSignals = [];
+       if (!hasMain) missingSignals.push("define fn main");
+       if (hasImport) missingSignals.push("remove import usage");
+       if (!hasFastqHeader) missingSignals.push("emit a visible FastQ header such as @SEQ or @moonap");
+       if (!hasFastqPlus) missingSignals.push("emit a plus line between sequence and quality");
+       if (!hasQuality) missingSignals.push("generate an explicit quality string such as IIII or qual");
+       if (!hasSequenceLogic) missingSignals.push("include visible sequence-generation logic over A/C/G/T/N");
+       const pass = hasMain && !hasImport && hasFastqHeader && hasFastqPlus && hasQuality && hasSequenceLogic;
+       return {
+         pass,
+         title: pass ? "FastQ Generator task passed" : "Compile succeeded, but FastQ Generator task failed",
+         summary: pass
+           ? "Compile succeeded and the generated MoonBit source shows the expected FastQ structure: a header, sequence logic, plus line, and quality generation without imports."
+           : "Compile succeeded, but the generated MoonBit source does not yet look like a usable FastQ generator. MoonAP expected visible FastQ structure, sequence-generation logic, and a quality line without imports.",
+         repairHint: "Keep the program compiling, but make the MoonBit source visibly look like a FastQ generator with header, sequence, plus line, and quality generation.",
+         missingSignals
+       };
+     };
      const buildMarkdown = (results) => {
        const models = Array.isArray(results?.models) ? results.models : [];
        const formatCell = (benchmark) => {
          if (!benchmark?.attempted) return "not-run";
-         if (benchmark?.raw_codegen_pass) return "raw-pass";
-         if (benchmark?.assisted_pass) return `assist-pass (${Number(benchmark?.repair_attempts_used || 0)} repairs)`;
+         if (benchmark?.raw_codegen_pass) return benchmark?.raw_quality_pass ? "raw-pass+quality" : "raw-compile-only";
+         if (benchmark?.assisted_pass) return benchmark?.final_quality_pass ? `assist-pass+quality (${Number(benchmark?.repair_attempts_used || 0)} repairs)` : `assist-compile-only (${Number(benchmark?.repair_attempts_used || 0)} repairs)`;
          return "fail";
        };
        return [
-         "# Free LLM models ability of generating MoonBit code",
+         "# Free LLM FastQ generator ability of generating MoonBit code",
          "",
          `Last updated: ${nowIso()}`,
          "",
          "## Current summary",
          "",
-         "| Provider | Model | API | API ms | L1 | L2 | L3 | Notes |",
-         "| --- | --- | --- | ---: | --- | --- | --- | --- |",
+         "| Provider | Model | API | API ms | FQ1 | Notes |",
+         "| --- | --- | --- | ---: | --- | --- |",
          ...models.map((item) => {
            const note = item?.notes?.final_recommendation_note || item?.api_test?.message || "";
-           return `| ${String(item?.provider || "")} | ${String(item?.model || "")} | ${String(item?.api_test?.status || "")} | ${String(item?.api_test?.latency_ms ?? "")} | ${formatCell(item?.benchmarks?.L1)} | ${formatCell(item?.benchmarks?.L2)} | ${formatCell(item?.benchmarks?.L3)} | ${String(note).replace(/\|/g, "/")} |`;
+           return `| ${String(item?.provider || "")} | ${String(item?.model || "")} | ${String(item?.api_test?.status || "")} | ${String(item?.api_test?.latency_ms ?? "")} | ${formatCell(item?.benchmarks?.FQ1)} | ${String(note).replace(/\|/g, "/")} |`;
          }),
          "",
          "## Raw JSON",
@@ -2278,16 +5129,38 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__run__free_
        ].join("\n");
      };
      const persistResults = async (results) => {
-       await fetch("/api/experiments/free-llm-moonbit/results.json", {
-         method: "POST",
-         headers: { "Content-Type": "application/json; charset=utf-8" },
-         body: JSON.stringify(results, null, 2)
-       });
-       await fetch("/api/experiments/free-llm-moonbit/results.md", {
-         method: "POST",
-         headers: { "Content-Type": "text/markdown; charset=utf-8" },
-         body: buildMarkdown(results)
-       });
+       const warnings = Array.isArray(results?.persistence_warnings) ? results.persistence_warnings : [];
+       const pushWarning = (message) => {
+         const text = String(message || "").trim();
+         if (!text) return;
+         if (!warnings.includes(text)) warnings.push(text);
+         results.persistence_warnings = warnings;
+         console.warn("MoonAP experiment persistence warning:", text);
+       };
+       try {
+         const jsonResponse = await fetch("/api/experiments/free-llm-moonbit/results.json", {
+           method: "POST",
+           headers: { "Content-Type": "application/json; charset=utf-8" },
+           body: JSON.stringify(results, null, 2)
+         });
+         if (!jsonResponse.ok) {
+           pushWarning(`results.json persist failed (${jsonResponse.status})`);
+         }
+       } catch (error) {
+         pushWarning(`results.json persist failed: ${error instanceof Error ? error.message : String(error)}`);
+       }
+       try {
+         const markdownResponse = await fetch("/api/experiments/free-llm-moonbit/results.md", {
+           method: "POST",
+           headers: { "Content-Type": "text/markdown; charset=utf-8" },
+           body: buildMarkdown(results)
+         });
+         if (!markdownResponse.ok) {
+           pushWarning(`results.md persist failed (${markdownResponse.status})`);
+         }
+       } catch (error) {
+         pushWarning(`results.md persist failed: ${error instanceof Error ? error.message : String(error)}`);
+       }
      };
      const requestMoonBit = async (llm, systemPrompt, userPrompt, timeoutMs, maxTokens = 512, mode = "eval / raw-codegen") => {
        updatePrompts(mode, systemPrompt, userPrompt);
@@ -2329,23 +5202,14 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__run__free_
        }), timeoutMs);
        return { source: cleanSource(String(json?.choices?.[0]?.message?.content || "")), latencyMs };
      };
+     const repairRounds = Math.max(1, Math.min(3, Number(maxLevel || 2)));
      const benchmarks = [
        {
-         id: "L1",
-         title: "Smallest valid MoonBit program",
-         userPrompt: "Write cmd/main/main.mbt only. main must return the string \"hello moonbit\". No imports. No helper functions."
-       },
-       {
-         id: "L2",
-         title: "One helper plus main",
-         userPrompt: "Write cmd/main/main.mbt only. Define exactly one helper that returns \"hello moonbit\". main must call the helper and return its result. No imports."
-       },
-       {
-         id: "L3",
-         title: "Simple control flow",
-         userPrompt: "Write cmd/main/main.mbt only. main must return exactly \"ABC\" using compact deterministic control flow. No imports. No randomness."
+         id: "FQ1",
+         title: "FastQ generator",
+         userPrompt: "Generate a FastQ file generator."
        }
-     ].slice(0, clampLevel(maxLevel));
+     ];
      const codegenSystemPrompt = [
        "You write MoonBit code.",
        "Return only cmd/main/main.mbt.",
@@ -2368,29 +5232,36 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__run__free_
      const blankBenchmark = () => ({
        attempted: false,
        raw_codegen_pass: false,
+       raw_quality_pass: false,
        raw_codegen_compile_exit_code: null,
        raw_codegen_compile_summary_kind: "",
        repair_attempts_used: 0,
        assisted_pass: false,
+       final_quality_pass: false,
        final_compile_exit_code: null,
        final_compile_summary_kind: "",
+       final_quality_title: "",
+       final_quality_summary: "",
+       final_quality_missing_signals_json: "[]",
        final_source_bytes: null,
        first_codegen_response_latency_ms: null,
        total_time_to_first_compile_success_ms: null
      });
      const results = {
-       experiment_name: "Free LLM models ability of generating MoonBit code",
+       experiment_name: "Free LLM FastQ generator ability of generating MoonBit code",
        status: "running",
        generated_at: nowIso(),
        prompt_protocol: {
          system_prompt: codegenSystemPrompt,
-         user_prompt_mode: "task-only"
+         user_prompt_mode: "task-only",
+         repair_mode: "frontier-conversation",
+         repair_rounds: repairRounds
        },
        benchmarks: benchmarks.map((item) => ({ id: item.id, title: item.title, goal: item.userPrompt })),
        models: []
      };
      const routerSummary = `${providers.length} provider(s): ${providers.map((item) => `${item.key}/${item.model}`).join(", ")}`;
-     updateProcess(routerSummary, "moonbit-eval", "running", `Starting Free LLM MoonBit Eval across ${providers.length} enabled provider/model entries.`);
+     updateProcess(routerSummary, "moonbit-eval", "running", `Starting Free LLM FastQ Eval across ${providers.length} enabled provider/model entries.`);
      for (const provider of providers) {
        const providerLabel = `${provider.key}/${provider.model}`;
        const modelRecord = {
@@ -2405,7 +5276,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__run__free_
            timeout: false,
            non_json_response: false
          },
-         benchmarks: { L1: blankBenchmark(), L2: blankBenchmark(), L3: blankBenchmark() },
+         benchmarks: { FQ1: blankBenchmark() },
          notes: {
            stalled_or_long_no_response: false,
            parser_drift_notes: "",
@@ -2417,7 +5288,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__run__free_
        await persistResults(results);
        updateProcess(providerLabel, "llm-api-test", "running", `Testing API reachability for ${providerLabel}.`);
        try {
-         const ping = await requestMoonBit(provider, "Reply with OK.", "Reply with OK.", 8000, 8, "eval / api-test");
+         const ping = await requestMoonBit(provider, "Reply with OK.", "Reply with OK.", 15000, 8, "eval / api-test");
          modelRecord.api_test.status = "ok";
          modelRecord.api_test.message = ping.source || "OK";
          modelRecord.api_test.latency_ms = ping.latencyMs;
@@ -2439,7 +5310,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__run__free_
          bench.attempted = true;
          updateProcess(providerLabel, `moonbit-eval-${benchmark.id.toLowerCase()}`, "running", `Running ${benchmark.id} for ${providerLabel}.`);
          try {
-           const generated = await requestMoonBit(provider, codegenSystemPrompt, benchmark.userPrompt, 30000, 512, "eval / raw-codegen");
+           const generated = await requestMoonBit(provider, codegenSystemPrompt, benchmark.userPrompt, 60000, 1024, "eval / raw-codegen");
            bench.first_codegen_response_latency_ms = generated.latencyMs;
            updateProcess(providerLabel, `moonbit-eval-${benchmark.id.toLowerCase()}`, "running", `Compiling raw output for ${benchmark.id}.`, generated.source);
            let compile = await compileSource(generated.source);
@@ -2448,28 +5319,68 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__run__free_
            bench.final_compile_exit_code = Number.isFinite(compile?.exit_code) ? Number(compile.exit_code) : null;
            bench.final_compile_summary_kind = String(compile?.summary_kind || "");
            bench.final_source_bytes = Number.isFinite(compile?.source_bytes) ? Number(compile.source_bytes) : generated.source.length;
+           let quality = null;
            if (compile?.ok === true) {
              bench.raw_codegen_pass = true;
-             bench.assisted_pass = true;
-             bench.total_time_to_first_compile_success_ms = Math.round(performance.now() - benchStart);
-             await persistResults(results);
-             continue;
+             quality = assessFastqSource(generated.source);
+             bench.raw_quality_pass = Boolean(quality?.pass);
+             bench.final_quality_pass = Boolean(quality?.pass);
+             bench.final_quality_title = String(quality?.title || "");
+             bench.final_quality_summary = String(quality?.summary || "");
+             bench.final_quality_missing_signals_json = JSON.stringify(Array.isArray(quality?.missingSignals) ? quality.missingSignals : []);
+             if (quality?.pass) {
+               bench.assisted_pass = true;
+               bench.total_time_to_first_compile_success_ms = Math.round(performance.now() - benchStart);
+               await persistResults(results);
+               continue;
+             }
            }
            let repairedSource = generated.source;
-           for (let repairRound = 1; repairRound <= 2; repairRound += 1) {
+           for (let repairRound = 1; repairRound <= repairRounds; repairRound += 1) {
              bench.repair_attempts_used = repairRound;
-             const repairUserPrompt = [
-               `Benchmark task: ${benchmark.userPrompt}`,
-               "",
-               "Current source:",
-               repairedSource,
-               "",
-               "Compiler output:",
-               String(compile?.output || compile?.trimmed_output || ""),
-               "",
-               "Repair the file so it compiles. Return only cmd/main/main.mbt."
-             ].join("\n");
-             const repaired = await requestMoonBit(provider, repairSystemPrompt, repairUserPrompt, 30000, 512, "eval / repair");
+             const repairUserPrompt = quality && compile?.ok === true
+               ? [
+                   "USER:",
+                   benchmark.userPrompt,
+                   "",
+                   "---",
+                   "",
+                   "ASSISTANT:",
+                   repairedSource,
+                   "",
+                   "---",
+                   "",
+                   "USER:",
+                   "The previous MoonBit file compiled under wasm-gc, but it does not yet look like a usable FastQ generator.",
+                   "",
+                   "System assessment:",
+                   String(quality?.summary || ""),
+                   "",
+                   "Missing signals:",
+                   ...(Array.isArray(quality?.missingSignals) && quality.missingSignals.length > 0 ? quality.missingSignals.map((item) => `- ${String(item)}`) : ["- none listed"]),
+                   "",
+                   "Fix the file and return the full corrected cmd/main/main.mbt only."
+                 ].join("\n")
+               : [
+                   "USER:",
+                   benchmark.userPrompt,
+                   "",
+                   "---",
+                   "",
+                   "ASSISTANT:",
+                   repairedSource,
+                   "",
+                   "---",
+                   "",
+                   "USER:",
+                   "The previous MoonBit file failed to compile under wasm-gc.",
+                   "",
+                   "Compiler error:",
+                   String(compile?.output || compile?.trimmed_output || ""),
+                   "",
+                   "Fix the file and return the full corrected cmd/main/main.mbt only."
+                 ].join("\n");
+             const repaired = await requestMoonBit(provider, repairSystemPrompt, repairUserPrompt, 90000, 1024, "eval / repair");
              repairedSource = repaired.source;
              updateProcess(providerLabel, `moonbit-eval-${benchmark.id.toLowerCase()}`, "running", `Compile-checking repair round ${repairRound} for ${benchmark.id}.`, repairedSource);
              compile = await compileSource(repairedSource);
@@ -2477,9 +5388,16 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__run__free_
              bench.final_compile_summary_kind = String(compile?.summary_kind || "");
              bench.final_source_bytes = Number.isFinite(compile?.source_bytes) ? Number(compile.source_bytes) : repairedSource.length;
              if (compile?.ok === true) {
-               bench.assisted_pass = true;
-               bench.total_time_to_first_compile_success_ms = Math.round(performance.now() - benchStart);
-               break;
+               quality = assessFastqSource(repairedSource);
+               bench.final_quality_pass = Boolean(quality?.pass);
+               bench.final_quality_title = String(quality?.title || "");
+               bench.final_quality_summary = String(quality?.summary || "");
+               bench.final_quality_missing_signals_json = JSON.stringify(Array.isArray(quality?.missingSignals) ? quality.missingSignals : []);
+               if (quality?.pass) {
+                 bench.assisted_pass = true;
+                 bench.total_time_to_first_compile_success_ms = Math.round(performance.now() - benchStart);
+                 break;
+               }
              }
            }
            if (!bench.assisted_pass && String(bench.final_compile_summary_kind || "").includes("parse")) {
@@ -2494,21 +5412,23 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__run__free_
            }
          }
          await persistResults(results);
-         updateProcess(providerLabel, `moonbit-eval-${benchmark.id.toLowerCase()}`, bench.assisted_pass ? "succeeded" : "failed", `${benchmark.id} result for ${providerLabel}: raw=${bench.raw_codegen_pass ? "pass" : "fail"}, assisted=${bench.assisted_pass ? "pass" : "fail"}, repairs=${Number(bench.repair_attempts_used || 0)}.`);
+         updateProcess(providerLabel, `moonbit-eval-${benchmark.id.toLowerCase()}`, bench.assisted_pass ? "succeeded" : "failed", `${benchmark.id} result for ${providerLabel}: raw=${bench.raw_codegen_pass ? "compile-pass" : "compile-fail"}, raw-quality=${bench.raw_quality_pass ? "pass" : "fail"}, assisted=${bench.assisted_pass ? "quality-pass" : "fail"}, repairs=${Number(bench.repair_attempts_used || 0)}.`);
        }
-       const l3 = modelRecord.benchmarks.L3;
-       if (l3?.raw_codegen_pass) {
-         modelRecord.notes.final_recommendation_note = "Strong first-pass MoonBit candidate.";
-       } else if (l3?.assisted_pass) {
-         modelRecord.notes.final_recommendation_note = "Usable with compiler-guided repair.";
+       const fq1 = modelRecord.benchmarks.FQ1;
+       if (fq1?.raw_codegen_pass && fq1?.raw_quality_pass) {
+         modelRecord.notes.final_recommendation_note = "Strong first-pass FastQ MoonBit candidate.";
+       } else if (fq1?.assisted_pass && fq1?.final_quality_pass) {
+         modelRecord.notes.final_recommendation_note = "Usable for FastQ generator after compiler/quality-guided repair.";
+       } else if (fq1?.raw_codegen_pass || fq1?.final_compile_exit_code === 0) {
+         modelRecord.notes.final_recommendation_note = "Can compile, but still does not reliably satisfy the FastQ generator structure checks.";
        } else {
-         modelRecord.notes.final_recommendation_note = "Not yet reliable for MoonBit benchmark L3.";
+         modelRecord.notes.final_recommendation_note = "Not yet reliable for the FastQ generator task.";
        }
        await persistResults(results);
      }
      results.status = "completed";
      await persistResults(results);
-     updateProcess(routerSummary, "moonbit-eval", "succeeded", "Free LLM MoonBit Eval completed. Results were written to artifacts/moonbit-eval-results.json and docs/experiments/free-llm-moonbit/results.md.");
+     updateProcess(routerSummary, "moonbit-eval", "succeeded", "Free LLM FastQ Eval completed. Results were written to artifacts/moonbit-eval-results.json and docs/experiments/free-llm-moonbit/results.md.");
      onDone(JSON.stringify(results, null, 2));
    } catch (error) {
      onError(error instanceof Error ? error.message : String(error));
@@ -2520,29 +5440,52 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app34browser__on__save__
    if (event.target?.id !== "savePersonalSkill") return;
    event.preventDefault();
    event.stopPropagation();
-   const artifact = globalThis.__moonapLastArtifact;
-   if (!artifact) {
-     alert("No generated artifact is ready to save.");
-     return;
-   }
-   alert("Save to Personal-SKILL-Set is disabled until real MoonBit compile and runtime execution are implemented.");
-   return;
-   let skills = [];
-   try {
-     const parsed = JSON.parse(localStorage.getItem("moonap.personal.skills") || "[]");
-     skills = Array.isArray(parsed) ? parsed : [];
-   } catch (error) {
-     console.warn("MoonAP reset invalid personal skill storage:", error);
-     try { localStorage.removeItem("moonap.personal.skills"); } catch {}
-   }
-   const next = skills.filter((skill) => skill.id !== artifact.id);
-   next.unshift(artifact);
-   localStorage.setItem("moonap.personal.skills", JSON.stringify(next));
    try {
      handler();
    } catch (error) {
      console.error("MoonAP save personal skill handler failed:", error);
      alert(`MoonAP save failed: ${error instanceof Error ? error.message : String(error)}`);
+   }
+ });
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app40browser__on__download__runtime__artifact = (kind, handler) => document.addEventListener("click", (event) => {
+   const targetId = kind === "wasm"
+     ? "downloadRuntimeWasm"
+     : kind === "source"
+       ? "downloadRuntimeSource"
+       : kind === "compile-report"
+         ? "downloadCompileReport"
+         : "downloadRuntimeResult";
+   if (event.target?.id !== targetId) return;
+   event.preventDefault();
+   event.stopPropagation();
+   try {
+     handler();
+   } catch (error) {
+     alert(`MoonAP runtime download failed: ${error instanceof Error ? error.message : String(error)}`);
+   }
+ });
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app36browser__on__runtime__report__action = (action, handler) => document.addEventListener("click", (event) => {
+   const targetId = String(action || "") === "save" ? "saveRuntimeReport" : "openRuntimeReport";
+   if (event.target?.id !== targetId) return;
+   event.preventDefault();
+   event.stopPropagation();
+   try {
+     const result = handler();
+     if (result && typeof result.catch === "function") {
+       result.catch((error) => alert(`MoonAP report action failed: ${error instanceof Error ? error.message : String(error)}`));
+     }
+   } catch (error) {
+     alert(`MoonAP report action failed: ${error instanceof Error ? error.message : String(error)}`);
+   }
+ });
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app42browser__on__record__demo__runtime__result = (handler) => document.addEventListener("click", (event) => {
+   if (event.target?.id !== "recordDemoRuntimeResult") return;
+   event.preventDefault();
+   event.stopPropagation();
+   try {
+     handler();
+   } catch (error) {
+     alert(`MoonAP demo runtime execution failed: ${error instanceof Error ? error.message : String(error)}`);
    }
  });
 const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app29browser__on__repair__artifact = (handler) => document.addEventListener("click", (event) => {
@@ -2555,43 +5498,863 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app29browser__on__repair
      alert(`MoonAP repair failed: ${error instanceof Error ? error.message : String(error)}`);
    }
  });
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app39browser__ensure__skill__folder__runtime = () => {
+   if (globalThis.__moonapSkillFolderRuntime) return;
+   const pathRuntime = globalThis.__moonapVirtualPathRuntime;
+   if (!pathRuntime || typeof pathRuntime.normalize !== "function") {
+     throw new Error("MoonAP virtual path runtime is not ready yet.");
+   }
+   const parseFrontmatter = (text) => {
+     const source = String(text || "");
+     if (!source.startsWith("---\n") && !source.startsWith("---\r\n")) return {};
+     const lines = source.replace(/\r/g, "").split("\n");
+     const fields = {};
+     for (let index = 1; index < lines.length; index += 1) {
+       const line = String(lines[index] || "");
+       if (line.trim() === "---") break;
+       const colon = line.indexOf(":");
+       if (colon < 0) continue;
+       const key = line.slice(0, colon).trim();
+       const value = line.slice(colon + 1).trim();
+       if (key) fields[key] = value;
+     }
+     return fields;
+   };
+   const parseKeyAttributes = (text) => {
+     const source = String(text || "").replace(/\r/g, "");
+     const match = source.match(/# Key Attributes\s+([\s\S]*?)(?:\n# |\n```|$)/);
+     const result = {};
+     const block = match?.[1] || "";
+     for (const line of block.split("\n")) {
+       const trimmed = String(line || "").trim();
+       if (!trimmed.startsWith("- ")) continue;
+       const content = trimmed.slice(2);
+       const colon = content.indexOf(":");
+       if (colon < 0) continue;
+       const key = content.slice(0, colon).trim().toLowerCase().replace(/\s+/g, "_");
+       const value = content.slice(colon + 1).trim();
+       if (key) result[key] = value;
+     }
+     return result;
+   };
+   const parseRuntimeSpec = (text) => {
+     const source = String(text || "").replace(/\r/g, "");
+     const match = source.match(/# Runtime Spec\s+```json\s*([\s\S]*?)\s*```/);
+     if (!match) return {};
+     try { return JSON.parse(match[1]); } catch { return {}; }
+   };
+   const readTextFile = async (dirHandle, fileName) => {
+     const handle = await dirHandle.getFileHandle(String(fileName || ""));
+     const file = await handle.getFile();
+     return await file.text();
+   };
+   const ensurePermission = async (handle, mode = "read", request = false) => {
+     if (!handle) return false;
+     if (typeof handle.queryPermission !== "function") return true;
+     try {
+       let state = await handle.queryPermission({ mode });
+       if (state === "granted") return true;
+       if (request && typeof handle.requestPermission === "function") {
+         state = await handle.requestPermission({ mode });
+         if (state === "granted") return true;
+       }
+     } catch {}
+     return false;
+   };
+   const readSkillFolder = async (dirHandle, options = {}) => {
+     const fallback = options?.fallback && typeof options.fallback === "object" ? options.fallback : {};
+     const skillMd = await readTextFile(dirHandle, "SKILL.md");
+     const frontmatter = parseFrontmatter(skillMd);
+     const keyAttributes = parseKeyAttributes(skillMd);
+     const runtimeSpec = parseRuntimeSpec(skillMd);
+     const relativePath = pathRuntime.normalize(options?.relativePath || fallback?.relative_path || dirHandle?.name || "");
+     return {
+       ...(fallback || {}),
+       id: String(options?.id || fallback?.id || ""),
+       name: String(frontmatter.name || fallback?.name || options?.defaultName || "SKILL"),
+       description: String(frontmatter.description || fallback?.description || ""),
+       task_kind: String(keyAttributes.task_kind || fallback?.task_kind || "generic"),
+       runtime_mode: String(keyAttributes.runtime_mode || fallback?.runtime_mode || "form"),
+       result_mode: String(keyAttributes.result_mode || fallback?.result_mode || "text"),
+       wasm_path: String(keyAttributes.wasm_path || fallback?.wasm_path || "program/main.wasm"),
+       source_path: String(keyAttributes.moonbit_source_path || fallback?.source_path || ""),
+       runtime_spec: runtimeSpec && typeof runtimeSpec === "object" ? runtimeSpec : {},
+       skill_md: skillMd,
+       handle_name: String(dirHandle?.name || fallback?.folder_name || ""),
+       relative_path: relativePath,
+       available: true
+     };
+   };
+   globalThis.__moonapSkillFolderRuntime = {
+     parseFrontmatter,
+     parseKeyAttributes,
+     parseRuntimeSpec,
+     readTextFile,
+     ensurePermission,
+     readSkillFolder
+   };
+ };
 const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app33browser__render__personal__skills = () => {
+   const ensurePersonalSkillRuntime = () => {
+     if (globalThis.__moonapPersonalSkillRuntime) return globalThis.__moonapPersonalSkillRuntime;
+     const DB_NAME = "moonap.personal.skill.handles.v1";
+     const STORE_NAME = "handles";
+     const ROOT_KEY = "__root__";
+     const openDb = () => new Promise((resolve, reject) => {
+       const request = indexedDB.open(DB_NAME, 1);
+       request.onupgradeneeded = () => {
+         const db = request.result;
+         if (!db.objectStoreNames.contains(STORE_NAME)) {
+           db.createObjectStore(STORE_NAME);
+         }
+       };
+       request.onsuccess = () => resolve(request.result);
+       request.onerror = () => reject(request.error || new Error("Failed to open Personal SKILL database."));
+     });
+     const withStore = async (mode, work) => {
+       const db = await openDb();
+       return await new Promise((resolve, reject) => {
+         const transaction = db.transaction(STORE_NAME, mode);
+         const store = transaction.objectStore(STORE_NAME);
+         let settled = false;
+         const finishResolve = (value) => {
+           if (settled) return;
+           settled = true;
+           resolve(value);
+         };
+         const finishReject = (error) => {
+           if (settled) return;
+           settled = true;
+           reject(error);
+         };
+         transaction.oncomplete = () => finishResolve(undefined);
+         transaction.onerror = () => finishReject(transaction.error || new Error("Personal SKILL database transaction failed."));
+         transaction.onabort = () => finishReject(transaction.error || new Error("Personal SKILL database transaction was aborted."));
+         Promise.resolve(work(store, finishResolve, finishReject)).catch(finishReject);
+       }).finally(() => db.close());
+     };
+     const folderRuntime = globalThis.__moonapSkillFolderRuntime;
+     if (!folderRuntime || typeof folderRuntime.readSkillFolder !== "function" || typeof folderRuntime.ensurePermission !== "function") {
+       throw new Error("MoonAP skill folder runtime is not ready yet.");
+     }
+     const loadFromHandle = async (id, dirHandle, fallback) => {
+       const data = await folderRuntime.readSkillFolder(dirHandle, {
+         id: String(id || fallback?.id || ""),
+         fallback,
+         defaultName: "Personal SKILL",
+         relativePath: String(fallback?.folder_name || dirHandle?.name || "")
+       });
+       globalThis.__moonapPersonalSkillCache = globalThis.__moonapPersonalSkillCache || {};
+       globalThis.__moonapPersonalSkillCache[data.id] = data;
+       return data;
+     };
+     const runtime = {
+       cache: globalThis.__moonapPersonalSkillCache || {},
+       putHandle: async (id, handle) => {
+         await withStore("readwrite", (store, resolve, reject) => {
+           const request = store.put(handle, String(id || ""));
+           request.onsuccess = () => resolve(true);
+           request.onerror = () => reject(request.error || new Error("Failed to save Personal SKILL handle."));
+         });
+       },
+       putRootHandle: async (handle) => {
+         await withStore("readwrite", (store, resolve, reject) => {
+           const request = store.put(handle, ROOT_KEY);
+           request.onsuccess = () => resolve(true);
+           request.onerror = () => reject(request.error || new Error("Failed to save Personal SKILL root handle."));
+         });
+       },
+       getRootHandle: async () => {
+         return await withStore("readonly", (store, resolve, reject) => {
+           const request = store.get(ROOT_KEY);
+           request.onsuccess = () => resolve(request.result || null);
+           request.onerror = () => reject(request.error || new Error("Failed to read Personal SKILL root handle."));
+         });
+       },
+       getHandle: async (id) => {
+         return await withStore("readonly", (store, resolve, reject) => {
+           const request = store.get(String(id || ""));
+           request.onsuccess = () => resolve(request.result || null);
+           request.onerror = () => reject(request.error || new Error("Failed to read Personal SKILL handle."));
+         });
+       },
+       deleteHandle: async (id) => {
+         await withStore("readwrite", (store, resolve, reject) => {
+           const request = store.delete(String(id || ""));
+           request.onsuccess = () => resolve(true);
+           request.onerror = () => reject(request.error || new Error("Failed to delete Personal SKILL handle."));
+         });
+       },
+       loadFromHandle,
+       listFromIndex: async () => {
+         let skills = [];
+         try {
+           const parsed = JSON.parse(localStorage.getItem("moonap.personal.skills") || "[]");
+           skills = Array.isArray(parsed) ? parsed : [];
+         } catch (error) {
+           console.warn("MoonAP reset invalid personal skill storage:", error);
+           try { localStorage.removeItem("moonap.personal.skills"); } catch {}
+         }
+         const results = [];
+         for (const fallback of skills.filter((skill) => Boolean(skill?.runtime_ready))) {
+           try {
+             const handle = await runtime.getHandle(fallback.id);
+             if (!handle) {
+               results.push({ ...(fallback || {}), available: false });
+               continue;
+             }
+             results.push(await loadFromHandle(fallback.id, handle, fallback));
+           } catch (error) {
+             results.push({
+               ...(fallback || {}),
+               available: false,
+               load_error: error instanceof Error ? error.message : String(error)
+             });
+           }
+         }
+         return results;
+       },
+       findSkillDir: async (rootHandle, skillId) => {
+         if (!rootHandle || typeof rootHandle.entries !== "function") return null;
+         const wantedId = String(skillId || "");
+         for await (const [entryName, entryHandle] of rootHandle.entries()) {
+           if (!entryHandle || entryHandle.kind !== "directory") continue;
+           const candidateId = `personal.${String(entryName || "")}`;
+           if (candidateId !== wantedId) continue;
+           try {
+             await entryHandle.getFileHandle("SKILL.md");
+             return entryHandle;
+           } catch {}
+         }
+         return null;
+       },
+       listFromRoot: async (rootHandle) => {
+         if (!rootHandle || typeof rootHandle.entries !== "function") return [];
+         if (!await folderRuntime.ensurePermission(rootHandle, "read", false)) {
+           const error = new Error("MoonAP needs this browser to regain access to the selected Personal SKILL directory.");
+           error.code = "permission-denied";
+           throw error;
+         }
+         let fallbackMap = new Map();
+         try {
+           const parsed = JSON.parse(localStorage.getItem("moonap.personal.skills") || "[]");
+           if (Array.isArray(parsed)) {
+             fallbackMap = new Map(parsed.map((item) => [String(item?.id || ""), item]));
+           }
+         } catch {}
+         const results = [];
+         for await (const [entryName, entryHandle] of rootHandle.entries()) {
+           if (!entryHandle || entryHandle.kind !== "directory") continue;
+           const skillId = `personal.${String(entryName || "")}`;
+           try {
+             await entryHandle.getFileHandle("SKILL.md");
+             const fallback = fallbackMap.get(skillId) || { id: skillId, folder_name: String(entryName || "") };
+             const loaded = await loadFromHandle(skillId, entryHandle, fallback);
+             loaded.export_root_name = String(rootHandle?.name || loaded.export_root_name || "");
+             results.push(loaded);
+             if (typeof runtime.putHandle === "function") {
+               try { await runtime.putHandle(skillId, entryHandle); } catch {}
+             }
+           } catch {}
+         }
+         results.sort((left, right) => String(left?.name || left?.id || "").localeCompare(String(right?.name || right?.id || "")));
+         return results;
+       },
+       syncIndexFromSkills: async (skills) => {
+         const next = Array.isArray(skills)
+           ? skills.map((skill) => ({
+               id: String(skill?.id || ""),
+               name: String(skill?.name || "Personal SKILL"),
+               description: String(skill?.description || ""),
+               task_kind: String(skill?.task_kind || "generic"),
+               runtime_mode: String(skill?.runtime_mode || "form"),
+               result_mode: String(skill?.result_mode || "text"),
+               folder_name: String(skill?.handle_name || skill?.folder_name || ""),
+               runtime_ready: true,
+               export_root_name: String(skill?.export_root_name || ""),
+               saved_at: String(skill?.saved_at || "")
+             }))
+           : [];
+         try { localStorage.setItem("moonap.personal.skills", JSON.stringify(next)); } catch {}
+       }
+     };
+     globalThis.__moonapPersonalSkillCache = runtime.cache;
+     globalThis.__moonapPersonalSkillRuntime = runtime;
+     return runtime;
+   };
    const root = document.querySelector("#personalSkillCards");
    if (!root) return 0;
-   let skills = [];
-   try {
-     const parsed = JSON.parse(localStorage.getItem("moonap.personal.skills") || "[]");
-     skills = Array.isArray(parsed) ? parsed : [];
-   } catch (error) {
-     console.warn("MoonAP reset invalid personal skill storage:", error);
-     try { localStorage.removeItem("moonap.personal.skills"); } catch {}
-   }
    root.innerHTML = "";
-   skills = skills.filter((skill) => Boolean(skill?.runtime_ready));
-   if (skills.length === 0) {
+   const loading = document.createElement("div");
+   loading.className = "personal-skill-empty";
+   loading.textContent = "Loading Personal SKILLs...";
+   root.append(loading);
+   (async () => {
+     const runtime = ensurePersonalSkillRuntime();
+     let rootHandle = globalThis.__moonapSkillExportRootHandle;
+     if (!rootHandle || typeof rootHandle.entries !== "function") {
+       rootHandle = await runtime.getRootHandle();
+       if (rootHandle && typeof rootHandle.entries === "function") {
+         globalThis.__moonapSkillExportRootHandle = rootHandle;
+       }
+     }
+     const panelLabel = document.querySelector("#personalSkillRootLabel");
+     if (panelLabel) {
+       panelLabel.textContent = rootHandle && rootHandle.name
+         ? `Selected folder: ${String(rootHandle.name)}`
+         : "No local Personal SKILL folder selected yet.";
+     }
+     if (!rootHandle || typeof rootHandle.entries !== "function") {
+       root.innerHTML = "";
+       const empty = document.createElement("div");
+       empty.className = "personal-skill-empty";
+       empty.textContent = "Choose a local Personal SKILL folder to load your current SKILL set.";
+       root.append(empty);
+       return;
+     }
+     const skills = await runtime.listFromRoot(rootHandle);
+     await runtime.syncIndexFromSkills(skills);
+     root.innerHTML = "";
+     if (skills.length === 0) {
+       const empty = document.createElement("div");
+       empty.className = "personal-skill-empty";
+       empty.textContent = "No Personal SKILL was found in the selected local directory.";
+       root.append(empty);
+       return;
+     }
+     for (const skill of skills) {
+       const card = document.createElement("button");
+       card.className = "skill-card personal";
+       card.type = "button";
+       card.dataset.skillId = skill.id || "personal.skill";
+       if (skill.available === false) card.dataset.skillUnavailable = "true";
+       const rootName = String(skill.export_root_name || "");
+       const subtitle = skill.available === false
+         ? (skill.load_error
+           ? `Saved locally, but MoonAP could not reopen it yet: ${String(skill.load_error)}`
+           : "Saved locally, but MoonAP needs this browser to regain access before reopening it.")
+         : (rootName
+           ? `Saved in ${rootName}. Reusable without LLM.`
+           : "Saved locally. Reusable without LLM.");
+       card.innerHTML = `<span>Local / Exported</span><strong>${skill.name || "Personal SKILL"}</strong><small>${subtitle}</small>`;
+       root.append(card);
+     }
+   })().catch((error) => {
+     root.innerHTML = "";
      const empty = document.createElement("div");
      empty.className = "personal-skill-empty";
-     empty.textContent = "No runnable Personal SKILL yet. MoonAP source capture is working; real compile and runtime wiring are the next step before Personal-SKILL-Set becomes reusable.";
+     const message = error instanceof Error ? error.message : String(error);
+     empty.textContent = error && error.code === "permission-denied"
+       ? message
+       : `Failed to load Personal SKILLs: ${message}`;
      root.append(empty);
-     return 0;
+   });
+   return 0;
+ };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app34browser__render__local__skill__hub = () => {
+   const pathRuntime = globalThis.__moonapVirtualPathRuntime;
+   if (!pathRuntime || typeof pathRuntime.normalize !== "function") {
+     throw new Error("MoonAP virtual path runtime is not ready yet.");
    }
-   for (const skill of skills) {
-     const card = document.createElement("button");
-     card.className = "skill-card personal";
-     card.type = "button";
-     card.dataset.skillId = skill.id || "personal.fastq-generator";
-     card.innerHTML = `<span>Local / Generated</span><strong>${skill.name || "Personal FastQ Generator"}</strong><small>Saved locally in this browser. Reusable without LLM.</small>`;
-     root.append(card);
+   const ensureLocalSkillHubRuntime = () => {
+     if (globalThis.__moonapLocalSkillHubRuntime) return globalThis.__moonapLocalSkillHubRuntime;
+     const DB_NAME = "moonap.local.skill.hub.handles.v1";
+     const STORE_NAME = "handles";
+     const ROOT_KEY = "__root__";
+     const openDb = () => new Promise((resolve, reject) => {
+       const request = indexedDB.open(DB_NAME, 1);
+       request.onupgradeneeded = () => {
+         const db = request.result;
+         if (!db.objectStoreNames.contains(STORE_NAME)) {
+           db.createObjectStore(STORE_NAME);
+         }
+       };
+       request.onsuccess = () => resolve(request.result);
+       request.onerror = () => reject(request.error || new Error("Failed to open Local SKILL Hub database."));
+     });
+     const withStore = async (mode, work) => {
+       const db = await openDb();
+       return await new Promise((resolve, reject) => {
+         const transaction = db.transaction(STORE_NAME, mode);
+         const store = transaction.objectStore(STORE_NAME);
+         let settled = false;
+         const finishResolve = (value) => {
+           if (settled) return;
+           settled = true;
+           resolve(value);
+         };
+         const finishReject = (error) => {
+           if (settled) return;
+           settled = true;
+           reject(error);
+         };
+         transaction.oncomplete = () => finishResolve(undefined);
+         transaction.onerror = () => finishReject(transaction.error || new Error("Local SKILL Hub database transaction failed."));
+         transaction.onabort = () => finishReject(transaction.error || new Error("Local SKILL Hub database transaction was aborted."));
+         Promise.resolve(work(store, finishResolve, finishReject)).catch(finishReject);
+       }).finally(() => db.close());
+     };
+     const folderRuntime = globalThis.__moonapSkillFolderRuntime;
+     if (!folderRuntime || typeof folderRuntime.readSkillFolder !== "function" || typeof folderRuntime.ensurePermission !== "function") {
+       throw new Error("MoonAP skill folder runtime is not ready yet.");
+     }
+     const loadSkillFolder = async (dirHandle, relativePath) => {
+       const normalizedPath = pathRuntime.normalize(relativePath || dirHandle?.name || "");
+       return await folderRuntime.readSkillFolder(dirHandle, {
+         id: `local.${normalizedPath.replace(/\//g, ".")}`,
+         defaultName: "Local SKILL",
+         relativePath: normalizedPath
+       });
+     };
+     const walkSkills = async (dirHandle, prefix = "") => {
+       let results = [];
+       try {
+         await dirHandle.getFileHandle("SKILL.md");
+         results.push(await loadSkillFolder(dirHandle, prefix || String(dirHandle?.name || "")));
+         return results;
+       } catch {}
+       for await (const [entryName, entryHandle] of dirHandle.entries()) {
+         if (!entryHandle || entryHandle.kind !== "directory") continue;
+         const nextPrefix = prefix ? `${prefix}/${String(entryName || "")}` : String(entryName || "");
+         const nested = await walkSkills(entryHandle, nextPrefix);
+         if (nested.length > 0) results = results.concat(nested);
+       }
+       return results;
+     };
+     const runtime = {
+       putRootHandle: async (handle) => {
+         await withStore("readwrite", (store, resolve, reject) => {
+           const request = store.put(handle, ROOT_KEY);
+           request.onsuccess = () => resolve(true);
+           request.onerror = () => reject(request.error || new Error("Failed to save Local SKILL Hub root handle."));
+         });
+       },
+       getRootHandle: async () => {
+         return await withStore("readonly", (store, resolve, reject) => {
+           const request = store.get(ROOT_KEY);
+           request.onsuccess = () => resolve(request.result || null);
+           request.onerror = () => reject(request.error || new Error("Failed to read Local SKILL Hub root handle."));
+         });
+       },
+       hasPermission: async (handle, request = false) => {
+         return await folderRuntime.ensurePermission(handle, "readwrite", request);
+       },
+       listFromRoot: async (rootHandle) => {
+         if (!rootHandle || typeof rootHandle.entries !== "function") return [];
+         if (!await folderRuntime.ensurePermission(rootHandle, "read", false)) {
+           const error = new Error("MoonAP needs this browser to regain access to the selected Local SKILL Hub directory.");
+           error.code = "permission-denied";
+           throw error;
+         }
+         const skills = await walkSkills(rootHandle, "");
+         skills.sort((left, right) => String(left?.relative_path || left?.name || "").localeCompare(String(right?.relative_path || right?.name || "")));
+         return skills;
+       }
+     };
+     globalThis.__moonapLocalSkillHubRuntime = runtime;
+     return runtime;
+   };
+   const root = document.querySelector("#localSkillHubCards");
+   if (!root) return 0;
+   root.innerHTML = "";
+   const loading = document.createElement("div");
+   loading.className = "personal-skill-empty";
+   loading.textContent = "Loading Local SKILL Hub...";
+   root.append(loading);
+   (async () => {
+     const runtime = ensureLocalSkillHubRuntime();
+     let rootHandle = globalThis.__moonapLocalSkillHubRootHandle;
+     if (!rootHandle || typeof rootHandle.entries !== "function") {
+       rootHandle = await runtime.getRootHandle();
+       if (rootHandle && typeof rootHandle.entries === "function") {
+         globalThis.__moonapLocalSkillHubRootHandle = rootHandle;
+       }
+     }
+     const label = document.querySelector("#localSkillHubRootLabel");
+     if (label) {
+       label.textContent = rootHandle && rootHandle.name
+         ? `Selected folder: ${String(rootHandle.name)}`
+         : "No local SKILL Hub folder selected yet.";
+     }
+     root.innerHTML = "";
+     if (!rootHandle || typeof rootHandle.entries !== "function") {
+       const empty = document.createElement("div");
+       empty.className = "personal-skill-empty";
+       empty.textContent = "Choose a local SKILL Hub directory to browse installed public SKILLs.";
+       root.append(empty);
+       return;
+     }
+     const skills = await runtime.listFromRoot(rootHandle);
+     if (skills.length === 0) {
+       const empty = document.createElement("div");
+       empty.className = "personal-skill-empty";
+       empty.textContent = "No public SKILL folder was found in the selected Local SKILL Hub directory.";
+       root.append(empty);
+       return;
+     }
+     globalThis.__moonapHubSkillCache = globalThis.__moonapHubSkillCache || {};
+     for (const skill of skills) {
+       globalThis.__moonapHubSkillCache[String(skill.id || "")] = { ...skill, source: "local" };
+       const card = document.createElement("button");
+       card.className = "skill-card personal";
+       card.type = "button";
+       card.dataset.skillId = String(skill.id || "");
+       card.innerHTML = `<span>Local Hub / ${pathRuntime.normalize(skill.relative_path || "")}</span><strong>${skill.name || "Local SKILL"}</strong><small>${skill.description || `Task kind: ${String(skill.task_kind || "generic")}`}</small>`;
+       root.append(card);
+     }
+   })().catch((error) => {
+     root.innerHTML = "";
+     const empty = document.createElement("div");
+     empty.className = "personal-skill-empty";
+     const message = error instanceof Error ? error.message : String(error);
+     empty.textContent = error && error.code === "permission-denied"
+       ? message
+       : `Failed to load Local SKILL Hub: ${message}`;
+     root.append(empty);
+   });
+   return 0;
+ };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app34browser__render__cloud__skill__hub = (forceRefresh) => {
+   const pathRuntime = globalThis.__moonapVirtualPathRuntime;
+   if (!pathRuntime || typeof pathRuntime.normalize !== "function") {
+     throw new Error("MoonAP virtual path runtime is not ready yet.");
    }
-   return skills.length;
+   const root = document.querySelector("#cloudSkillHubCards");
+   if (!root) return 0;
+   root.innerHTML = "";
+   const loading = document.createElement("div");
+   loading.className = "personal-skill-empty";
+   loading.textContent = "Loading Cloud SKILL catalog...";
+   root.append(loading);
+   const repositoryUrl = "https://github.com/tangmaomao16/MoonAP-SKILL-Hub";
+   const indexUrl = "https://raw.githubusercontent.com/tangmaomao16/MoonAP-SKILL-Hub/main/index.json";
+   const sourceLabel = document.querySelector("#cloudSkillHubSourceLabel");
+   if (sourceLabel) {
+     sourceLabel.innerHTML = `<a href="${repositoryUrl}" target="_blank" rel="noreferrer" title="${repositoryUrl}" aria-label="Official MoonAP SKILL Hub repository">Official MoonAP SKILL Hub</a>`;
+   }
+   const normalizeSkill = (entry, hub) => {
+     const folderPath = pathRuntime.normalize(entry?.folder_path || "");
+     const canonicalName = folderPath ? pathRuntime.lastSegment(folderPath) : String(entry?.name || "Cloud SKILL");
+     const repository = String(entry?.repository_url || hub?.repository_url || repositoryUrl);
+     const rawBase = repository
+       .replace("https://github.com/", "https://raw.githubusercontent.com/")
+       .replace(/\/$/, "") + "/main";
+     const version = String(entry?.version || "");
+     const zipPath = pathRuntime.normalize(entry?.zip_path || (folderPath ? `${folderPath}.zip` : ""));
+     const zipUrl = String(entry?.zip_url || (zipPath ? `${rawBase}/${zipPath}` : ""));
+     return {
+       id: `cloud.${String(entry?.id || folderPath || entry?.name || "skill")}`,
+       name: canonicalName,
+       catalog_name: String(entry?.name || canonicalName),
+       description: String(entry?.description || ""),
+       task_kind: String(entry?.task_kind || "generic"),
+       runtime_mode: String(entry?.runtime_mode || "form"),
+       result_mode: String(entry?.result_mode || "text"),
+       runtime_spec: entry?.runtime_spec && typeof entry.runtime_spec === "object" ? entry.runtime_spec : {},
+       version,
+       domain: String(entry?.domain || ""),
+       subdomain: String(entry?.subdomain || ""),
+       tags: Array.isArray(entry?.tags) ? entry.tags : [],
+       folder_path: folderPath,
+       zip_path: zipPath,
+       repository_url: repository,
+       folder_url: folderPath ? `${repository}/tree/main/${folderPath}` : repository,
+       external_url: String(entry?.homepage_url || entry?.folder_url || (folderPath ? `${repository}/tree/main/${folderPath}` : repository)),
+       download_url: zipUrl,
+       source: "cloud"
+     };
+   };
+   (async () => {
+     let catalog = null;
+     if (!forceRefresh && globalThis.__moonapCloudSkillCatalog && Array.isArray(globalThis.__moonapCloudSkillCatalog.skills)) {
+       catalog = globalThis.__moonapCloudSkillCatalog;
+     } else {
+       const response = await fetch(indexUrl, { cache: "no-store" });
+       if (!response.ok) {
+         throw new Error(`Cloud index.json not available yet (${response.status}).`);
+       }
+       const parsed = await response.json();
+       catalog = Array.isArray(parsed)
+         ? {
+             hub_version: "1",
+             hub_name: "MoonAP-SKILL-Hub",
+             repository_url: repositoryUrl,
+             skills: parsed
+           }
+         : (parsed && typeof parsed === "object" ? parsed : {});
+       if (!Array.isArray(catalog?.skills) && Array.isArray(parsed?.entries)) {
+         catalog.skills = parsed.entries;
+       }
+       globalThis.__moonapCloudSkillCatalog = catalog;
+     }
+     const entries = Array.isArray(catalog?.skills) ? catalog.skills : [];
+     root.innerHTML = "";
+     if (entries.length === 0) {
+       const empty = document.createElement("div");
+       empty.className = "personal-skill-empty";
+       empty.textContent = "Cloud catalog is currently empty. Add public SKILL entries to index.json in the official MoonAP-SKILL-Hub repository.";
+       root.append(empty);
+       return;
+     }
+     globalThis.__moonapHubSkillCache = globalThis.__moonapHubSkillCache || {};
+     for (const entry of entries) {
+       const skill = normalizeSkill(entry, catalog);
+       globalThis.__moonapHubSkillCache[String(skill.id || "")] = skill;
+       const card = document.createElement("button");
+       card.className = "skill-card";
+       card.type = "button";
+       card.dataset.skillId = String(skill.id || "");
+       const top = [skill.domain || "", skill.subdomain || ""].filter(Boolean).join(" / ") || "Cloud SKILL";
+       const bottom = skill.description || (skill.version ? `version ${skill.version}` : "Public MoonAP SKILL");
+       card.innerHTML = `<span>${top}</span><strong>${skill.name || "Cloud SKILL"}</strong><small>${bottom}</small>`;
+       root.append(card);
+     }
+   })().catch((error) => {
+     root.innerHTML = "";
+     const empty = document.createElement("div");
+     empty.className = "personal-skill-empty";
+     empty.textContent = `Failed to load Cloud SKILL catalog: ${error instanceof Error ? error.message : String(error)}`;
+     root.append(empty);
+   });
+   return 0;
+ };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app30browser__install__cloud__skill = async (skillId, onDone, onError) => {
+   try {
+     const pathRuntime = globalThis.__moonapVirtualPathRuntime;
+     if (!pathRuntime || typeof pathRuntime.normalize !== "function" || typeof pathRuntime.split !== "function" || typeof pathRuntime.lastSegment !== "function") {
+       throw new Error("MoonAP virtual path runtime is not ready yet.");
+     }
+     const skill = globalThis.__moonapHubSkillCache && typeof globalThis.__moonapHubSkillCache === "object"
+       ? globalThis.__moonapHubSkillCache[String(skillId || "")]
+       : null;
+     if (!skill || String(skill.source || "") !== "cloud") {
+       throw new Error("MoonAP could not find this Cloud SKILL entry.");
+     }
+     let rootHandle = globalThis.__moonapLocalSkillHubRootHandle;
+     const ensurePermission = async (handle, request = false) => {
+       if (!handle) return false;
+       if (typeof handle.queryPermission !== "function") return true;
+       try {
+         let state = await handle.queryPermission({ mode: "readwrite" });
+         if (state === "granted") return true;
+         if (request && typeof handle.requestPermission === "function") {
+           state = await handle.requestPermission({ mode: "readwrite" });
+           if (state === "granted") return true;
+         }
+       } catch {}
+       return false;
+     };
+     if (!rootHandle || typeof rootHandle.getDirectoryHandle !== "function") {
+       if (typeof window.showDirectoryPicker !== "function") {
+         throw new Error("This browser does not support local SKILL Hub directory selection.");
+       }
+       rootHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+       globalThis.__moonapLocalSkillHubRootHandle = rootHandle;
+       const runtime = globalThis.__moonapLocalSkillHubRuntime;
+       if (runtime && typeof runtime.putRootHandle === "function") {
+         await runtime.putRootHandle(rootHandle);
+       }
+     } else if (!await ensurePermission(rootHandle, true)) {
+       if (typeof window.showDirectoryPicker !== "function") {
+         throw new Error("MoonAP needs a writable Local SKILL Hub directory, but this browser cannot reopen one.");
+       }
+       rootHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+       globalThis.__moonapLocalSkillHubRootHandle = rootHandle;
+       const runtime = globalThis.__moonapLocalSkillHubRuntime;
+       if (runtime && typeof runtime.putRootHandle === "function") {
+         await runtime.putRootHandle(rootHandle);
+       }
+     }
+     const folderPath = pathRuntime.normalize(String(skill.folder_path || "").trim());
+     const downloadUrl = String(skill.download_url || "").trim();
+     if (!folderPath) throw new Error("Cloud SKILL entry does not include folder_path.");
+     if (!downloadUrl) throw new Error("Cloud SKILL entry does not include a ZIP download path yet.");
+     const zipRuntime = globalThis.__moonapSkillZipRuntime;
+     if (!zipRuntime || typeof zipRuntime.unzip !== "function") {
+       throw new Error("MoonAP ZIP runtime is not ready yet.");
+     }
+     const fetchBinary = async (url) => {
+       const response = await fetch(url, { cache: "no-store" });
+       if (!response.ok) {
+         throw new Error(`Failed to fetch ${url} (${response.status})`);
+       }
+       return new Uint8Array(await response.arrayBuffer());
+     };
+     const writeText = async (dirHandle, fileName, text) => {
+       const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
+       const writable = await fileHandle.createWritable();
+       await writable.write(String(text || ""));
+       await writable.close();
+     };
+     const writeBinary = async (dirHandle, fileName, bytes) => {
+       const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
+       const writable = await fileHandle.createWritable();
+       await writable.write(bytes);
+       await writable.close();
+     };
+     const ensurePath = async (dirHandle, relativePath) => {
+       let current = dirHandle;
+       const parts = pathRuntime.split(relativePath);
+       for (const part of parts) {
+         current = await current.getDirectoryHandle(part, { create: true });
+       }
+       return current;
+     };
+     const zipBytes = await fetchBinary(downloadUrl);
+     const zipEntries = await zipRuntime.unzip(zipBytes);
+     const folderName = pathRuntime.lastSegment(folderPath);
+     const fileEntries = zipEntries.filter((entry) => entry && typeof entry.path === "string" && !entry.directory);
+     const stripRoot = folderName !== "" && fileEntries.length > 0 && fileEntries.every((entry) => {
+       const normalized = pathRuntime.normalize(entry.path || "");
+       return normalized === folderName || normalized.startsWith(`${folderName}/`);
+     });
+     const targetDir = await ensurePath(rootHandle, folderPath);
+     for (const entry of zipEntries) {
+       const originalPath = pathRuntime.normalize(entry?.path || "");
+       if (!originalPath || originalPath.startsWith("__MACOSX/")) continue;
+       const relativePath = stripRoot
+         ? (originalPath === folderName ? "" : originalPath.slice(folderName.length + 1))
+         : originalPath;
+       if (!relativePath) continue;
+       if (entry?.directory) {
+         await ensurePath(targetDir, relativePath);
+         continue;
+       }
+       const parts = pathRuntime.split(relativePath);
+       const fileName = parts.pop();
+       const parentDir = parts.length == 0 ? targetDir : await ensurePath(targetDir, parts.join("/"));
+       await writeBinary(parentDir, fileName, entry.bytes || new Uint8Array(0));
+     }
+     onDone(JSON.stringify({
+       installed: true,
+       name: String(skill.name || ""),
+       folder_path: folderPath,
+       root_name: String(rootHandle?.name || ""),
+       zip_url: downloadUrl
+     }, null, 2));
+   } catch (error) {
+     onError(error instanceof Error ? error.message : String(error));
+   }
+ };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app40browser__choose__local__skill__hub__path = async (onDone, onError) => {
+   try {
+     if (typeof window.showDirectoryPicker !== "function") {
+       throw new Error("This browser does not support local SKILL Hub directory selection.");
+     }
+     const handle = await window.showDirectoryPicker({ mode: "readwrite" });
+     globalThis.__moonapLocalSkillHubRootHandle = handle;
+     const ensureLocalSkillHubRuntime = () => {
+       if (globalThis.__moonapLocalSkillHubRuntime && typeof globalThis.__moonapLocalSkillHubRuntime.putRootHandle === "function") {
+         return globalThis.__moonapLocalSkillHubRuntime;
+       }
+       return null;
+     };
+     const runtime = ensureLocalSkillHubRuntime();
+     if (runtime) {
+       await runtime.putRootHandle(handle);
+     }
+     const label = document.querySelector("#localSkillHubRootLabel");
+     if (label) {
+       label.textContent = handle && handle.name
+         ? `Selected folder: ${String(handle.name)}`
+         : "No local SKILL Hub folder selected yet.";
+     }
+     onDone(String(handle?.name || ""));
+   } catch (error) {
+     onError(error instanceof Error ? error.message : String(error));
+   }
+ };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app48browser__refresh__local__skill__hub__root__label = () => {
+   const label = document.querySelector("#localSkillHubRootLabel");
+   if (!label) return;
+   const rootHandle = globalThis.__moonapLocalSkillHubRootHandle;
+   label.textContent = rootHandle && rootHandle.name
+     ? `Selected folder: ${String(rootHandle.name)}`
+     : "No local SKILL Hub folder selected yet.";
+ };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app44browser__on__local__skill__hub__choose__path = (handler) => document.addEventListener("click", (event) => {
+   if (event.target?.id !== "localSkillHubChoosePath") return;
+   event.preventDefault();
+   event.stopPropagation();
+   try {
+     handler();
+   } catch (error) {
+     alert(`MoonAP local SKILL Hub directory selection failed: ${error instanceof Error ? error.message : String(error)}`);
+   }
+ });
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app30browser__load__personal__skill = async (skillId, onDone, onError) => {
+   try {
+     const runtime = globalThis.__moonapPersonalSkillRuntime;
+     const folderRuntime = globalThis.__moonapSkillFolderRuntime;
+     if (!runtime || typeof runtime.getHandle !== "function") {
+       throw new Error("Personal SKILL runtime is not ready yet. Open the SKILL tab again and retry.");
+     }
+     if (!folderRuntime || typeof folderRuntime.ensurePermission !== "function") {
+       throw new Error("MoonAP skill folder runtime is not ready yet. Open the SKILL tab again and retry.");
+     }
+     let fallback = null;
+     try {
+       const parsed = JSON.parse(localStorage.getItem("moonap.personal.skills") || "[]");
+       if (Array.isArray(parsed)) {
+         fallback = parsed.find((item) => String(item?.id || "") === String(skillId || "")) || null;
+       }
+     } catch {}
+     let rootHandle = globalThis.__moonapSkillExportRootHandle;
+     if ((!rootHandle || typeof rootHandle.entries !== "function") && typeof runtime.getRootHandle === "function") {
+       rootHandle = await runtime.getRootHandle();
+       if (rootHandle && typeof rootHandle.entries === "function") {
+         globalThis.__moonapSkillExportRootHandle = rootHandle;
+       }
+     }
+     if (rootHandle && typeof rootHandle.entries === "function") {
+       const rootReady = await folderRuntime.ensurePermission(rootHandle, "read", true);
+       if (!rootReady) {
+         const error = new Error("MoonAP needs this browser to regain access to the selected Personal SKILL directory before it can open this skill.");
+         error.code = "permission-denied";
+         throw error;
+       }
+     }
+     let handle = null;
+     if (rootHandle && typeof runtime.findSkillDir === "function") {
+       handle = await runtime.findSkillDir(rootHandle, skillId);
+     }
+     if (!handle) {
+       handle = await runtime.getHandle(skillId);
+     }
+     if (!handle) {
+       throw new Error("MoonAP could not find a saved local folder handle for this Personal SKILL.");
+     }
+     const handleReady = await folderRuntime.ensurePermission(handle, "read", true);
+     if (!handleReady) {
+       const error = new Error("MoonAP needs permission to reopen this saved Personal SKILL folder.");
+       error.code = "permission-denied";
+       throw error;
+     }
+     const loaded = await runtime.loadFromHandle(skillId, handle, fallback || {});
+     onDone(JSON.stringify(loaded, null, 2));
+   } catch (error) {
+     onError(error instanceof Error ? error.message : String(error));
+   }
  };
 const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app25browser__set__mode__panel = (text) => {
    const panel = document.querySelector("#modePanel");
    if (panel) panel.setAttribute("aria-label", String(text));
  };
 const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app32browser__set__skill__panel__open = (open) => {
-   document.querySelector("#modePanel")?.classList.toggle("is-open", Boolean(open));
-   document.querySelector("#privacyStrip")?.classList.toggle("is-open", Boolean(open));
+   const panel = document.querySelector("#modePanel");
+   const privacy = document.querySelector("#privacyStrip");
+   if (panel) panel.style.display = "";
+   if (privacy) privacy.style.display = "";
+   panel?.classList.toggle("is-open", Boolean(open));
+   privacy?.classList.toggle("is-open", Boolean(open));
+ };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app46browser__refresh__personal__skill__root__label = () => {
+   const panelLabel = document.querySelector("#personalSkillRootLabel");
+   if (!panelLabel) return;
+   const rootHandle = globalThis.__moonapSkillExportRootHandle;
+   panelLabel.textContent = rootHandle && rootHandle.name
+     ? `Selected folder: ${String(rootHandle.name)}`
+     : "No local Personal SKILL folder selected yet.";
  };
 const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app20browser__fetch__text = (path, onOk, onError) => {
    fetch(String(path))
@@ -2611,6 +6374,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__
      return "";
    }
  };
+const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app36browser__has__last__artifact__source = () => String(globalThis.__moonapLastArtifact?.moonbit_source || "").trim() !== "";
 const _M0FPB18brute__force__findN6constrS8126 = 0;
 const _M0FPB28boyer__moore__horspool__findN6constrS8125 = 0;
 function _M0FPC15abort5abortGRPC16string10StringViewE(msg) {
@@ -3181,7 +6945,11 @@ function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app16show__llm__entry
 function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app18show__skill__entry() {
   _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app25browser__set__mode__panel("MoonAP SKILL Hub");
   _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app32browser__set__skill__panel__open(true);
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app46browser__refresh__personal__skill__root__label();
   _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app33browser__render__personal__skills();
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app48browser__refresh__local__skill__hub__root__label();
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app34browser__render__local__skill__hub();
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app34browser__render__cloud__skill__hub(false);
   _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app20browser__fetch__text("/api/skills", (raw) => {
     _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app19browser__set__state(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__pretty__json(raw));
   }, (error) => {
@@ -3189,7 +6957,30 @@ function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app18show__skill__ent
   });
 }
 function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app22show__skill__run__plan(skill_id) {
-  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app28browser__open__skill__dialog(skill_id);
+  const _bind = "personal.";
+  if (_M0MPC16string6String8contains(skill_id, new _M0TPC16string10StringView(_bind, 0, _bind.length))) {
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app30browser__load__personal__skill(skill_id, (raw) => {
+      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app19browser__set__state(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__pretty__json(raw));
+      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app28browser__open__skill__dialog(skill_id);
+    }, (error) => {
+      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app11show__error("Personal SKILL load failed", error);
+    });
+    return;
+  } else {
+    const _bind$2 = "local.";
+    if (_M0MPC16string6String8contains(skill_id, new _M0TPC16string10StringView(_bind$2, 0, _bind$2.length))) {
+    } else {
+      const _bind$3 = "cloud.";
+      _M0MPC16string6String8contains(skill_id, new _M0TPC16string10StringView(_bind$3, 0, _bind$3.length));
+    }
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app28browser__open__skill__dialog(skill_id);
+    return;
+  }
+}
+function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app23show__experiment__entry() {
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app25browser__set__mode__panel("MoonAP Experiments");
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app32browser__set__skill__panel__open(false);
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app22show__skill__run__plan("free-llm-eval");
 }
 function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app19run__fastq__counter() {
   _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app30browser__clear__artifact__card();
@@ -3222,13 +7013,13 @@ function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21run__fastq__gene
 }
 function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app29run__free__llm__moonbit__eval(max_level) {
   const current = max_level < 1 ? 1 : max_level > 3 ? 3 : max_level;
-  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__append__message("assistant", `Starting Free LLM MoonBit Eval. We will run the enabled provider/model entries against benchmark levels L1-L${_M0MPC13int3Int18to__string_2einner(current, 10)} with minimal prompts, then persist raw JSON plus a markdown summary.`);
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__append__message("assistant", `Starting Free LLM FastQ Eval. We will run the enabled provider/model entries against the single task 'Generate a FastQ file generator.' with the minimal prompt and up to ${_M0MPC13int3Int18to__string_2einner(current, 10)} repair rounds, then persist raw JSON plus a markdown summary.`);
   _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__update__process(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__llm__summary(), "moonbit-eval", "running", "Preparing the experiment harness. Results will be persisted to artifacts/moonbit-eval-results.json and docs/experiments/free-llm-moonbit/results.md.", "");
   _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__run__free__llm__moonbit__eval(current, (result) => {
     _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app19browser__set__state(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__pretty__json(result));
-    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__render__artifact__card("Free LLM MoonBit Eval finished", "MoonAP completed the current experiment pass and wrote both raw JSON and a markdown summary file.", "[\"experiment complete\",\"json persisted\",\"markdown persisted\"]", false, false, false);
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__render__artifact__card("Free LLM FastQ Eval finished", "MoonAP completed the current FastQ experiment pass and wrote both raw JSON and a markdown summary file.", "[\"experiment complete\",\"json persisted\",\"markdown persisted\"]", false, false, false);
   }, (error) => {
-    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app11show__error("Free LLM MoonBit Eval failed", error);
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app11show__error("Free LLM FastQ Eval failed", error);
   });
 }
 function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app32clamp__moonbit__benchmark__level(level) {
@@ -3247,6 +7038,20 @@ function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24moonbit__llm__pr
 function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app25max__auto__repair__rounds() {
   return 2;
 }
+function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app27on__runtime__request__ready(raw) {
+  const request_id = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(raw, "request_id");
+  const status = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(raw, "status");
+  const wasm_path = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(raw, "wasm_path");
+  if (request_id === "" || (status === "" || status === "empty")) {
+    return undefined;
+  }
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app39browser__set__transient__artifact__card(true);
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app35browser__remember__runtime__request(raw);
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app19browser__set__state(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__pretty__json(raw));
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app30browser__update__result__panel(raw);
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__update__process(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__llm__summary(), "runtime-exec", status === "" ? "ready" : status, "MoonAP compiled a wasm artifact and prepared the next runtime-execution request. Browser display or downloadable output is the next step.", wasm_path === "" ? "No wasm path recorded yet." : `Wasm artifact: ${wasm_path}`);
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__render__artifact__card("Runtime execution is ready", "MoonAP has a compiled wasm artifact and is now waiting for browser-local execution or a simulated runtime result.", "[\"runtime ready\",\"browser display pending\",\"download allowed\"]", false, false, false);
+}
 function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app19run__compile__probe() {
   _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app30browser__clear__artifact__card();
   _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__update__process(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__llm__summary(), "moonbit-wasm-compile", "running", "Submitting captured MoonBit source to the native MoonAP compile probe.", "");
@@ -3263,29 +7068,39 @@ function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app19run__compile__pr
     const summary_excerpt = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(result, "summary_excerpt");
     _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__update__process(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__llm__summary(), stage === "" ? "moonbit-wasm-compile" : stage, ok === "true" ? "succeeded" : "failed", ok === "true" || summary_excerpt === "" ? output : repair_hint === "" ? summary_excerpt : `${summary_excerpt}\nRepair hint: ${repair_hint}`, wasm_path === "" ? "No wasm artifact was produced." : `Wasm artifact: ${wasm_path}`);
     if (ok === "true") {
-      const benchmark_assessment = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app32browser__assess__last__benchmark();
-      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app29browser__append__runtime__log("benchmark", "benchmark-assessment", benchmark_assessment);
-      const benchmark_applicable = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(benchmark_assessment, "applicable");
-      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app35browser__set__benchmark__assessment(benchmark_assessment);
-      if (benchmark_applicable === "true") {
-        const benchmark_title = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(benchmark_assessment, "title");
-        const benchmark_summary = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(benchmark_assessment, "summary");
-        const benchmark_meta_json = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(benchmark_assessment, "meta_json");
-        const benchmark_pass = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(benchmark_assessment, "pass");
-        _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__update__process(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__llm__summary(), "moonbit-benchmark-check", benchmark_pass === "true" ? "succeeded" : "failed", benchmark_summary, "");
-        const benchmark_hint = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(benchmark_assessment, "repair_hint");
-        const benchmark_missing_signals_json = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(benchmark_assessment, "missing_signals_json");
-        if (_M0IP016_24default__implPB2Eq10not__equalGsE(benchmark_pass, "true") && _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app44maybe__auto__repair__after__quality__failure(benchmark_title, benchmark_summary, benchmark_hint, benchmark_missing_signals_json)) {
-          return;
+      if (_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app65browser__should__adapt__last__artifact__for__large__file__runtime()) {
+        _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app32run__moonap__runtime__adaptation();
+        return;
+      } else {
+        _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app33browser__register__runtime__ready((raw) => {
+          _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app27on__runtime__request__ready(raw);
+        }, (error) => {
+          _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app29browser__append__runtime__log("runtime-exec", "runtime-request-register-failed", error);
+        });
+        const benchmark_assessment = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app32browser__assess__last__benchmark();
+        _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app29browser__append__runtime__log("benchmark", "benchmark-assessment", benchmark_assessment);
+        const benchmark_applicable = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(benchmark_assessment, "applicable");
+        _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app35browser__set__benchmark__assessment(benchmark_assessment);
+        if (benchmark_applicable === "true") {
+          const benchmark_title = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(benchmark_assessment, "title");
+          const benchmark_summary = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(benchmark_assessment, "summary");
+          const benchmark_meta_json = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(benchmark_assessment, "meta_json");
+          const benchmark_pass = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(benchmark_assessment, "pass");
+          _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__update__process(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__llm__summary(), "moonbit-benchmark-check", benchmark_pass === "true" ? "succeeded" : "failed", benchmark_summary, "");
+          const benchmark_hint = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(benchmark_assessment, "repair_hint");
+          const benchmark_missing_signals_json = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(benchmark_assessment, "missing_signals_json");
+          if (_M0IP016_24default__implPB2Eq10not__equalGsE(benchmark_pass, "true") && _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app44maybe__auto__repair__after__quality__failure(benchmark_title, benchmark_summary, benchmark_hint, benchmark_missing_signals_json)) {
+            return;
+          } else {
+            _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__render__artifact__card(benchmark_title, benchmark_summary, benchmark_meta_json, true, false, false);
+            _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app27browser__render__onboarding();
+            return;
+          }
         } else {
-          _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__render__artifact__card(benchmark_title, benchmark_summary, benchmark_meta_json, true, false, false);
+          _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__render__artifact__card("Compile probe succeeded", "MoonAP used the native MoonBit toolchain on this machine and produced a real wasm-gc artifact. Browser-local runtime execution is the next implementation step.", "[\"compile probe ok\",\"real wasm built\",\"runtime pending\"]", true, false, false);
           _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app27browser__render__onboarding();
           return;
         }
-      } else {
-        _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__render__artifact__card("Compile probe succeeded", "MoonAP used the native MoonBit toolchain on this machine and produced a real wasm-gc artifact. Browser-local runtime execution is the next implementation step.", "[\"compile probe ok\",\"real wasm built\",\"runtime pending\"]", true, false, false);
-        _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app27browser__render__onboarding();
-        return;
       }
     } else {
       if (_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app44maybe__auto__repair__after__compile__failure(summary_kind, repair_hint, summary_excerpt)) {
@@ -3320,7 +7135,7 @@ function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app44maybe__auto__rep
 }
 function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app35run__repair__from__compile__summary() {
   _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app30browser__clear__artifact__card();
-  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__update__process(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__llm__summary(), "compile-repair", "running", "Submitting the captured compiler failure back to the next enabled provider together with the MoonBit primer.", "");
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__update__process(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__llm__summary(), "compile-repair", "running", "Submitting the captured compiler failure back to the next enabled provider with direct appended repair context.", "");
   _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app55browser__repair__last__artifact__with__compile__summary(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__formal__verification__enabled(), _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24moonbit__llm__primer__v1(), (result) => {
     _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app19browser__set__state(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__pretty__json(result));
     _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app29browser__append__runtime__log("artifact", "repair-result", _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__pretty__json(result));
@@ -3359,7 +7174,7 @@ function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app44maybe__auto__rep
 }
 function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app37run__repair__from__system__assessment() {
   _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app30browser__clear__artifact__card();
-  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__update__process(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__llm__summary(), "quality-repair", "running", "Submitting the captured system assessment back to the next enabled provider together with the MoonBit primer.", "");
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__update__process(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__llm__summary(), "quality-repair", "running", "Submitting the captured system assessment back to the next enabled provider.", "");
   _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app57browser__repair__last__artifact__with__system__assessment(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24moonbit__llm__primer__v1(), (result) => {
     _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app19browser__set__state(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__pretty__json(result));
     _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app29browser__append__runtime__log("artifact", "quality-repair-result", _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__pretty__json(result));
@@ -3374,18 +7189,35 @@ function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app37run__repair__fro
     _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app11show__error("MoonBit quality repair failed", error);
   });
 }
+function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app32run__moonap__runtime__adaptation() {
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app30browser__clear__artifact__card();
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__update__process(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__llm__summary(), "moonap-adaptation", "running", "Stage 1 compiled. MoonAP is now asking the active LLM route to adapt the compiled business code to the large-file runtime contract.", "");
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__render__artifact__card("Adapting source for MoonAP runtime", "The first-stage MoonBit source compiled. MoonAP is now running a second LLM pass to add large-file generation/analysis adapter functions, then it will compile again.", "[\"stage 2\",\"moonap adaptation\",\"compile starting next\"]", false, false, false);
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app57browser__adapt__last__artifact__for__large__file__runtime((result) => {
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app19browser__set__state(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__pretty__json(result));
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app29browser__append__runtime__log("artifact", "moonap-adaptation-result", _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__pretty__json(result));
+    const provider = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(result, "llm_provider");
+    const model = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(result, "llm_model");
+    const source = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(result, "moonbit_source");
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__update__process(provider === "" ? _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__llm__summary() : model === "" ? provider : `${provider}/${model}`, "moonap-adaptation", "succeeded", "MoonAP received adapted source with large-file runtime adapter functions. Re-running compile probe now.", source === "" ? "No adapted source returned." : source);
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__render__artifact__card("MoonAP-adapted source is ready", "The second-stage source has been adapted for the MoonAP large-file runtime contract. MoonAP is compiling the adapted source now.", "[\"stage 2 complete\",\"adapter source\",\"compile starting\"]", true, false, false);
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app19run__compile__probe();
+  }, (error) => {
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app11show__error("MoonAP runtime adaptation failed", error);
+  });
+}
 function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app26run__llm__moonbit__codegen(task_title, prompt, source_summary, simple_mode) {
   _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app30browser__clear__artifact__card();
   _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__reset__compile__report();
   _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app35browser__set__benchmark__assessment("");
-  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__update__process(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__llm__summary(), "llm-codegen", "running", "Submitting prompt to the next enabled provider in the router with the MoonBit primer injected into the user prompt.", "");
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__update__process(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__llm__summary(), "llm-codegen", "running", "Submitting the minimal MoonBit codegen prompt to the next enabled provider in the router.", "");
   _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app36browser__generate__moonbit__artifact(task_title, prompt, simple_mode, _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__formal__verification__enabled(), _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24moonbit__llm__primer__v1(), (result) => {
     _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app19browser__set__state(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__pretty__json(result));
     _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app29browser__append__runtime__log("artifact", "llm-codegen-result", _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__pretty__json(result));
     const provider = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(result, "llm_provider");
     const model = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(result, "llm_model");
     const source = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(result, "moonbit_source");
-    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__update__process(provider === "" ? _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__llm__summary() : model === "" ? provider : `${provider}/${model}`, "llm-codegen", "succeeded", "Real LLM response received. MoonBit source captured after the MoonBit primer injection. Compile/run remains pending until the next implementation step.", source === "" ? "No generated source returned." : source);
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__update__process(provider === "" ? _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__llm__summary() : model === "" ? provider : `${provider}/${model}`, "llm-codegen", "succeeded", "Real LLM response received. MoonBit source captured from the minimal prompt flow. Compile/run remains pending until the next implementation step.", source === "" ? "No generated source returned." : source);
     _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__render__artifact__card(`${task_title} source is ready`, source_summary, "[\"real LLM response\",\"source captured\",\"compile starting\"]", true, false, false);
     _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app19run__compile__probe();
   }, (error) => {
@@ -3407,48 +7239,141 @@ function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app30run__moonbit__fa
 }
 function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app22execute__dialog__skill() {
   const skill_id = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app26browser__dialog__skill__id();
+  const personal_task_kind = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app34browser__dialog__skill__task__kind();
+  const skill_source = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app30browser__dialog__skill__source();
+  const external_url = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app30browser__dialog__external__url();
+  const download_url = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app30browser__dialog__download__url();
+  const folder_path = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app29browser__dialog__folder__path();
   _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app29browser__close__skill__dialog();
-  const _bind = "moonbit-benchmark";
+  const _bind = "personal.";
   if (_M0MPC16string6String8contains(skill_id, new _M0TPC16string10StringView(_bind, 0, _bind.length))) {
+    if (personal_task_kind === "large-fastq-analysis") {
+      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app44browser__run__dialog__large__fastq__analysis((result) => {
+        _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app19browser__set__state(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__pretty__json(result));
+        _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app39browser__set__transient__artifact__card(true);
+        _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__render__artifact__card("Personal SKILL result is ready", "Review the browser-local analysis report. You can open or save the report, then rerun this SKILL whenever needed.", "[\"personal skill\",\"runtime succeeded\",\"report ready\"]", false, false, false);
+        _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app20browser__show__toast("Personal SKILL analyzed the FastQ file with browser-local streaming.");
+      }, (error) => {
+        _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app11show__error("Personal SKILL large FastQ analysis failed", error);
+      });
+      return undefined;
+    }
+    if (personal_task_kind === "large-file-generation") {
+      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app45browser__run__dialog__large__file__generation((result) => {
+        _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app19browser__set__state(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__pretty__json(result));
+        _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app20browser__show__toast("Personal SKILL generated the FastQ file with browser-local streaming.");
+      }, (error) => {
+        _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app11show__error("Personal SKILL large-file generation failed", error);
+      });
+      return undefined;
+    }
+    if (personal_task_kind === "fastq-generator") {
+      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21run__fastq__generator();
+      return undefined;
+    }
+    if (personal_task_kind === "fastq-analysis") {
+      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app19run__fastq__counter();
+      return undefined;
+    }
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app11show__error("Personal SKILL run not implemented", `MoonAP loaded this Personal SKILL, but rerun support for task kind \`${personal_task_kind}\` is not wired yet.`);
+    return undefined;
+  }
+  if (skill_source === "local") {
+    if (personal_task_kind === "large-fastq-analysis") {
+      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app44browser__run__dialog__large__fastq__analysis((result) => {
+        _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app19browser__set__state(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__pretty__json(result));
+        _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app39browser__set__transient__artifact__card(true);
+        _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__render__artifact__card("Local SKILL result is ready", "Review the browser-local analysis report. You can open or save the report, then rerun this SKILL whenever needed.", "[\"local skill\",\"runtime succeeded\",\"report ready\"]", false, false, false);
+        _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app20browser__show__toast("Local SKILL analyzed the FastQ file with browser-local streaming.");
+      }, (error) => {
+        _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app11show__error("Local SKILL large FastQ analysis failed", error);
+      });
+      return undefined;
+    }
+    if (personal_task_kind === "large-file-generation") {
+      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app45browser__run__dialog__large__file__generation((result) => {
+        _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app19browser__set__state(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__pretty__json(result));
+        _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app20browser__show__toast("Local SKILL generated the FastQ file with browser-local streaming.");
+      }, (error) => {
+        _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app11show__error("Local SKILL large-file generation failed", error);
+      });
+      return undefined;
+    }
+    if (personal_task_kind === "fastq-generator") {
+      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21run__fastq__generator();
+      return undefined;
+    }
+    if (personal_task_kind === "fastq-analysis") {
+      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app19run__fastq__counter();
+      return undefined;
+    }
+    let _tmp;
+    const _bind$2 = "gomoku";
+    if (_M0MPC16string6String8contains(skill_id, new _M0TPC16string10StringView(_bind$2, 0, _bind$2.length))) {
+      _tmp = true;
+    } else {
+      _tmp = personal_task_kind === "browser-game";
+    }
+    if (_tmp) {
+      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app20browser__show__toast("Local public SKILL metadata is loaded. Task-specific execution wiring for this installed skill is the next step.");
+      return undefined;
+    }
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app11show__error("Local SKILL run not implemented", `MoonAP loaded this Local SKILL, but rerun support for task kind \`${personal_task_kind}\` is not wired yet.`);
+    return undefined;
+  }
+  if (skill_source === "cloud") {
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app20browser__show__toast("Installing Cloud SKILL into Local SKILL Hub...");
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app30browser__install__cloud__skill(skill_id, (result) => {
+      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app48browser__refresh__local__skill__hub__root__label();
+      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app34browser__render__local__skill__hub();
+      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app19browser__set__state(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__pretty__json(result));
+      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app20browser__show__toast(folder_path === "" ? "Cloud SKILL installed into Local SKILL Hub." : `Cloud SKILL installed: ${folder_path}`);
+    }, (error) => {
+      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app11show__error("Cloud SKILL install failed", _M0IP016_24default__implPB2Eq10not__equalGsE(download_url, "") || _M0IP016_24default__implPB2Eq10not__equalGsE(external_url, "") ? `${error} You can still open the source repository manually if needed.` : error);
+    });
+    return undefined;
+  }
+  const _bind$2 = "moonbit-benchmark";
+  if (_M0MPC16string6String8contains(skill_id, new _M0TPC16string10StringView(_bind$2, 0, _bind$2.length))) {
     _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app23run__moonbit__benchmark(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app27browser__dialog__param__int("benchmarkLevel", 1));
     return undefined;
   }
-  const _bind$2 = "free-llm-eval";
-  if (_M0MPC16string6String8contains(skill_id, new _M0TPC16string10StringView(_bind$2, 0, _bind$2.length))) {
-    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app29run__free__llm__moonbit__eval(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app27browser__dialog__param__int("evalMaxLevel", 3));
+  const _bind$3 = "free-llm-eval";
+  if (_M0MPC16string6String8contains(skill_id, new _M0TPC16string10StringView(_bind$3, 0, _bind$3.length))) {
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app29run__free__llm__moonbit__eval(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app27browser__dialog__param__int("evalRepairRounds", 2));
     return undefined;
   }
-  const _bind$3 = "moonbit.fastq-generator";
-  if (_M0MPC16string6String8contains(skill_id, new _M0TPC16string10StringView(_bind$3, 0, _bind$3.length))) {
+  const _bind$4 = "moonbit.fastq-generator";
+  if (_M0MPC16string6String8contains(skill_id, new _M0TPC16string10StringView(_bind$4, 0, _bind$4.length))) {
     _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app30run__moonbit__fastq__generator();
     return undefined;
   }
-  const _bind$4 = "fastq-base-counter";
-  if (_M0MPC16string6String8contains(skill_id, new _M0TPC16string10StringView(_bind$4, 0, _bind$4.length))) {
+  const _bind$5 = "fastq-base-counter";
+  if (_M0MPC16string6String8contains(skill_id, new _M0TPC16string10StringView(_bind$5, 0, _bind$5.length))) {
     _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app19run__fastq__counter();
     return undefined;
   }
-  const _bind$5 = "fastq-generator";
-  if (_M0MPC16string6String8contains(skill_id, new _M0TPC16string10StringView(_bind$5, 0, _bind$5.length))) {
+  const _bind$6 = "fastq-generator";
+  if (_M0MPC16string6String8contains(skill_id, new _M0TPC16string10StringView(_bind$6, 0, _bind$6.length))) {
     _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21run__fastq__generator();
     return undefined;
   }
   let path;
-  const _bind$6 = "finance";
-  if (_M0MPC16string6String8contains(skill_id, new _M0TPC16string10StringView(_bind$6, 0, _bind$6.length))) {
+  const _bind$7 = "finance";
+  if (_M0MPC16string6String8contains(skill_id, new _M0TPC16string10StringView(_bind$7, 0, _bind$7.length))) {
     path = "/api/skills/run-plan?finance";
   } else {
-    const _bind$7 = "generator";
-    if (_M0MPC16string6String8contains(skill_id, new _M0TPC16string10StringView(_bind$7, 0, _bind$7.length))) {
+    const _bind$8 = "generator";
+    if (_M0MPC16string6String8contains(skill_id, new _M0TPC16string10StringView(_bind$8, 0, _bind$8.length))) {
       path = "/api/skills/run-plan?generator";
     } else {
       let _tmp;
-      const _bind$8 = "gomoku";
-      if (_M0MPC16string6String8contains(skill_id, new _M0TPC16string10StringView(_bind$8, 0, _bind$8.length))) {
+      const _bind$9 = "gomoku";
+      if (_M0MPC16string6String8contains(skill_id, new _M0TPC16string10StringView(_bind$9, 0, _bind$9.length))) {
         _tmp = true;
       } else {
-        const _bind$9 = "game";
-        _tmp = _M0MPC16string6String8contains(skill_id, new _M0TPC16string10StringView(_bind$9, 0, _bind$9.length));
+        const _bind$10 = "game";
+        _tmp = _M0MPC16string6String8contains(skill_id, new _M0TPC16string10StringView(_bind$10, 0, _bind$10.length));
       }
       if (_tmp) {
         path = "/api/skills/run-plan?gomoku";
@@ -3462,6 +7387,43 @@ function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app22execute__dialog_
   }, (error) => {
     _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app11show__error("SKILL plan fetch failed", error);
   });
+}
+function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app26on__runtime__result__ready(raw) {
+  const request_id = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(raw, "request_id");
+  const status = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(raw, "status");
+  const summary = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(raw, "summary");
+  const display_text = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(raw, "display_text");
+  const download_name = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(raw, "download_name");
+  if (request_id === "" || (status === "" || status === "empty")) {
+    return undefined;
+  }
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app39browser__set__transient__artifact__card(true);
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app34browser__remember__runtime__result(raw);
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app19browser__set__state(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__pretty__json(raw));
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app30browser__update__result__panel(raw);
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__update__process(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__llm__summary(), "runtime-exec", status === "" ? "runtime-succeeded" : status, summary === "" ? "MoonAP received a runtime result." : summary, display_text === "" ? (download_name === "" ? "No browser-visible runtime preview was recorded." : `Downloadable result: ${download_name}`) : display_text);
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__render__artifact__card("Runtime result is ready", "Review the runtime output. If it looks good, you can now save this workflow as a reusable Personal SKILL.", "[\"runtime succeeded\",\"result visible\",\"user review pending\"]", false, false, true);
+}
+function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app25on__skill__save__decision(raw) {
+  const request_id = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(raw, "request_id");
+  const decision = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(raw, "decision");
+  const reason = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(raw, "reason");
+  const exported_folder = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(raw, "exported_folder_name");
+  const exported_root = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(raw, "exported_root_name");
+  const exported_zip = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__artifact__field(raw, "exported_zip_name");
+  if (!_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app36browser__has__last__artifact__source()) {
+    return undefined;
+  }
+  if (request_id === "" || (decision === "" || (decision === "pending" || decision === "unset"))) {
+    return;
+  } else {
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app39browser__set__transient__artifact__card(true);
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app19browser__set__state(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__pretty__json(raw));
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__update__process(_M0FP412tangmaomao1618moonap__mb__server3cmd8web__app21browser__llm__summary(), "skill-export", decision, reason === "" ? "MoonAP recorded the user's save decision." : reason, "");
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__render__artifact__card("SKILL export completed", reason === "" ? "MoonAP exported the current workflow as a Personal SKILL. You can still rerun the program from this page or save another copy with a different name or location." : exported_folder === "" ? `${reason} You can still rerun the program from this page or save another copy with a different name or location.` : exported_root === "" ? `${reason} Exported folder: ${exported_folder}. You can still rerun the program from this page or save another copy with a different name or location.` : `${reason} Exported to ${exported_root}/${exported_folder}${exported_zip === "" ? "" : ` with ZIP package ${exported_zip}.`}. You can still rerun the program from this page or save another copy with a different name or location.`, "[\"skill decision\",\"recorded\"]", false, false, true);
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app20browser__show__toast(exported_folder === "" ? "SKILL saved. You can rerun the program or save another copy with a different name." : exported_root === "" ? `SKILL saved as ${exported_folder}. You can rerun the program or save another copy.` : `SKILL saved to ${exported_root}/${exported_folder}${exported_zip === "" ? "" : ` with ZIP package ${exported_zip}.`}. You can rerun the program or save another copy.`);
+    return;
+  }
 }
 function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app15submit__message() {
   const message = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app23browser__message__value();
@@ -3585,9 +7547,15 @@ function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app15submit__message(
 }
 (() => {
   _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app33browser__extract__moonbit__source("");
-  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app32browser__prepare__message__input("Write the smallest valid cmd/main/main.mbt that compiles under wasm-gc and returns the string hello moonbit. Return only the file contents.");
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__enable__minimal__shell();
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app32browser__prepare__message__input("Generate a FastQ file generator.");
   _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app19browser__on__submit(() => {
     _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app15submit__message();
+  });
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app42browser__ensure__runtime__profile__runtime();
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app32browser__ensure__report__runtime();
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app18browser__on__click("#experimentButton", () => {
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app23show__experiment__entry();
   });
   _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app18browser__on__click("#detailsToggle", () => {
     _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__toggle__details();
@@ -3615,6 +7583,16 @@ function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app15submit__message(
   _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__on__dialog__run(() => {
     _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app22execute__dialog__skill();
   });
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app33browser__on__dialog__open__source(() => {
+    const external_url = _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app30browser__dialog__external__url();
+    if (external_url === "") {
+      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app11show__error("Open source unavailable", "This SKILL entry does not expose a GitHub source URL yet.");
+      return;
+    } else {
+      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app28browser__open__external__url(external_url);
+      return;
+    }
+  });
   _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app27browser__on__dialog__cancel(() => {
     _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app29browser__close__skill__dialog();
   });
@@ -3629,15 +7607,105 @@ function _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app15submit__message(
   _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app29browser__on__repair__artifact(() => {
     _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app35run__repair__from__compile__summary();
   });
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app40browser__on__download__runtime__artifact("wasm", () => {
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app36browser__download__runtime__artifact("wasm");
+  });
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app40browser__on__download__runtime__artifact("source", () => {
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app36browser__download__runtime__artifact("source");
+  });
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app40browser__on__download__runtime__artifact("compile-report", () => {
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app36browser__download__runtime__artifact("compile-report");
+  });
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app40browser__on__download__runtime__artifact("result", () => {
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app36browser__download__runtime__artifact("result");
+  });
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app28browser__on__start__new__app(() => {
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__start__new__app();
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app20browser__show__toast("Started a new APP. Enter the next prompt in the message box.");
+  });
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app36browser__on__runtime__report__action("open", () => {
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app30browser__open__runtime__report();
+  });
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app36browser__on__runtime__report__action("save", () => {
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app30browser__save__runtime__report();
+  });
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app42browser__on__record__demo__runtime__result(() => {
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__record__demo__runtime__result((result) => {
+      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app26on__runtime__result__ready(result);
+    }, (error) => {
+      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app11show__error("demo-runtime failed", error);
+    });
+  });
   _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app39browser__export__last__artifact__bundle((folder) => {
     _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__render__artifact__card("Source bundle exported", `MoonAP exported a browser-downloadable source bundle for ${folder}. This bundle is for the next implementation step; it is not yet a runnable Personal SKILL.`, "[\"exported\",\"source bundle\"]", true, false, false);
   });
   _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app34browser__on__save__personal__skill(() => {
-    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app33browser__render__personal__skills();
-    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app32browser__set__skill__panel__open(true);
-    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__render__artifact__card("Personal save is not active yet", "MoonAP will enable Personal-SKILL-Set saving after real compile and browser-local runtime execution are implemented.", "[\"pending implementation\"]", false, false, false);
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app36browser__open__skill__export__dialog();
+  });
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app40browser__on__skill__export__choose__path(() => {
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app36browser__choose__skill__export__path((_folder_name) => {
+    }, (error) => {
+      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app11show__error("skill-export path selection failed", error);
+    });
+  });
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app42browser__on__personal__skill__choose__path(() => {
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app36browser__choose__skill__export__path((_folder_name) => {
+      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app46browser__refresh__personal__skill__root__label();
+      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app33browser__render__personal__skills();
+    }, (error) => {
+      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app11show__error("personal skill directory selection failed", error);
+    });
+  });
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app44browser__on__local__skill__hub__choose__path(() => {
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app40browser__choose__local__skill__hub__path((_folder_name) => {
+      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app48browser__refresh__local__skill__hub__root__label();
+      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app34browser__render__local__skill__hub();
+      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app20browser__show__toast("Local SKILL Hub directory connected.");
+    }, (error) => {
+      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app11show__error("local SKILL Hub directory selection failed", error);
+    });
+  });
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app18browser__on__click("#cloudSkillHubRefresh", () => {
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app34browser__render__cloud__skill__hub(true);
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app20browser__show__toast("Refreshing Cloud SKILL catalog from the official MoonAP-SKILL-Hub repository.");
+  });
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app39browser__ensure__virtual__path__runtime();
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app36browser__ensure__file__name__runtime();
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app47browser__ensure__large__file__progress__runtime();
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app39browser__ensure__skill__folder__runtime();
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app36browser__ensure__skill__zip__runtime();
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app42browser__ensure__runtime__profile__runtime();
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app35browser__on__skill__export__confirm(() => {
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app29browser__request__skill__save((result) => {
+      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app37browser__close__skill__export__dialog();
+      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app33browser__render__personal__skills();
+      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app32browser__set__skill__panel__open(true);
+      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app20browser__show__toast("SKILL saved. You can rerun this program, or save another copy with a different name or location.");
+      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app25on__skill__save__decision(result);
+    }, (error) => {
+      _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app11show__error("save-to-skill failed", error);
+    });
+  });
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app36browser__on__runtime__profile__apply((raw) => {
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app24browser__update__process("Runtime profile", "runtime-profile-override", "applied", "MoonAP switched the current runtime profile and re-rendered the runtime form.", raw);
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app20browser__show__toast("Runtime profile switched for this run. If you save this APP as a SKILL, MoonAP will reuse this profile.");
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__render__artifact__card("Runtime execution is ready", "MoonAP has a compiled wasm artifact and is now waiting for browser-local execution or a simulated runtime result.", "[\"runtime ready\",\"browser display pending\",\"download allowed\"]", false, false, false);
+  }, (error) => {
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app20browser__show__toast(`Runtime profile switch failed: ${error}`);
+  });
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app34browser__on__skill__export__cancel(() => {
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app37browser__close__skill__export__dialog();
+  });
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app33browser__watch__runtime__protocol((raw) => {
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app27on__runtime__request__ready(raw);
+  }, (raw) => {
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app26on__runtime__result__ready(raw);
+  }, (raw) => {
+    _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app25on__skill__save__decision(raw);
   });
   _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app33browser__render__personal__skills();
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app34browser__render__local__skill__hub();
+  _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app34browser__render__cloud__skill__hub(false);
   _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__restore__formal__verification();
   _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app17refresh__policies();
 })();

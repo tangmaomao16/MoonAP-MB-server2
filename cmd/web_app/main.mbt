@@ -287,6 +287,11 @@ extern "js" fn browser_render_artifact_card(
   #|       </div>`;
   #|   }
   #|   root.append(card);
+  #|   if (runtimeDone && resultMode === "report") {
+  #|     try {
+  #|       card.scrollIntoView({ behavior: "smooth", block: "start" });
+  #|     } catch {}
+  #|   }
   #|   const runtimeFileInput = document.querySelector("#fileInput");
   #|   const runtimeFileStatus = document.querySelector("#runtimeInputFileStatus");
   #|   if (runtimeFileInput && runtimeFileStatus) {
@@ -4703,6 +4708,29 @@ extern "js" fn browser_run_dialog_large_fastq_analysis(
   #|     if (recordLines.length > 0) malformedRecordCount += 1;
   #|     const elapsedMs = Math.round(performance.now() - started);
   #|     const avgReadLength = readCount === 0 ? 0 : totalBases / readCount;
+  #|     const reportText = [
+  #|       "MoonAP Large FastQ Analysis Report",
+  #|       `file_name: ${file.name}`,
+  #|       `file_size_bytes: ${file.size}`,
+  #|       `chunk_count: ${chunkCount}`,
+  #|       `total_lines: ${lineCount}`,
+  #|       `estimated_read_count: ${readCount}`,
+  #|       `total_bases: ${totalBases}`,
+  #|       `A_count: ${aCount}`,
+  #|       `C_count: ${cCount}`,
+  #|       `G_count: ${gCount}`,
+  #|       `T_count: ${tCount}`,
+  #|       `N_count: ${nCount}`,
+  #|       `other_base_count: ${otherBaseCount}`,
+  #|       `min_read_length: ${minReadLength == null ? 0 : minReadLength}`,
+  #|       `max_read_length: ${maxReadLength}`,
+  #|       `average_read_length: ${Number(avgReadLength.toFixed(2))}`,
+  #|       `malformed_record_count: ${malformedRecordCount}`,
+  #|       `elapsed_ms: ${elapsedMs}`,
+  #|       "",
+  #|       "Preview reads:",
+  #|       previewReads.length > 0 ? previewReads.join("\n\n") : "(none)"
+  #|     ].join("\n");
   #|     const result = {
   #|       status: "runtime-succeeded",
   #|       result_kind: "large-fastq-report",
@@ -4729,6 +4757,7 @@ extern "js" fn browser_run_dialog_large_fastq_analysis(
   #|       runtime_mode: "file",
   #|       result_mode: "report",
   #|       download_name: `${String(file.name || "fastq-analysis").replace(/[^a-zA-Z0-9._-]+/g, "-")}.analysis.json`,
+  #|       display_text: reportText,
   #|       download_content: JSON.stringify({
   #|         file_name: file.name,
   #|         file_size_bytes: file.size,

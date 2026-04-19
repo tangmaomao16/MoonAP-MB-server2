@@ -1678,7 +1678,17 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__record__de
      }
      onDone(String(text));
    } catch (error) {
-     globalThis.__moonapLargeFileProgressRuntime?.error?.(error instanceof Error ? error.message : String(error));
+     try {
+       const runtimeRequest = globalThis.__moonapLastRuntimeRequest || {};
+       const runtimeSpec = runtimeRequest?.runtime_spec && typeof runtimeRequest.runtime_spec === "object"
+         ? runtimeRequest.runtime_spec
+         : (runtimeRequest?.runtime_ui && typeof runtimeRequest.runtime_ui === "object" ? runtimeRequest.runtime_ui : {});
+       const ioContract = runtimeSpec?.io_contract && typeof runtimeSpec.io_contract === "object" ? runtimeSpec.io_contract : {};
+       const taskKind = String(runtimeRequest?.task_kind || "");
+       const hostCapability = String(ioContract.host_capability || "");
+       const isLargeRuntime = taskKind === "large-file-generation" || taskKind === "large-file-analysis" || taskKind === "large-fastq-analysis" || hostCapability === "streamed-local-generation" || hostCapability === "chunked-local-analysis";
+       if (isLargeRuntime) globalThis.__moonapLargeFileProgressRuntime?.error?.(error instanceof Error ? error.message : String(error));
+     } catch {}
      onError(error instanceof Error ? error.message : String(error));
    }
  };
@@ -3870,7 +3880,24 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app36browser__run__dialo
      const runtimeSpec = skill.runtime_spec && typeof skill.runtime_spec === "object" ? skill.runtime_spec : {};
      const taskKind = String(skill.task_kind || dialog.dataset.taskKind || "generic");
      const resultMode = String(runtimeSpec.result_mode || skill.result_mode || "text");
+     const runtimeMode = String(runtimeSpec.mode || skill.runtime_mode || "form");
      const requestId = `skill-runtime-${Date.now()}`;
+     const runtimeRequestRecord = {
+       request_id: requestId,
+       run_id: "",
+       status: "ready-for-runtime",
+       task_kind: taskKind,
+       runtime_mode: runtimeMode,
+       result_mode: resultMode,
+       runtime_spec: runtimeSpec,
+       runtime_ui: runtimeSpec,
+       source_url: String(skill.source_url || skill.moonbit_source_url || ""),
+       wasm_url: String(skill.wasm_url || ""),
+       skill_id: skillId,
+       skill_source: sourceKind
+     };
+     globalThis.__moonapLastRuntimeRequest = runtimeRequestRecord;
+     globalThis.__moonapLastRuntimeRequestText = JSON.stringify(runtimeRequestRecord, null, 2);
      const runtimeInputs = {};
      for (const node of Array.from(dialog.querySelectorAll("[data-param-name]"))) {
        const name = String(node.dataset.paramName || "");
@@ -3911,6 +3938,12 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app36browser__run__dialo
        });
        const text = await response.text();
        if (!response.ok) throw new Error(text || `Runtime execute failed (${response.status})`);
+       try {
+         globalThis.__moonapLastRuntimeResult = JSON.parse(text);
+       } catch {
+         globalThis.__moonapLastRuntimeResult = payload;
+       }
+       globalThis.__moonapLastRuntimeResultText = text || JSON.stringify(payload, null, 2);
        if (String(payload?.result_kind || "").includes("report") || resultMode === "report") {
          globalThis.__moonapLastRuntimeReportPayload = payload;
        }

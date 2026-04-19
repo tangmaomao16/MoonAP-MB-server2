@@ -3749,8 +3749,52 @@ fn extract_json_string_field(body : String, key : String) -> String {
     return ""
   }
   let source = after_colon[1:]
-  guard source.find("\"") is Some(end) else { return "" }
-  source[:end].to_string()
+  let mut index = 0
+  let mut escaped = false
+  for char in source {
+    if escaped {
+      escaped = false
+    } else if char == '\\' {
+      escaped = true
+    } else if char == '"' {
+      return json_unescape_string(source[:index].to_string())
+    }
+    index = index + 1
+  }
+  ""
+}
+
+///|
+fn json_unescape_string(value : String) -> String {
+  let mut result = ""
+  let mut escaped = false
+  for char in value {
+    if escaped {
+      if char == 'n' {
+        result = result + "\n"
+      } else if char == 'r' {
+        result = result + "\r"
+      } else if char == 't' {
+        result = result + "\t"
+      } else if char == '"' {
+        result = result + "\""
+      } else if char == '\\' {
+        result = result + "\\"
+      } else {
+        result = result + char.to_string()
+      }
+      escaped = false
+    } else if char == '\\' {
+      escaped = true
+    } else {
+      result = result + char.to_string()
+    }
+  }
+  if escaped {
+    result + "\\"
+  } else {
+    result
+  }
 }
 
 ///|

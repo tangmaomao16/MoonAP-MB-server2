@@ -32,18 +32,35 @@ The v0.1 demo target is not "a FASTQ-only tool". FASTQ generator/analyzer are im
 
 ## Current Git State at Handoff
 
-Developer-5 was interrupted after context compression while finishing the generic SKILL reuse and Cloud Hub publishing work. The worktrees are **not clean**. Do not revert these changes; they are the current forward work.
+Final Developer-5 handoff update:
 
 Main repo current status:
 
 ```text
- M cmd/web_app/main.mbt
- M web/app-live.js
- M web/app-live.js.map
- M web/app.js
- M web/app.js.map
-?? tools/publish-demo-skills.ps1
-?? tools/test-skill-flow.ps1
+clean
+```
+
+Main repo latest local commits:
+
+- `2cc1de5 Guard generic skill reruns against stale context`
+- `22ce0ad Preserve generic skill runtime context for reruns`
+- `a31ce1b Run generic skills from saved runtime specs`
+- `8e0ea25 Require output target before streamed generation`
+- `1495b2a Avoid stale file shortcut for FastQ generation`
+- `4aee104 Enable browser-local CSV file runtime`
+- `5fa5674 Document Developer 5 handoff`
+- `aac92ae Use latest chat content for simulated prompt classification`
+
+Important: `2cc1de5` and `22ce0ad` are committed locally but were not pushed because GitHub HTTPS timed out twice:
+
+```text
+fatal: unable to access 'https://github.com/tangmaomao16/MoonAP-MB-server2.git/': Failed to connect to github.com port 443: Timed out
+```
+
+Developer-6 should retry:
+
+```powershell
+git push
 ```
 
 Cloud SKILL-Hub repo current status at:
@@ -51,22 +68,14 @@ Cloud SKILL-Hub repo current status at:
 `C:\my_work\MoonBit_Competition\GitHub\MoonAP-SKILL-Hub`
 
 ```text
- M index.json
-?? demo/
+clean
 ```
 
-The Cloud Hub changes contain generated demo utility SKILL folders/zips under `demo/utilities/` and matching `index.json` entries. They have not yet been committed/pushed.
+Cloud SKILL-Hub latest commits:
 
-Most recent committed main-repo commits before the interrupted work:
-
-- `aac92ae Use latest chat content for simulated prompt classification`
-- `ac11a21 Reset runtime state between demo prompts`
-- `3c1ced5 Preserve escaped JSON fields in runtime results`
-- `85e606f Promote generic runtime specs from demo prompts`
-- `1c3e8f1 Classify simulated prompts from user message`
-- `baf7b83 Cover v0.1 demo prompts with generic runtimes`
-- `f3f030d Generalize simulated unit conversion forms`
-- `31088dd Automate simulated LLM demo responses`
+- `4988f18 Publish generic demo utility skills`
+- `87c2eb1 Publish large FASTQ analyzer test skill`
+- `1303a43 Publish large FastQ analyzer skill`
 
 Do not revert these unless the user explicitly asks.
 
@@ -223,6 +232,58 @@ Generated Cloud demo skills:
 
 Together with the existing FASTQ generator/analyzer entries, the 12 v0.1 demo categories are represented in Cloud-SKILL-Hub.
 
+### Published Cloud SKILL-Hub Work
+
+Developer-5 published 10 generic demo utility SKILLs to `MoonAP-SKILL-Hub`:
+
+```text
+4988f18 Publish generic demo utility skills
+```
+
+The new Cloud entries live under:
+
+`demo/utilities/`
+
+They include folders and sibling zip files for:
+
+1. `celsius-fahrenheit-converter`
+2. `minutes-seconds-converter`
+3. `two-number-sum`
+4. `bmi-calculator`
+5. `circle-calculator`
+6. `loan-payment-calculator`
+7. `tip-calculator`
+8. `json-formatter-validator`
+9. `text-analyzer`
+10. `csv-summary-analyzer`
+
+The user manually tested at least `celsius-fahrenheit-converter` through Cloud install into Local-SKILL-Hub and Local reuse.
+
+### Generic SKILL Rerun Bug and Current Status
+
+User found a browser bug: generic Local SKILLs could run once, but after pressing the rerun button several times, the runtime card could show:
+
+```text
+MoonAP runtime request_id is missing.
+```
+
+This was not a core platform-chain failure; first run, Cloud install, and Local reuse worked. The bug was caused by browser runtime state being overwritten by the watcher or stale result cards. Developer-5 added two local commits:
+
+- `22ce0ad Preserve generic skill runtime context for reruns`
+- `2cc1de5 Guard generic skill reruns against stale context`
+
+The fix does three things:
+
+- Saves `__moonapLastSkillRuntimeRequest` / `__moonapLastSkillRuntimeResult` after generic SKILL runs.
+- Restores the last SKILL runtime request if the general runtime request is stale or missing.
+- Adds a busy guard so repeated quick clicks on `recordDemoRuntimeResult` do not overlap.
+
+This should make repeated reruns much less fragile. If it still appears during a rushed demo, the safe workaround is:
+
+1. Do not rapidly click `Run again` many times.
+2. For a second demonstration, click `Start new APP`, reopen the Local SKILL, and run it again.
+3. The project conclusion should emphasize the successful first run / install / reuse chain, not stress-test repeated button mashing.
+
 ## Validation Already Run
 
 The following passed after the earlier committed demo prompt fixes:
@@ -265,7 +326,29 @@ powershell -ExecutionPolicy Bypass -File tools\test-skill-flow.ps1
 
 `tools\test-skill-flow.ps1` saw 14 Cloud catalog entries after `tools\publish-demo-skills.ps1` generated the 10 demo utility SKILLs.
 
-Important: the server restart command was started during the interrupted turn and appears to have exited successfully, but Developer-6 should rerun it before browser testing to remove doubt:
+After the rerun hotfix commits, Developer-5 reran:
+
+```powershell
+moon fmt
+tools\moon-msvc.cmd build cmd\web_app --target js
+node --check web\app.js
+node --check web\app-live.js
+tools\moon-msvc.cmd build cmd\server --release
+tools\restart-moonap-server.cmd
+powershell -ExecutionPolicy Bypass -File tools\test-demo-prompts.ps1
+```
+
+The 12 prompt regression passed.
+
+Developer-5 also ran:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\test-skill-flow.ps1 -SkillName celsius-fahrenheit-converter -RequireLocalInstall -Strict
+```
+
+It confirmed the Local and Cloud Celsius SKILL package files, but exited 1 because the current Personal root had no skills under the filtered strict check. Treat that Personal-root failure as unrelated to the Local Celsius rerun bug.
+
+Important: the server was restarted after `2cc1de5`. Developer-6 can rerun it before browser testing to remove doubt:
 
 ```powershell
 tools\restart-moonap-server.cmd
@@ -374,38 +457,20 @@ Recommended order:
 
 1. Re-read this handoff, `docs/notes/README.md`, and `AGENTS.md`.
 2. Run `git status --short`.
-3. Do not assume the interrupted `restart-moonap-server.cmd` run is enough; rerun:
+3. Retry `git push` in the main repo. The latest two commits are local-only because GitHub timed out.
+4. Rerun the server before browser testing:
 
 ```powershell
 tools\restart-moonap-server.cmd
 ```
 
-4. Commit and push the Cloud SKILL-Hub repo if inspection looks right:
-
-```powershell
-cd C:\my_work\MoonBit_Competition\GitHub\MoonAP-SKILL-Hub
-git status --short
-git diff --stat
-git add .
-git commit -m "Publish generic demo utility skills"
-git push
-```
-
-5. Commit the main repo generic SKILL runner work if browser smoke tests pass:
-
-```powershell
-cd C:\my_work\MoonBit_Competition\GitHub\MoonAP-MB-server2
-git status --short
-git add cmd\web_app\main.mbt web\app-live.js web\app-live.js.map web\app.js web\app.js.map tools\publish-demo-skills.ps1 tools\test-skill-flow.ps1 docs\notes\2026-04-19-developer-5-to-developer-6-handoff.md
-git commit -m "Run generic skills from saved runtime specs"
-```
-
-6. Manually test the important browser SKILL paths:
+5. Manually test the important browser SKILL paths:
    - `JSON Formatter Validator` installed from Cloud into Local, then run locally.
    - `CSV Summary Analyzer` installed from Cloud into Local, choose a local `.csv`, then run locally.
    - one computed form SKILL, e.g. `Celsius Fahrenheit Converter` or `Two Number Sum`, installed from Cloud into Local, then run locally.
+   - For the rerun bug, click `Run again` slowly 2-3 times. Do not optimize for rapid repeated clicks unless there is time.
 
-7. If those are stable, move to release preparation:
+6. If those are stable, move to release preparation:
    - README fresh-clone instructions.
    - Check `.gitignore` does not include local run artifacts.
    - Verify no large generated files are tracked.

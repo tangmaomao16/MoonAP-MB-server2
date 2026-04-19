@@ -1332,9 +1332,9 @@ fn runtime_spec_json_for_task_kind(task_kind : String) -> String {
     "    \"fields\": [\n" +
     "      {\n" +
     "        \"name\": \"output_name\",\n" +
-    "        \"label\": \"Output file name\",\n" +
+    "        \"label\": \"Output FastQ file name\",\n" +
     "        \"type\": \"text\",\n" +
-    "        \"default\": \"moonap-large-output.txt\"\n" +
+    "        \"default\": \"moonap-output.fastq\"\n" +
     "      },\n" +
     "      {\n" +
     "        \"name\": \"target_size_mb\",\n" +
@@ -1346,19 +1346,43 @@ fn runtime_spec_json_for_task_kind(task_kind : String) -> String {
     "        \"step\": 1\n" +
     "      },\n" +
     "      {\n" +
-    "        \"name\": \"line_template\",\n" +
-    "        \"label\": \"Line template\",\n" +
-    "        \"type\": \"text\",\n" +
-    "        \"default\": \"moonap-line-{index}\"\n" +
+    "        \"name\": \"read_length\",\n" +
+    "        \"label\": \"Read length\",\n" +
+    "        \"type\": \"int\",\n" +
+    "        \"default\": 150,\n" +
+    "        \"min\": 20,\n" +
+    "        \"max\": 20000,\n" +
+    "        \"step\": 1\n" +
     "      },\n" +
     "      {\n" +
-    "        \"name\": \"line_length\",\n" +
-    "        \"label\": \"Line length\",\n" +
+    "        \"name\": \"read_header_prefix\",\n" +
+    "        \"label\": \"Read header prefix\",\n" +
+    "        \"type\": \"text\",\n" +
+    "        \"default\": \"moonap_read\"\n" +
+    "      },\n" +
+    "      {\n" +
+    "        \"name\": \"random_seed\",\n" +
+    "        \"label\": \"Random seed\",\n" +
     "        \"type\": \"int\",\n" +
-    "        \"default\": 120,\n" +
-    "        \"min\": 8,\n" +
-    "        \"max\": 4096,\n" +
+    "        \"default\": 42,\n" +
+    "        \"min\": 0,\n" +
+    "        \"max\": 2147483647,\n" +
     "        \"step\": 1\n" +
+    "      },\n" +
+    "      {\n" +
+    "        \"name\": \"n_rate\",\n" +
+    "        \"label\": \"N base rate\",\n" +
+    "        \"type\": \"float\",\n" +
+    "        \"default\": 0.01,\n" +
+    "        \"min\": 0,\n" +
+    "        \"max\": 1,\n" +
+    "        \"step\": 0.001\n" +
+    "      },\n" +
+    "      {\n" +
+    "        \"name\": \"quality_char\",\n" +
+    "        \"label\": \"Quality character\",\n" +
+    "        \"type\": \"text\",\n" +
+    "        \"default\": \"I\"\n" +
     "      }\n" +
     "    ]\n" +
     "  }"
@@ -3020,7 +3044,8 @@ fn web_index_html() -> String {
     "<dialog id=\"skillDialog\" class=\"skill-dialog\">", "<form method=\"dialog\" class=\"skill-dialog-body\">",
     "<div class=\"dialog-head\"><span id=\"dialogScope\">SKILL</span><strong id=\"dialogTitle\">Configure SKILL</strong></div>",
     "<p id=\"dialogSummary\" class=\"dialog-summary\"></p>", "<div id=\"dialogFields\" class=\"dialog-fields\"></div>",
-    "<div class=\"dialog-actions\"><button id=\"dialogCancel\" class=\"dialog-button\" type=\"button\">Cancel</button><button id=\"dialogRun\" class=\"dialog-button primary\" type=\"button\">Run</button></div>",
+    "<div id=\"dialogOutputTarget\" class=\"dialog-output-target\" style=\"display:none;\"><button id=\"dialogChooseOutput\" class=\"dialog-button secondary\" type=\"button\">Choose output file/location</button><span id=\"dialogOutputStatus\">No output file selected yet.</span></div>",
+    "<div class=\"dialog-actions\"><button id=\"dialogCancel\" class=\"dialog-button\" type=\"button\">Cancel</button><button id=\"dialogOpenSource\" class=\"dialog-button secondary\" type=\"button\" style=\"display:none;\">View on GitHub</button><button id=\"dialogRun\" class=\"dialog-button primary\" type=\"button\">Run</button></div>",
     "</form>", "</dialog>", "<dialog id=\"llmDialog\" class=\"skill-dialog\">", "<form method=\"dialog\" class=\"skill-dialog-body\">",
     "<div class=\"dialog-head\"><span>LLM Router</span><strong>Connect one or more providers</strong></div>",
     "<p class=\"dialog-summary\">MoonAP stores these keys in this browser only. Level 1 selects providers. Level 2 selects models inside each provider. MoonAP rotates through the checked models from top to bottom.</p>",
@@ -3154,7 +3179,8 @@ fn web_style_css() -> String {
     ".dialog-fields { display: grid; gap: 10px; }", ".dialog-fields label, .router-row label { display: grid; gap: 6px; color: #555555; font-size: 13px; }",
     ".dialog-fields input, .router-row input { width: 100%; border: 1px solid #d8d8d8; border-radius: 10px; padding: 8px 10px; font: inherit; }",
     ".dialog-fields input, .router-row input { height: 38px; }", ".router-model-list { display: grid; gap: 8px; max-height: 180px; overflow: auto; padding: 12px; border: 1px solid #d8d8d8; border-radius: 10px; background: #ffffff; }",
-    ".router-model-option { display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; border-radius: 10px; background: #fafafa; }",
+    ".dialog-output-target { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid #d6e6dc; border-radius: 12px; background: #f5fbf7; color: #315241; font-size: 13px; }",
+    ".dialog-output-target span { overflow-wrap: anywhere; }", ".router-model-option { display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; border-radius: 10px; background: #fafafa; }",
     ".router-model-option input { width: 16px; height: 16px; margin-top: 2px; border: 0; border-radius: 0; padding: 0; background: transparent; accent-color: #111111; }",
     ".router-model-option span { color: #222222; font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }",
     ".dialog-toggle { display: flex; align-items: center; gap: 8px; color: #555555; font-size: 13px; }",
@@ -3163,6 +3189,14 @@ fn web_style_css() -> String {
     ".dialog-actions { display: flex; justify-content: flex-end; gap: 10px; }", ".dialog-button { height: 38px; border: 1px solid #d8d8d8; border-radius: 999px; padding: 0 16px; background: #ffffff; }",
     ".dialog-button.primary { border-color: #1f7a5b; background: #1f7a5b; color: #ffffff; }",
     ".dialog-button:hover { background: #f3f3f3; }", ".dialog-button.primary:hover { background: #195f47; }",
+    ".large-file-progress { position: fixed; right: 28px; bottom: 28px; width: min(420px, calc(100vw - 56px)); display: grid; gap: 10px; padding: 14px 16px; border: 1px solid #cde4da; border-radius: 16px; background: rgba(247,251,249,0.98); color: #173f31; box-shadow: 0 22px 60px rgba(24,48,37,0.20); opacity: 0; transform: translateY(12px); pointer-events: none; transition: opacity 140ms ease, transform 140ms ease; z-index: 1300; }",
+    ".large-file-progress.is-open { opacity: 1; transform: translateY(0); }", ".large-file-progress.is-error { border-color: #f0c7c7; background: rgba(255,247,247,0.98); color: #7a1f1f; }",
+    ".large-file-progress-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }",
+    ".large-file-progress-head strong { font-size: 15px; }", ".large-file-progress-head span { font-variant-numeric: tabular-nums; font-weight: 700; }",
+    ".large-file-progress-track { height: 8px; border-radius: 999px; overflow: hidden; background: #e6eee9; }",
+    ".large-file-progress-track div { width: 0%; height: 100%; border-radius: inherit; background: #1f7a5b; transition: width 120ms ease; }",
+    ".large-file-progress.is-error .large-file-progress-track div { background: #b94a48; }",
+    ".large-file-progress-detail { font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }",
     ".moonap-toast { position: fixed; right: 24px; bottom: 26px; max-width: min(420px, calc(100vw - 48px)); padding: 12px 16px; border-radius: 14px; border: 1px solid #cde4da; background: rgba(247, 251, 249, 0.98); color: #194433; box-shadow: 0 18px 44px rgba(24, 48, 37, 0.14); font-size: 14px; line-height: 1.45; opacity: 0; transform: translateY(10px); pointer-events: none; transition: opacity 140ms ease, transform 140ms ease; z-index: 1200; }",
     ".moonap-toast.is-open { opacity: 1; transform: translateY(0); }", ".messages { width: min(920px, calc(100vw - 48px - var(--details-space))); margin: 0 auto; display: grid; align-content: start; gap: 18px; transition: width 160ms ease; }",
     ".message { max-width: 720px; padding: 16px 18px; border-radius: 18px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }",

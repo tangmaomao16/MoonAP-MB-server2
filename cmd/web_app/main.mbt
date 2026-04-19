@@ -302,6 +302,92 @@ extern "js" fn browser_show_toast(message : String) -> Unit =
 
 ///|
 #cfg(target="js")
+extern "js" fn browser_ensure_large_file_progress_runtime() -> Unit =
+  #| () => {
+  #|   if (globalThis.__moonapLargeFileProgressRuntime) return;
+  #|   if (!document.querySelector("#moonapLargeFileProgressStyle")) {
+  #|     const style = document.createElement("style");
+  #|     style.id = "moonapLargeFileProgressStyle";
+  #|     style.textContent = `
+  #|       .large-file-progress { position: fixed; right: 28px; bottom: 28px; width: min(420px, calc(100vw - 56px)); display: grid; gap: 10px; padding: 14px 16px; border: 1px solid #cde4da; border-radius: 16px; background: rgba(247,251,249,0.98); color: #173f31; box-shadow: 0 22px 60px rgba(24,48,37,0.20); opacity: 0; transform: translateY(12px); pointer-events: none; transition: opacity 140ms ease, transform 140ms ease; z-index: 1300; }
+  #|       .large-file-progress.is-open { opacity: 1; transform: translateY(0); }
+  #|       .large-file-progress.is-error { border-color: #f0c7c7; background: rgba(255,247,247,0.98); color: #7a1f1f; }
+  #|       .large-file-progress-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  #|       .large-file-progress-head strong { font-size: 15px; }
+  #|       .large-file-progress-head span { font-variant-numeric: tabular-nums; font-weight: 700; }
+  #|       .large-file-progress-track { height: 8px; border-radius: 999px; overflow: hidden; background: #e6eee9; }
+  #|       .large-file-progress-track div { width: 0%; height: 100%; border-radius: inherit; background: #1f7a5b; transition: width 120ms ease; }
+  #|       .large-file-progress.is-error .large-file-progress-track div { background: #b94a48; }
+  #|       .large-file-progress-detail { font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
+  #|     `;
+  #|     document.head.append(style);
+  #|   }
+  #|   const formatBytes = (value) => {
+  #|     const n = Number(value || 0);
+  #|     if (n >= 1073741824) return `${(n / 1073741824).toFixed(2)} GB`;
+  #|     if (n >= 1048576) return `${(n / 1048576).toFixed(2)} MB`;
+  #|     if (n >= 1024) return `${(n / 1024).toFixed(1)} KB`;
+  #|     return `${Math.max(0, Math.floor(n))} B`;
+  #|   };
+  #|   const ensure = () => {
+  #|     let card = document.querySelector("#moonapLargeFileProgress");
+  #|     if (card) return card;
+  #|     card = document.createElement("section");
+  #|     card.id = "moonapLargeFileProgress";
+  #|     card.className = "large-file-progress";
+  #|     card.setAttribute("aria-live", "polite");
+  #|     card.innerHTML = `
+  #|       <div class="large-file-progress-head">
+  #|         <strong id="largeFileProgressTitle">Large file operation</strong>
+  #|         <span id="largeFileProgressPct">0%</span>
+  #|       </div>
+  #|       <div class="large-file-progress-track"><div id="largeFileProgressFill"></div></div>
+  #|       <div id="largeFileProgressDetail" class="large-file-progress-detail">Preparing...</div>
+  #|     `;
+  #|     document.body.append(card);
+  #|     return card;
+  #|   };
+  #|   const update = (data) => {
+  #|     const payload = data && typeof data === "object" ? data : {};
+  #|     const card = ensure();
+  #|     const progress = Math.max(0, Math.min(100, Number(payload.progress_percent ?? 0)));
+  #|     const isGeneration = String(payload.result_kind || "") === "streamed-file" || String(payload.status || "").includes("write");
+  #|     const title = payload.title || (isGeneration ? "Writing large file locally" : "Reading large file locally");
+  #|     const processed = Number(payload.bytes_processed ?? payload.bytes_written ?? payload.file_size_bytes ?? 0);
+  #|     const target = Number(payload.target_bytes ?? payload.file_size_bytes ?? 0);
+  #|     const chunks = Number(payload.chunk_count || 0);
+  #|     const reads = Number(payload.reads_seen ?? payload.line_count ?? 0);
+  #|     const details = [
+  #|       payload.file_name ? `File: ${String(payload.file_name)}` : "",
+  #|       target > 0 ? `${formatBytes(processed)} / ${formatBytes(target)}` : formatBytes(processed),
+  #|       chunks > 0 ? `${chunks} chunk(s)` : "",
+  #|       reads > 0 ? `${reads} record/line(s)` : "",
+  #|       payload.llm_receives_file_contents === false ? "File contents stay in this browser." : ""
+  #|     ].filter(Boolean).join(" | ");
+  #|     card.querySelector("#largeFileProgressTitle").textContent = String(title);
+  #|     card.querySelector("#largeFileProgressPct").textContent = `${Math.floor(progress)}%`;
+  #|     card.querySelector("#largeFileProgressFill").style.width = `${progress}%`;
+  #|     card.querySelector("#largeFileProgressDetail").textContent = details || String(payload.status || "Working...");
+  #|     card.classList.add("is-open");
+  #|     card.classList.toggle("is-complete", progress >= 100 || String(payload.status || "") === "runtime-succeeded");
+  #|     if (card.__moonapTimer) clearTimeout(card.__moonapTimer);
+  #|     if (progress >= 100 || String(payload.status || "") === "runtime-succeeded") {
+  #|       card.__moonapTimer = setTimeout(() => card.classList.remove("is-open", "is-complete"), 7000);
+  #|     }
+  #|   };
+  #|   const error = (message) => {
+  #|     const card = ensure();
+  #|     card.querySelector("#largeFileProgressTitle").textContent = "Large file operation failed";
+  #|     card.querySelector("#largeFileProgressPct").textContent = "failed";
+  #|     card.querySelector("#largeFileProgressFill").style.width = "100%";
+  #|     card.querySelector("#largeFileProgressDetail").textContent = String(message || "Unknown error");
+  #|     card.classList.add("is-open", "is-error");
+  #|   };
+  #|   globalThis.__moonapLargeFileProgressRuntime = { update, error };
+  #| }
+
+///|
+#cfg(target="js")
 extern "js" fn browser_ensure_runtime_profile_runtime() -> Unit =
   #| () => {
   #|   if (globalThis.__moonapRuntimeProfileRuntime) return;
@@ -312,7 +398,7 @@ extern "js" fn browser_ensure_runtime_profile_runtime() -> Unit =
   #|     "large-file-generation": {
   #|       id: "large-file-generation",
   #|       label: "Large-file generation",
-  #|       description: "Browser-local streamed output with save picker, output name, target size, and line template controls.",
+  #|       description: "Browser-local streamed FastQ output with save picker, target size, read length, header prefix, seed, N rate, and quality controls.",
   #|       task_kind: "large-file-generation",
   #|       runtime_mode: "form",
   #|       result_mode: "download",
@@ -332,10 +418,13 @@ extern "js" fn browser_ensure_runtime_profile_runtime() -> Unit =
   #|           save_picker_required: true
   #|         },
   #|         fields: [
-  #|           { name: "output_name", label: "Output name", type: "text", default: "moonap-large-output.txt" },
+  #|           { name: "output_name", label: "Output FastQ file name", type: "text", default: "moonap-output.fastq" },
   #|           { name: "target_size_mb", label: "Target size in MB", type: "int", default: 128, min: 1, max: 1024, step: 1 },
-  #|           { name: "line_template", label: "Line template", type: "text", default: "moonap-line-{index}" },
-  #|           { name: "line_length", label: "Line length", type: "int", default: 120, min: 8, max: 4096, step: 1 }
+  #|           { name: "read_length", label: "Read length", type: "int", default: 150, min: 20, max: 20000, step: 1 },
+  #|           { name: "read_header_prefix", label: "Read header prefix", type: "text", default: "moonap_read" },
+  #|           { name: "random_seed", label: "Random seed", type: "int", default: 42, min: 0, max: 2147483647, step: 1 },
+  #|           { name: "n_rate", label: "N base rate", type: "float", default: 0.01, min: 0, max: 1, step: 0.001 },
+  #|           { name: "quality_char", label: "Quality character", type: "text", default: "I" }
   #|         ]
   #|       }
   #|     },
@@ -592,6 +681,7 @@ extern "js" fn browser_record_demo_runtime_result(
   #|         const fill = document.querySelector("#progressFill");
   #|         const progress = Math.max(0, Math.min(100, Number(payload.progress_percent ?? 0)));
   #|         if (fill) fill.style.width = `${progress}%`;
+  #|         globalThis.__moonapLargeFileProgressRuntime?.update?.(payload);
   #|         setText("#resultStatus", payload.status || "running");
   #|         setText("#resultTitle",
   #|           String(payload.result_kind || "") === "streamed-file"
@@ -706,46 +796,54 @@ extern "js" fn browser_record_demo_runtime_result(
   #|         throw new Error("This browser does not support streamed save-file output yet.");
   #|       }
   #|       const encoder = new TextEncoder();
-  #|       const outputNameRaw = String(runtimeInputs.output_name || "moonap-large-output.txt").trim() || "moonap-large-output.txt";
-  #|       const outputName = outputNameRaw.replace(/[\\/:*?\"<>|]+/g, "_");
+  #|       const outputNameRaw = String(runtimeInputs.output_name || "moonap-output.fastq").trim() || "moonap-output.fastq";
+  #|       const fileNameRuntime = globalThis.__moonapFileNameRuntime;
+  #|       const outputName = fileNameRuntime?.sanitize(outputNameRaw, "moonap-output.fastq") || "moonap-output.fastq";
   #|       const targetSizeMb = Math.max(1, Math.min(1024, Number(runtimeInputs.target_size_mb) || 128));
   #|       const targetBytes = targetSizeMb * 1024 * 1024;
-  #|       const lineTemplate = String(runtimeInputs.line_template || "moonap-line-{index}");
-  #|       const lineLength = Math.max(8, Math.min(4096, Number(runtimeInputs.line_length) || 120));
+  #|       const readLength = Math.max(20, Math.min(20000, Number(runtimeInputs.read_length ?? runtimeInputs.line_length) || 150));
+  #|       const headerPrefixRaw = runtimeInputs.read_header_prefix || runtimeInputs.header_prefix || "moonap_read";
+  #|       const headerPrefix = fileNameRuntime?.sanitizeToken(headerPrefixRaw, "moonap_read") || "moonap_read";
+  #|       const nRate = Math.max(0, Math.min(1, Number(runtimeInputs.n_rate) || 0.01));
+  #|       const qualityChar = String(runtimeInputs.quality_char || "I").slice(0, 1) || "I";
+  #|       let seed = Math.max(0, Math.floor(Number(runtimeInputs.random_seed) || 42)) >>> 0;
+  #|       const bases = ["A", "C", "G", "T"];
+  #|       const rand = () => {
+  #|         seed = (seed * 1664525 + 1013904223) >>> 0;
+  #|         return seed / 4294967296;
+  #|       };
   #|       const fileHandle = await window.showSaveFilePicker({
   #|         suggestedName: outputName,
-  #|         types: [{ description: "Text files", accept: { "text/plain": [".txt", ".log", ".csv", ".tsv", ".jsonl"] } }]
+  #|         types: [{ description: "FastQ files", accept: { "text/plain": [".fastq", ".fq", ".txt"] } }]
   #|       });
   #|       const writable = await fileHandle.createWritable();
   #|       let bytesWritten = 0;
-  #|       let lineIndex = 0;
+  #|       let readIndex = 0;
   #|       let chunkCount = 0;
   #|       const started = performance.now();
-  #|       const materializeLine = (index) => {
-  #|         const raw = lineTemplate.replace(/\{index\}/g, String(index));
-  #|         const body = raw.length >= lineLength - 1
-  #|           ? raw.slice(0, Math.max(1, lineLength - 1))
-  #|           : raw + " ".repeat(Math.max(0, lineLength - 1 - raw.length));
-  #|         return `${body}\n`;
+  #|       const materializeRecord = (index) => {
+  #|         let seq = "";
+  #|         for (let i = 0; i < readLength; i += 1) {
+  #|           seq += rand() < nRate ? "N" : bases[Math.floor(rand() * bases.length)];
+  #|         }
+  #|         return `@${headerPrefix}_${index}\n${seq}\n+\n${qualityChar.repeat(readLength)}\n`;
   #|       };
   #|       while (bytesWritten < targetBytes) {
-  #|         const lines = [];
+  #|         const records = [];
   #|         let chunkBytes = 0;
   #|         while (chunkBytes < chunkSize && bytesWritten + chunkBytes < targetBytes) {
-  #|           const line = materializeLine(lineIndex);
-  #|           const bytes = encoder.encode(line);
+  #|           const record = materializeRecord(readIndex);
+  #|           const bytes = encoder.encode(record);
   #|           const remaining = targetBytes - bytesWritten - chunkBytes;
   #|           if (bytes.length > remaining) {
-  #|             const prefix = line.slice(0, Math.max(0, remaining));
-  #|             lines.push(prefix);
-  #|             chunkBytes += encoder.encode(prefix).length;
   #|             break;
   #|           }
-  #|           lines.push(line);
+  #|           records.push(record);
   #|           chunkBytes += bytes.length;
-  #|           lineIndex += 1;
+  #|           readIndex += 1;
   #|         }
-  #|         const chunkText = lines.join("");
+  #|         if (records.length === 0) break;
+  #|         const chunkText = records.join("");
   #|         await writable.write(chunkText);
   #|         bytesWritten += encoder.encode(chunkText).length;
   #|         chunkCount += 1;
@@ -757,8 +855,10 @@ extern "js" fn browser_record_demo_runtime_result(
   #|           chunk_count: chunkCount,
   #|           bytes_written: bytesWritten,
   #|           bytes_processed: bytesWritten,
+  #|           target_bytes: targetBytes,
   #|           progress_percent: targetBytes === 0 ? 100 : Math.floor((bytesWritten / targetBytes) * 100),
-  #|           total_characters: bytesWritten
+  #|           total_characters: bytesWritten,
+  #|           reads_seen: readIndex
   #|         });
   #|         await new Promise((resolve) => setTimeout(resolve, 0));
   #|       }
@@ -773,8 +873,11 @@ extern "js" fn browser_record_demo_runtime_result(
   #|         `chunk_size_bytes: ${chunkSize}`,
   #|         `chunk_count: ${chunkCount}`,
   #|         `elapsed_ms: ${elapsedMs}`,
-  #|         `line_template: ${lineTemplate}`,
-  #|         `line_length: ${lineLength}`
+  #|         `fastq_reads_written: ${readIndex}`,
+  #|         `read_length: ${readLength}`,
+  #|         `read_header_prefix: ${headerPrefix}`,
+  #|         `n_rate: ${nRate}`,
+  #|         `quality_char: ${qualityChar}`
   #|       ].join("\n");
   #|       return {
   #|         run_id: String(runtimeRequest.run_id || ""),
@@ -782,7 +885,7 @@ extern "js" fn browser_record_demo_runtime_result(
   #|         status: "runtime-succeeded",
   #|         result_kind: "streamed-file",
   #|         runtime_inputs: runtimeInputs,
-  #|         summary: `Generated ${outputName} locally with browser streaming output.`,
+  #|         summary: `Generated ${outputName} locally with browser streaming output (${readIndex} FastQ reads).`,
   #|         display_text: displayText,
   #|         stdout_text: `Browser-local streamed generation completed for ${requestId}.`,
   #|         download_name: "",
@@ -790,6 +893,7 @@ extern "js" fn browser_record_demo_runtime_result(
   #|         file_name: outputName,
   #|         bytes_written: bytesWritten,
   #|         bytes_processed: bytesWritten,
+  #|         reads_seen: readIndex,
   #|         chunk_size_bytes: chunkSize,
   #|         chunk_count: chunkCount,
   #|         progress_percent: 100,
@@ -899,8 +1003,12 @@ extern "js" fn browser_record_demo_runtime_result(
   #|     });
   #|     const text = await response.text();
   #|     if (!response.ok) throw new Error(text || `Runtime execute failed (${response.status})`);
+  #|     if (payload && (taskKind === "large-file-analysis" || taskKind === "large-file-generation")) {
+  #|       globalThis.__moonapLargeFileProgressRuntime?.update?.({ ...payload, progress_percent: 100, status: "runtime-succeeded" });
+  #|     }
   #|     onDone(String(text));
   #|   } catch (error) {
+  #|     globalThis.__moonapLargeFileProgressRuntime?.error?.(error instanceof Error ? error.message : String(error));
   #|     onError(error instanceof Error ? error.message : String(error));
   #|   }
   #| }
@@ -920,11 +1028,13 @@ extern "js" fn browser_register_runtime_ready(
   #|     if (!compileReport || typeof compileReport !== "object" || compileReport.ok !== true) {
   #|       throw new Error("MoonAP runtime registration requires a successful compile report.");
   #|     }
-  #|     const requestStage = artifact?.quality_assessment_used
-  #|       ? "quality-repair"
-  #|       : artifact?.compile_summary_used
-  #|         ? "compile-repair"
-  #|         : "browser-direct";
+  #|     const requestStage = artifact?.moonap_adaptation_used
+  #|       ? "moonap-adaptation"
+  #|       : artifact?.quality_assessment_used
+  #|         ? "quality-repair"
+  #|         : artifact?.compile_summary_used
+  #|           ? "compile-repair"
+  #|           : "browser-direct";
   #|     const envelope = [
   #|       `TASK_TITLE\t${String(artifact?.name || "MoonBit task")}`,
   #|       `ORIGINAL_PROMPT\t${String(artifact?.prompt || "")}`,
@@ -1391,6 +1501,203 @@ extern "js" fn browser_compile_last_artifact(
 
 ///|
 #cfg(target="js")
+extern "js" fn browser_should_adapt_last_artifact_for_large_file_runtime() -> Bool =
+  #| () => {
+  #|   const artifact = globalThis.__moonapLastArtifact;
+  #|   if (!artifact || typeof artifact !== "object") return false;
+  #|   if (artifact.moonap_adaptation_used) return false;
+  #|   const source = String(artifact?.moonbit_source || "");
+  #|   if (!source.trim()) return false;
+  #|   const text = `${String(artifact?.prompt || "")}\n${source}`.toLowerCase();
+  #|   const wantsLarge = text.includes("large file") || text.includes("large-file") || text.includes("1gb") || text.includes("streamed") || text.includes("streaming") || text.includes("chunk");
+  #|   const wantsGeneration = text.includes("generate") || text.includes("generator") || text.includes("output") || text.includes("write") || text.includes("writing") || text.includes("save");
+  #|   const wantsAnalysis = text.includes("analy") || text.includes("count") || text.includes("scan") || text.includes("parse") || text.includes("report");
+  #|   return wantsLarge && (wantsGeneration || wantsAnalysis);
+  #| }
+
+///|
+#cfg(target="js")
+extern "js" fn browser_adapt_last_artifact_for_large_file_runtime(
+  on_done : (String) -> Unit,
+  on_error : (String) -> Unit,
+) -> Unit =
+  #| async (onDone, onError) => {
+  #|   try {
+  #|     const artifact = globalThis.__moonapLastArtifact;
+  #|     const source = String(artifact?.moonbit_source || "");
+  #|     if (!source.trim()) throw new Error("No compiled MoonBit source is available for MoonAP runtime adaptation.");
+  #|     if (artifact?.moonap_adaptation_used) throw new Error("MoonAP runtime adaptation has already been applied.");
+  #|     const prompt = String(artifact?.prompt || "");
+  #|     const lower = `${prompt}\n${source}`.toLowerCase();
+  #|     const wantsGeneration = lower.includes("generate") || lower.includes("generator") || lower.includes("output") || lower.includes("write") || lower.includes("writing") || lower.includes("save");
+  #|     const adapterKind = wantsGeneration ? "large-file-generation" : "large-file-analysis";
+  #|     const saved = (() => {
+  #|       try {
+  #|         const parsed = JSON.parse(localStorage.getItem("moonap.llm.router.v1") || "{}");
+  #|         return parsed && typeof parsed === "object" ? parsed : {};
+  #|       } catch {
+  #|         return {};
+  #|       }
+  #|     })();
+  #|     const providers = Array.isArray(saved.providers)
+  #|       ? saved.providers.filter((item) => item.enabled && String(item.apiKey || "").trim() !== "" && String(item.test_status || "") !== "failed")
+  #|       : [];
+  #|     if (providers.length === 0) throw new Error("No enabled LLM provider is available for MoonAP runtime adaptation.");
+  #|     const cursor = Number.isFinite(saved.cursor) ? saved.cursor : 0;
+  #|     const start = ((cursor % providers.length) + providers.length) % providers.length;
+  #|     const ordered = providers.slice(start).concat(providers.slice(0, start));
+  #|     const setText = (selector, value) => {
+  #|       const node = document.querySelector(selector);
+  #|       if (node) node.textContent = String(value || "");
+  #|     };
+  #|     const extractSource = typeof globalThis.__moonapExtractMoonBitSource === "function"
+  #|       ? globalThis.__moonapExtractMoonBitSource
+  #|       : (value) => String(value || "");
+  #|     const systemPrompt = [
+  #|       "You are an AI coder.",
+  #|       "You only write MoonBit code.",
+  #|       "Adapt already-compiling MoonBit business code to the MoonAP large-file runtime contract.",
+  #|       "Return only the full contents of cmd/main/main.mbt."
+  #|     ].join("\n");
+  #|     const generationContract = [
+  #|       "Required adapter functions:",
+  #|       "- fn moonap_runtime_spec() -> String",
+  #|       "- fn moonap_preview(params_json : String) -> String",
+  #|       "- fn moonap_generate_chunk(params_json : String, start_index : Int, max_bytes : Int) -> String",
+  #|       "",
+  #|       "moonap_runtime_spec() returns JSON text with profile_id=large-file-generation.",
+  #|       "Use platform fields output_name, target_size_mb, chunk_size_bytes.",
+  #|       "Add app fields useful for the business logic, such as read_length, header_prefix, line_template, random_seed, n_rate, or quality_char.",
+  #|       "moonap_generate_chunk should return a chunk of generated text using start_index as the record or line index."
+  #|     ].join("\n");
+  #|     const analysisContract = [
+  #|       "Required adapter functions:",
+  #|       "- fn moonap_runtime_spec() -> String",
+  #|       "- fn moonap_init(params_json : String) -> String",
+  #|       "- fn moonap_analyze_chunk(state_json : String, chunk_text : String) -> String",
+  #|       "- fn moonap_finish(state_json : String) -> String",
+  #|       "",
+  #|       "moonap_runtime_spec() returns JSON text with profile_id=large-file-analysis.",
+  #|       "Use platform fields input_file, chunk_size_bytes, max_preview_lines.",
+  #|       "Add app fields useful for the business logic, such as search_text, min_quality, target_base, or count options."
+  #|     ].join("\n");
+  #|     const userPrompt = [
+  #|       "Original user task:",
+  #|       prompt,
+  #|       "",
+  #|       "MoonAP adaptation target:",
+  #|       adapterKind,
+  #|       "",
+  #|       "Keep existing business functions. Do not rewrite from scratch. Do not use imports. Keep the adapted file compilable.",
+  #|       adapterKind === "large-file-generation" ? generationContract : analysisContract,
+  #|       "",
+  #|       "Already compiling MoonBit source:",
+  #|       "```moonbit",
+  #|       source,
+  #|       "```"
+  #|     ].join("\n");
+  #|     setText("#promptMode", "moonap-adaptation / frontier-direct");
+  #|     setText("#promptSystem", systemPrompt);
+  #|     setText("#promptUser", userPrompt);
+  #|     const proxyPost = async (url, headers, body) => {
+  #|       const envelope = [
+  #|         `URL\t${String(url)}`,
+  #|         ...Object.entries(headers || {}).map(([key, value]) => `HEADER\t${String(key)}\t${String(value).replace(/\r?\n/g, " ")}`),
+  #|         "BODY",
+  #|         String(body)
+  #|       ].join("\n");
+  #|       const response = await fetch("/api/llm/proxy", {
+  #|         method: "POST",
+  #|         headers: { "Content-Type": "text/plain; charset=utf-8" },
+  #|         body: envelope
+  #|       });
+  #|       const text = await response.text();
+  #|       let json = {};
+  #|       try {
+  #|         json = JSON.parse(text);
+  #|       } catch {
+  #|         throw new Error(`Provider returned non-JSON (${response.status}): ${String(text || "").slice(0, 240)}`);
+  #|       }
+  #|       if (!response.ok) throw new Error(`Provider/proxy error (${response.status}): ${JSON.stringify(json).slice(0, 500)}`);
+  #|       return json;
+  #|     };
+  #|     const requestJson = async (item) => {
+  #|       if (String(item.key || "") === "gemini") throw new Error("Gemini adaptation path is not enabled in the minimal implementation yet.");
+  #|       const rawBaseUrl = String(item.baseUrl || "").trim();
+  #|       const baseUrl = rawBaseUrl.endsWith("/") ? rawBaseUrl.slice(0, -1) : rawBaseUrl;
+  #|       let url = `${baseUrl}/chat/completions`;
+  #|       if (String(item.key || "") === "zai") {
+  #|         if (baseUrl.endsWith("/chat/completions")) {
+  #|           url = baseUrl;
+  #|         } else if (baseUrl === "https://open.bigmodel.cn" || baseUrl === "https://open.bigmodel.cn/") {
+  #|           url = "https://open.bigmodel.cn/api/paas/v4/chat/completions";
+  #|         } else if (!baseUrl.includes("/api/paas/v4")) {
+  #|           url = `${baseUrl}/api/paas/v4/chat/completions`;
+  #|         }
+  #|       }
+  #|       const headers = {
+  #|         "Content-Type": "application/json",
+  #|         "Authorization": `Bearer ${String(item.apiKey || "")}`
+  #|       };
+  #|       if (String(item.key || "") === "openrouter") {
+  #|         headers["HTTP-Referer"] = "http://127.0.0.1:3000";
+  #|         headers["X-Title"] = "MoonAP";
+  #|       }
+  #|       return await proxyPost(url, headers, JSON.stringify({
+  #|         model: item.model,
+  #|         messages: [
+  #|           { role: "system", content: systemPrompt },
+  #|           { role: "user", content: userPrompt }
+  #|         ],
+  #|         temperature: 0.1
+  #|       }));
+  #|     };
+  #|     let adapted = null;
+  #|     let selected = null;
+  #|     const failures = [];
+  #|     for (let index = 0; index < ordered.length; index += 1) {
+  #|       const item = ordered[index];
+  #|       try {
+  #|         const json = await requestJson(item);
+  #|         const text = String(json?.choices?.[0]?.message?.content || "").trim();
+  #|         if (!text) throw new Error(`${String(item.key || "provider")} returned no adapted MoonBit source.`);
+  #|         adapted = { source: text, raw: json };
+  #|         selected = item;
+  #|         const nextCursor = (start + index + 1) % providers.length;
+  #|         localStorage.setItem("moonap.llm.router.v1", JSON.stringify({
+  #|           providers: Array.isArray(saved.providers) ? saved.providers : providers,
+  #|           cursor: nextCursor,
+  #|           savedAt: saved.savedAt || new Date().toISOString()
+  #|         }));
+  #|         break;
+  #|       } catch (error) {
+  #|         failures.push(`${String(item.key || "provider")}/${String(item.model || "model")}: ${error instanceof Error ? error.message : String(error)}`);
+  #|       }
+  #|     }
+  #|     if (!adapted || !selected) throw new Error(`All enabled providers failed during MoonAP runtime adaptation. ${failures.join(" | ")}`);
+  #|     const cleaned = extractSource(String(adapted.source || ""));
+  #|     const nextArtifact = {
+  #|       ...(artifact || {}),
+  #|       moonbit_source: cleaned,
+  #|       llm_provider: String(selected.key || "unknown"),
+  #|       llm_model: String(selected.model || "unknown"),
+  #|       moonap_adaptation_used: {
+  #|         adapter_kind: adapterKind,
+  #|         provider: String(selected.key || "unknown"),
+  #|         model: String(selected.model || "unknown")
+  #|       },
+  #|       llm_response_preview: JSON.stringify(adapted.raw).slice(0, 1200),
+  #|       created_at: new Date().toISOString()
+  #|     };
+  #|     globalThis.__moonapLastArtifact = nextArtifact;
+  #|     onDone(JSON.stringify(nextArtifact, null, 2));
+  #|   } catch (error) {
+  #|     onError(error instanceof Error ? error.message : String(error));
+  #|   }
+  #| }
+
+///|
+#cfg(target="js")
 extern "js" fn browser_repair_last_artifact_with_compile_summary(
   formal_verification : Bool,
   knowledge_pack : String,
@@ -1755,6 +2062,7 @@ extern "js" fn browser_watch_runtime_protocol(
 extern "js" fn browser_ensure_virtual_path_runtime() -> Unit =
   #| () => {
   #|   if (globalThis.__moonapVirtualPathRuntime) return;
+  #|   // This normalizes MoonAP virtual archive paths, not host OS paths.
   #|   const normalize = (value) => String(value == null ? "" : value)
   #|     .trim()
   #|     .replace(/\\/g, "/")
@@ -1767,6 +2075,32 @@ extern "js" fn browser_ensure_virtual_path_runtime() -> Unit =
   #|     return parts.length === 0 ? "" : String(parts[parts.length - 1] || "");
   #|   };
   #|   globalThis.__moonapVirtualPathRuntime = { normalize, split, lastSegment };
+  #| }
+
+///|
+#cfg(target="js")
+extern "js" fn browser_ensure_file_name_runtime() -> Unit =
+  #| () => {
+  #|   if (globalThis.__moonapFileNameRuntime) return;
+  #|   const coerceFallback = (fallback) => String(fallback || "moonap-output.fastq");
+  #|   const sanitize = (value, fallback = "moonap-output.fastq") => {
+  #|     const base = String(value == null ? "" : value).trim() || coerceFallback(fallback);
+  #|     const cleaned = base
+  #|       .replace(/[\u0000-\u001f]/g, "_")
+  #|       .replace(/[\\/:*?"<>|]+/g, "_")
+  #|       .replace(/\s+/g, " ")
+  #|       .trim()
+  #|       .replace(/[. ]+$/g, "");
+  #|     return cleaned || coerceFallback(fallback);
+  #|   };
+  #|   const sanitizeToken = (value, fallback = "moonap_read") => {
+  #|     const cleaned = String(value == null ? "" : value)
+  #|       .trim()
+  #|       .replace(/[^A-Za-z0-9_.:-]+/g, "_")
+  #|       .replace(/^_+|_+$/g, "");
+  #|     return cleaned || String(fallback || "moonap_read");
+  #|   };
+  #|   globalThis.__moonapFileNameRuntime = { sanitize, sanitizeToken };
   #| }
 
 ///|
@@ -2769,7 +3103,11 @@ extern "js" fn browser_open_skill_dialog(skill_id : String) -> Unit =
   #|         <div class="dialog-head"><span id="dialogScope">SKILL</span><strong id="dialogTitle">Configure SKILL</strong></div>
   #|         <p id="dialogSummary" class="dialog-summary"></p>
   #|         <div id="dialogFields" class="dialog-fields"></div>
-  #|         <div class="dialog-actions"><button id="dialogCancel" class="dialog-button" type="button">Cancel</button><button id="dialogOpenSource" class="dialog-button secondary" type="button">View on GitHub</button><button id="dialogRun" class="dialog-button primary" type="button">Run</button></div>
+  #|         <div id="dialogOutputTarget" class="dialog-output-target" style="display:none;">
+  #|           <button id="dialogChooseOutput" class="dialog-button secondary" type="button">Choose output file/location</button>
+  #|           <span id="dialogOutputStatus">No output file selected yet.</span>
+  #|         </div>
+  #|         <div class="dialog-actions"><button id="dialogCancel" class="dialog-button" type="button">Cancel</button><button id="dialogOpenSource" class="dialog-button secondary" type="button" style="display:none;">View on GitHub</button><button id="dialogRun" class="dialog-button primary" type="button">Run</button></div>
   #|       </form>`;
   #|     document.body.append(dialog);
   #|   }
@@ -2778,9 +3116,14 @@ extern "js" fn browser_open_skill_dialog(skill_id : String) -> Unit =
   #|   const summary = document.querySelector("#dialogSummary");
   #|   const fields = document.querySelector("#dialogFields");
   #|   const runButton = document.querySelector("#dialogRun");
+  #|   const outputTarget = document.querySelector("#dialogOutputTarget");
+  #|   const outputStatus = document.querySelector("#dialogOutputStatus");
+  #|   const chooseOutput = document.querySelector("#dialogChooseOutput");
+  #|   const openSourceButton = document.querySelector("#dialogOpenSource");
   #|   const set = (node, value) => { if (node) node.textContent = String(value); };
   #|   if (!dialog || !fields) return;
   #|   fields.innerHTML = "";
+  #|   dialog.__moonapOutputFileHandle = null;
   #|   dialog.dataset.skillId = String(skillId);
   #|   dialog.dataset.taskKind = "";
   #|   dialog.dataset.skillSource = "";
@@ -2788,6 +3131,9 @@ extern "js" fn browser_open_skill_dialog(skill_id : String) -> Unit =
   #|   dialog.dataset.downloadUrl = "";
   #|   dialog.dataset.folderPath = "";
   #|   if (runButton) runButton.textContent = "Run";
+  #|   if (openSourceButton) openSourceButton.style.display = "none";
+  #|   if (outputTarget) outputTarget.style.display = "none";
+  #|   set(outputStatus, "No output file selected yet.");
   #|   const addField = (id, label, value, mode = "numeric", fieldName = "") => {
   #|     const item = document.createElement("label");
   #|     item.textContent = label;
@@ -2837,6 +3183,9 @@ extern "js" fn browser_open_skill_dialog(skill_id : String) -> Unit =
   #|       addField(mapFieldId(name), labelText, defaultValue, inputMode, name);
   #|     }
   #|     dialog.dataset.skillSource = "personal";
+  #|     if (String(loadedPersonal.task_kind || "") === "large-file-generation" && outputTarget) {
+  #|       outputTarget.style.display = "";
+  #|     }
   #|   } else if (loadedHubSkill && typeof loadedHubSkill === "object") {
   #|     const runtimeSpec = loadedHubSkill.runtime_spec && typeof loadedHubSkill.runtime_spec === "object"
   #|       ? loadedHubSkill.runtime_spec
@@ -2858,7 +3207,9 @@ extern "js" fn browser_open_skill_dialog(skill_id : String) -> Unit =
   #|       : String(loadedHubSkill.description || "MoonAP SKILL entry."));
   #|     dialog.dataset.taskKind = String(loadedHubSkill.task_kind || "");
   #|     dialog.dataset.skillSource = sourceKind;
-  #|     dialog.dataset.externalUrl = String(loadedHubSkill.external_url || loadedHubSkill.folder_url || loadedHubSkill.repository_url || "");
+  #|     const externalUrl = String(loadedHubSkill.external_url || loadedHubSkill.folder_url || loadedHubSkill.repository_url || "");
+  #|     dialog.dataset.externalUrl = externalUrl;
+  #|     if (openSourceButton && externalUrl) openSourceButton.style.display = "";
   #|     dialog.dataset.downloadUrl = String(loadedHubSkill.download_url || "");
   #|     dialog.dataset.folderPath = pathText;
   #|     for (const field of runtimeFields) {
@@ -2872,6 +3223,9 @@ extern "js" fn browser_open_skill_dialog(skill_id : String) -> Unit =
   #|           ? "text"
   #|           : "numeric";
   #|       addField(name, labelText, defaultValue, inputMode, name);
+  #|     }
+  #|     if (String(loadedHubSkill.task_kind || "") === "large-file-generation" && outputTarget) {
+  #|       outputTarget.style.display = "";
   #|     }
   #|     if (runButton) {
   #|       runButton.textContent = sourceKind === "cloud" ? "Install to Local SKILL Hub" : "Run";
@@ -2917,6 +3271,30 @@ extern "js" fn browser_open_skill_dialog(skill_id : String) -> Unit =
   #|     set(title, skillId.includes("gomoku") ? "Gomoku" : "Excel Max Amount Row");
   #|     set(summary, "This SKILL is registered in MoonAP-SKILL-Hub. Full execution UI will follow the FastQ MVP.");
   #|   }
+  #|   if (chooseOutput) {
+  #|     chooseOutput.onclick = async (event) => {
+  #|       event.preventDefault();
+  #|       event.stopPropagation();
+  #|       try {
+  #|         if (typeof window.showSaveFilePicker !== "function") {
+  #|           throw new Error("This browser does not support selecting a streamed output file yet.");
+  #|         }
+  #|         const fileNameRuntime = globalThis.__moonapFileNameRuntime;
+  #|         const outputInput = dialog.querySelector(`[data-param-name="output_name"]`);
+  #|         const outputNameRaw = String(outputInput?.value || "moonap-output.fastq").trim() || "moonap-output.fastq";
+  #|         const outputName = fileNameRuntime?.sanitize(outputNameRaw, "moonap-output.fastq") || "moonap-output.fastq";
+  #|         const handle = await window.showSaveFilePicker({
+  #|           suggestedName: outputName,
+  #|           types: [{ description: "FastQ files", accept: { "text/plain": [".fastq", ".fq", ".txt"] } }]
+  #|         });
+  #|         dialog.__moonapOutputFileHandle = handle;
+  #|         if (outputInput) outputInput.value = String(handle?.name || outputName);
+  #|         set(outputStatus, `Selected: ${String(handle?.name || outputName)}`);
+  #|       } catch (error) {
+  #|         set(outputStatus, `Output file not selected: ${error instanceof Error ? error.message : String(error)}`);
+  #|       }
+  #|     };
+  #|   }
   #|   dialog.showModal();
   #| }
 
@@ -2961,6 +3339,136 @@ extern "js" fn browser_dialog_skill_task_kind() -> String =
 #cfg(target="js")
 extern "js" fn browser_dialog_skill_source() -> String =
   #| () => String(document.querySelector("#skillDialog")?.dataset?.skillSource || "")
+
+///|
+#cfg(target="js")
+extern "js" fn browser_run_dialog_large_file_generation(
+  on_done : (String) -> Unit,
+  on_error : (String) -> Unit,
+) -> Unit =
+  #| async (onDone, onError) => {
+  #|   try {
+  #|     const dialog = document.querySelector("#skillDialog");
+  #|     if (!dialog) throw new Error("No SKILL dialog is open.");
+  #|     const readParam = (name, fallback = "") => {
+  #|       const node = dialog.querySelector(`[data-param-name="${String(name)}"]`);
+  #|       return node ? String(node.value ?? fallback) : String(fallback);
+  #|     };
+  #|     const fileNameRuntime = globalThis.__moonapFileNameRuntime;
+  #|     const outputNameRaw = readParam("output_name", "moonap-output.fastq").trim() || "moonap-output.fastq";
+  #|     let outputName = fileNameRuntime?.sanitize(outputNameRaw, "moonap-output.fastq") || "moonap-output.fastq";
+  #|     const targetSizeMb = Math.max(1, Math.min(1024, Number.parseInt(readParam("target_size_mb", "128"), 10) || 128));
+  #|     const readLength = Math.max(20, Math.min(20000, Number.parseInt(readParam("read_length", "150"), 10) || 150));
+  #|     const headerPrefix = fileNameRuntime?.sanitizeToken(readParam("read_header_prefix", "moonap_read"), "moonap_read") || "moonap_read";
+  #|     const nRate = Math.max(0, Math.min(1, Number.parseFloat(readParam("n_rate", "0.01")) || 0.01));
+  #|     const qualityChar = readParam("quality_char", "I").slice(0, 1) || "I";
+  #|     let seed = Math.max(0, Number.parseInt(readParam("random_seed", "42"), 10) || 42) >>> 0;
+  #|     if (typeof window.showSaveFilePicker !== "function") {
+  #|       throw new Error("This browser does not support streamed save-file output yet.");
+  #|     }
+  #|     const selectedFileHandle = dialog.__moonapOutputFileHandle || null;
+  #|     dialog.close();
+  #|     const fileHandle = selectedFileHandle || await window.showSaveFilePicker({
+  #|       suggestedName: outputName,
+  #|       types: [{ description: "FastQ files", accept: { "text/plain": [".fastq", ".fq", ".txt"] } }]
+  #|     });
+  #|     outputName = String(fileHandle?.name || outputName);
+  #|     const writable = await fileHandle.createWritable();
+  #|     const encoder = new TextEncoder();
+  #|     const chunkSize = 4 * 1024 * 1024;
+  #|     const targetBytes = targetSizeMb * 1024 * 1024;
+  #|     const bases = ["A", "C", "G", "T"];
+  #|     const rand = () => {
+  #|       seed = (seed * 1664525 + 1013904223) >>> 0;
+  #|       return seed / 4294967296;
+  #|     };
+  #|     const materializeRecord = (index) => {
+  #|       let seq = "";
+  #|       for (let i = 0; i < readLength; i += 1) {
+  #|         seq += rand() < nRate ? "N" : bases[Math.floor(rand() * bases.length)];
+  #|       }
+  #|       return `@${headerPrefix}_${index}\n${seq}\n+\n${qualityChar.repeat(readLength)}\n`;
+  #|     };
+  #|     const started = performance.now();
+  #|     let bytesWritten = 0;
+  #|     let readIndex = 0;
+  #|     let chunkCount = 0;
+  #|     const setText = (selector, value) => {
+  #|       const node = document.querySelector(selector);
+  #|       if (node) node.textContent = String(value ?? "");
+  #|     };
+  #|     const emitState = (status) => {
+  #|       const progress = targetBytes === 0 ? 100 : Math.min(100, Math.floor((bytesWritten / targetBytes) * 100));
+  #|       const payload = {
+  #|         status,
+  #|         result_kind: "streamed-file",
+  #|         file_name: outputName,
+  #|         target_size_mb: targetSizeMb,
+  #|         bytes_written: bytesWritten,
+  #|         bytes_processed: bytesWritten,
+  #|         target_bytes: targetBytes,
+  #|         reads_seen: readIndex,
+  #|         chunk_count: chunkCount,
+  #|         progress_percent: progress,
+  #|         llm_receives_file_contents: false
+  #|       };
+  #|       setText("#state", JSON.stringify(payload, null, 2));
+  #|       setText("#processProvider", "Personal SKILL");
+  #|       setText("#processStage", "skill-runtime");
+  #|       setText("#processResult", status === "runtime-succeeded" ? "succeeded" : "running");
+  #|       setText("#processLog", status === "runtime-succeeded"
+  #|         ? `Generated ${outputName} with ${readIndex} FastQ reads.`
+  #|         : `Writing ${outputName}: ${progress}%`);
+  #|       const panel = document.querySelector("#resultPanel");
+  #|       panel?.classList.add("is-open");
+  #|       setText("#resultStatus", status);
+  #|       setText("#resultTitle", "Browser-local large-file generation");
+  #|       setText("#metricFile", outputName);
+  #|       setText("#metricReads", String(readIndex));
+  #|       const fill = document.querySelector("#progressFill");
+  #|       if (fill) fill.style.width = `${progress}%`;
+  #|       globalThis.__moonapLargeFileProgressRuntime?.update?.(payload);
+  #|     };
+  #|     emitState("streaming-write");
+  #|     while (bytesWritten < targetBytes) {
+  #|       const records = [];
+  #|       let chunkBytes = 0;
+  #|       while (chunkBytes < chunkSize && bytesWritten + chunkBytes < targetBytes) {
+  #|         const record = materializeRecord(readIndex);
+  #|         const bytes = encoder.encode(record);
+  #|         if (bytes.length > targetBytes - bytesWritten - chunkBytes) break;
+  #|         records.push(record);
+  #|         chunkBytes += bytes.length;
+  #|         readIndex += 1;
+  #|       }
+  #|       if (records.length === 0) break;
+  #|       const chunkText = records.join("");
+  #|       await writable.write(chunkText);
+  #|       bytesWritten += encoder.encode(chunkText).length;
+  #|       chunkCount += 1;
+  #|       emitState("streaming-write");
+  #|       await new Promise((resolve) => setTimeout(resolve, 0));
+  #|     }
+  #|     await writable.close();
+  #|     const elapsedMs = Math.round(performance.now() - started);
+  #|     const result = {
+  #|       status: "runtime-succeeded",
+  #|       result_kind: "streamed-file",
+  #|       file_name: outputName,
+  #|       bytes_written: bytesWritten,
+  #|       reads_seen: readIndex,
+  #|       chunk_count: chunkCount,
+  #|       elapsed_ms: elapsedMs,
+  #|       llm_receives_file_contents: false,
+  #|       summary: `Generated ${outputName} locally with browser streaming output (${readIndex} FastQ reads).`
+  #|     };
+  #|     emitState("runtime-succeeded");
+  #|     onDone(JSON.stringify(result, null, 2));
+  #|   } catch (error) {
+  #|     globalThis.__moonapLargeFileProgressRuntime?.error?.(error instanceof Error ? error.message : String(error));
+  #|     onError(error instanceof Error ? error.message : String(error));
+  #|   }
+  #| }
 
 ///|
 #cfg(target="js")
@@ -5748,6 +6256,20 @@ fn execute_dialog_skill() -> Unit {
   let folder_path = browser_dialog_folder_path()
   browser_close_skill_dialog()
   if skill_id.contains("personal.") {
+    if personal_task_kind == "large-file-generation" {
+      browser_run_dialog_large_file_generation(
+        fn(result) {
+          browser_set_state(browser_pretty_json(result))
+          browser_show_toast(
+            "Personal SKILL generated the FastQ file with browser-local streaming.",
+          )
+        },
+        fn(error) {
+          show_error("Personal SKILL large-file generation failed", error)
+        },
+      )
+      return
+    }
     if personal_task_kind == "fastq-generator" {
       run_fastq_generator()
       return
@@ -5765,6 +6287,20 @@ fn execute_dialog_skill() -> Unit {
     return
   }
   if skill_source == "local" {
+    if personal_task_kind == "large-file-generation" {
+      browser_run_dialog_large_file_generation(
+        fn(result) {
+          browser_set_state(browser_pretty_json(result))
+          browser_show_toast(
+            "Local SKILL generated the FastQ file with browser-local streaming.",
+          )
+        },
+        fn(error) {
+          show_error("Local SKILL large-file generation failed", error)
+        },
+      )
+      return
+    }
     if personal_task_kind == "fastq-generator" {
       run_fastq_generator()
       return
@@ -6312,71 +6848,75 @@ fn run_compile_probe() -> Unit {
         },
       )
       if ok == "true" {
-        browser_register_runtime_ready(
-          fn(raw) { on_runtime_request_ready(raw) },
-          fn(error) {
-            browser_append_runtime_log(
-              "runtime-exec", "runtime-request-register-failed", error,
-            )
-          },
-        )
-        let benchmark_assessment = browser_assess_last_benchmark()
-        browser_append_runtime_log(
-          "benchmark", "benchmark-assessment", benchmark_assessment,
-        )
-        let benchmark_applicable = browser_artifact_field(
-          benchmark_assessment, "applicable",
-        )
-        browser_set_benchmark_assessment(benchmark_assessment)
-        if benchmark_applicable == "true" {
-          let benchmark_title = browser_artifact_field(
-            benchmark_assessment, "title",
-          )
-          let benchmark_summary = browser_artifact_field(
-            benchmark_assessment, "summary",
-          )
-          let benchmark_meta_json = browser_artifact_field(
-            benchmark_assessment, "meta_json",
-          )
-          let benchmark_pass = browser_artifact_field(
-            benchmark_assessment, "pass",
-          )
-          browser_update_process(
-            browser_llm_summary(),
-            "moonbit-benchmark-check",
-            if benchmark_pass == "true" {
-              "succeeded"
-            } else {
-              "failed"
+        if browser_should_adapt_last_artifact_for_large_file_runtime() {
+          run_moonap_runtime_adaptation()
+        } else {
+          browser_register_runtime_ready(
+            fn(raw) { on_runtime_request_ready(raw) },
+            fn(error) {
+              browser_append_runtime_log(
+                "runtime-exec", "runtime-request-register-failed", error,
+              )
             },
-            benchmark_summary,
-            "",
           )
-          let benchmark_hint = browser_artifact_field(
-            benchmark_assessment, "repair_hint",
+          let benchmark_assessment = browser_assess_last_benchmark()
+          browser_append_runtime_log(
+            "benchmark", "benchmark-assessment", benchmark_assessment,
           )
-          let benchmark_missing_signals_json = browser_artifact_field(
-            benchmark_assessment, "missing_signals_json",
+          let benchmark_applicable = browser_artifact_field(
+            benchmark_assessment, "applicable",
           )
-          if benchmark_pass != "true" &&
-            maybe_auto_repair_after_quality_failure(
-              benchmark_title, benchmark_summary, benchmark_hint, benchmark_missing_signals_json,
-            ) {
-            ()
+          browser_set_benchmark_assessment(benchmark_assessment)
+          if benchmark_applicable == "true" {
+            let benchmark_title = browser_artifact_field(
+              benchmark_assessment, "title",
+            )
+            let benchmark_summary = browser_artifact_field(
+              benchmark_assessment, "summary",
+            )
+            let benchmark_meta_json = browser_artifact_field(
+              benchmark_assessment, "meta_json",
+            )
+            let benchmark_pass = browser_artifact_field(
+              benchmark_assessment, "pass",
+            )
+            browser_update_process(
+              browser_llm_summary(),
+              "moonbit-benchmark-check",
+              if benchmark_pass == "true" {
+                "succeeded"
+              } else {
+                "failed"
+              },
+              benchmark_summary,
+              "",
+            )
+            let benchmark_hint = browser_artifact_field(
+              benchmark_assessment, "repair_hint",
+            )
+            let benchmark_missing_signals_json = browser_artifact_field(
+              benchmark_assessment, "missing_signals_json",
+            )
+            if benchmark_pass != "true" &&
+              maybe_auto_repair_after_quality_failure(
+                benchmark_title, benchmark_summary, benchmark_hint, benchmark_missing_signals_json,
+              ) {
+              ()
+            } else {
+              browser_render_artifact_card(
+                benchmark_title, benchmark_summary, benchmark_meta_json, true, false,
+                false,
+              )
+              browser_render_onboarding()
+            }
           } else {
             browser_render_artifact_card(
-              benchmark_title, benchmark_summary, benchmark_meta_json, true, false,
-              false,
+              "Compile probe succeeded", "MoonAP used the native MoonBit toolchain on this machine and produced a real wasm-gc artifact. Browser-local runtime execution is the next implementation step.",
+              "[\"compile probe ok\",\"real wasm built\",\"runtime pending\"]", true,
+              false, false,
             )
             browser_render_onboarding()
           }
-        } else {
-          browser_render_artifact_card(
-            "Compile probe succeeded", "MoonAP used the native MoonBit toolchain on this machine and produced a real wasm-gc artifact. Browser-local runtime execution is the next implementation step.",
-            "[\"compile probe ok\",\"real wasm built\",\"runtime pending\"]", true,
-            false, false,
-          )
-          browser_render_onboarding()
         }
       } else if maybe_auto_repair_after_compile_failure(
           summary_kind, repair_hint, summary_excerpt,
@@ -6521,6 +7061,61 @@ fn run_repair_from_system_assessment() -> Unit {
       run_compile_probe()
     },
     fn(error) { show_error("MoonBit quality repair failed", error) },
+  )
+}
+
+///|
+#cfg(target="js")
+fn run_moonap_runtime_adaptation() -> Unit {
+  browser_clear_artifact_card()
+  browser_update_process(
+    browser_llm_summary(),
+    "moonap-adaptation",
+    "running",
+    "Stage 1 compiled. MoonAP is now asking the active LLM route to adapt the compiled business code to the large-file runtime contract.",
+    "",
+  )
+  browser_render_artifact_card(
+    "Adapting source for MoonAP runtime", "The first-stage MoonBit source compiled. MoonAP is now running a second LLM pass to add large-file generation/analysis adapter functions, then it will compile again.",
+    "[\"stage 2\",\"moonap adaptation\",\"compile starting next\"]", false, false,
+    false,
+  )
+  browser_adapt_last_artifact_for_large_file_runtime(
+    fn(result) {
+      browser_set_state(browser_pretty_json(result))
+      browser_append_runtime_log(
+        "artifact",
+        "moonap-adaptation-result",
+        browser_pretty_json(result),
+      )
+      let provider = browser_artifact_field(result, "llm_provider")
+      let model = browser_artifact_field(result, "llm_model")
+      let source = browser_artifact_field(result, "moonbit_source")
+      browser_update_process(
+        if provider == "" {
+          browser_llm_summary()
+        } else if model == "" {
+          provider
+        } else {
+          provider + "/" + model
+        },
+        "moonap-adaptation",
+        "succeeded",
+        "MoonAP received adapted source with large-file runtime adapter functions. Re-running compile probe now.",
+        if source == "" {
+          "No adapted source returned."
+        } else {
+          source
+        },
+      )
+      browser_render_artifact_card(
+        "MoonAP-adapted source is ready", "The second-stage source has been adapted for the MoonAP large-file runtime contract. MoonAP is compiling the adapted source now.",
+        "[\"stage 2 complete\",\"adapter source\",\"compile starting\"]", true, false,
+        false,
+      )
+      run_compile_probe()
+    },
+    fn(error) { show_error("MoonAP runtime adaptation failed", error) },
   )
 }
 
@@ -6885,6 +7480,8 @@ fn main {
     )
   })
   browser_ensure_virtual_path_runtime()
+  browser_ensure_file_name_runtime()
+  browser_ensure_large_file_progress_runtime()
   browser_ensure_skill_folder_runtime()
   browser_ensure_skill_zip_runtime()
   browser_ensure_runtime_profile_runtime()

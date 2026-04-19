@@ -137,7 +137,13 @@ fn main {
 }
 ```
 
-MoonAP parses this contract, renders the form, evaluates simple arithmetic `computed_outputs`, and displays the result in the runtime card. This avoids adding task-specific host code for every unit conversion or calculator-style APP. Current expressions are intentionally limited to numeric fields with `+`, `-`, `*`, `/`, and parentheses.
+MoonAP parses this contract, renders the form, evaluates simple arithmetic `computed_outputs`, and displays the result in the runtime card. This avoids adding task-specific host code for every unit conversion or calculator-style APP. Current expressions are intentionally limited to numeric fields with `+`, `-`, `*`, `/`, `pow(...)`, `sqrt(...)`, `abs(...)`, `min(...)`, `max(...)`, and parentheses.
+
+For browser-local text and file utilities, the contract can also declare generic host tools:
+
+- `tool_kind: "text-analysis"` for character, word, line, and reading-time analysis over a text field named `input_text`.
+- `tool_kind: "json-formatter"` for validating and pretty-printing JSON from a text field named `json_text`.
+- `analysis_type: "csv-summary"` with `mode: "file"` for browser-local CSV/TSV row, column, missing-value, and numeric-column summaries. File contents stay in the browser; MoonAP sends only the summary report to the local server.
 
 ## SKILL Model
 
@@ -199,6 +205,9 @@ tools\moon-msvc.cmd build cmd\web_app --target js
 node --check web\app-live.js
 node --check web\app.js
 tools\restart-moonap-server.cmd
+powershell -ExecutionPolicy Bypass -File tools\test-demo-prompts.ps1
 ```
 
 Then test the browser at `http://127.0.0.1:3000/`.
+
+The demo prompt smoke test covers Celsius/Fahrenheit, minutes/seconds, two-number sum, BMI, circle area/circumference, loan payment, tip split, JSON formatting, text analysis, CSV analysis, large FastQ generation, and large FastQ analysis through the Simulated GPT-5.4 route.

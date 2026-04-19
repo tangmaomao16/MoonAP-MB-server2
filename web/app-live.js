@@ -976,6 +976,78 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__record__de
        if (!file) {
          throw new Error("Choose a local file first. MoonAP large-file analysis runs browser-locally in chunks.");
        }
+       const analysisType = String(runtimeSpec?.analysis_type || runtimeSpec?.tool_kind || "").toLowerCase();
+       if (analysisType === "csv-summary") {
+         const delimiter = String(runtimeSpec?.delimiter || "").toLowerCase() === "tab" || file.name.toLowerCase().endsWith(".tsv") ? "\t" : ",";
+         const text = await file.text();
+         const rows = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n").filter((line) => line.trim() !== "");
+         const parseRow = (line) => {
+           const cells = [];
+           let current = "";
+           let quoted = false;
+           for (let i = 0; i < line.length; i += 1) {
+             const ch = line[i];
+             if (ch === '"' && quoted && line[i + 1] === '"') { current += '"'; i += 1; }
+             else if (ch === '"') quoted = !quoted;
+             else if (ch === delimiter && !quoted) { cells.push(current); current = ""; }
+             else current += ch;
+           }
+           cells.push(current);
+           return cells.map((cell) => String(cell || "").trim());
+         };
+         const header = rows.length > 0 ? parseRow(rows[0]) : [];
+         const dataRows = rows.slice(1).map(parseRow);
+         const columnCount = header.length || Math.max(0, ...dataRows.map((row) => row.length));
+         const columnNames = Array.from({ length: columnCount }, (_unused, index) => header[index] || `column_${index + 1}`);
+         const missingCounts = Array.from({ length: columnCount }, () => 0);
+         const numeric = Array.from({ length: columnCount }, () => ({ count: 0, sum: 0, min: Infinity, max: -Infinity }));
+         for (const row of dataRows) {
+           for (let i = 0; i < columnCount; i += 1) {
+             const value = String(row[i] ?? "").trim();
+             if (value === "") missingCounts[i] += 1;
+             const numberValue = Number(value);
+             if (value !== "" && Number.isFinite(numberValue)) {
+               numeric[i].count += 1;
+               numeric[i].sum += numberValue;
+               numeric[i].min = Math.min(numeric[i].min, numberValue);
+               numeric[i].max = Math.max(numeric[i].max, numberValue);
+             }
+           }
+         }
+         const numericLines = numeric.map((stat, index) => {
+           if (stat.count === 0) return "";
+           return `${columnNames[index]}: count=${stat.count}, min=${stat.min}, max=${stat.max}, mean=${(stat.sum / stat.count).toFixed(4)}`;
+         }).filter(Boolean);
+         const reportText = [
+           "MoonAP CSV Summary",
+           `request_id: ${requestId}`,
+           `file_name: ${file.name}`,
+           `file_size_bytes: ${file.size}`,
+           `row_count: ${dataRows.length}`,
+           `column_count: ${columnCount}`,
+           `columns: ${columnNames.join(", ")}`,
+           `missing_values: ${missingCounts.map((count, index) => `${columnNames[index]}=${count}`).join(", ")}`,
+           "",
+           "Numeric columns:",
+           ...(numericLines.length === 0 ? ["(none detected)"] : numericLines)
+         ].join("\n");
+         return {
+           run_id: String(runtimeRequest.run_id || ""),
+           request_id: requestId,
+           status: "runtime-succeeded",
+           result_kind: "csv-summary-report",
+           runtime_inputs: runtimeInputs,
+           summary: `Analyzed ${dataRows.length} CSV row(s) across ${columnCount} column(s).`,
+           display_text: reportText,
+           stdout_text: `Browser-local CSV summary completed for ${requestId}.`,
+           download_name: "moonap-csv-summary.txt",
+           download_content: reportText,
+           file_name: file.name,
+           file_size_bytes: file.size,
+           llm_receives_file_contents: false,
+           accepted_for_skill: false
+         };
+       }
        const searchText = String(runtimeInputs.search_text || "");
        const maxPreviewLines = Math.max(0, Math.min(20, Number(runtimeInputs.max_preview_lines) || 3));
        let offset = 0;
@@ -1401,6 +1473,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__record__de
      };
      const buildGenericFormPayload = () => {
        const inputLines = Object.entries(runtimeInputs).map(([key, value]) => `${key}: ${String(value)}`);
+       const toolKind = String(runtimeSpec?.tool_kind || runtimeSpec?.analysis_type || "").toLowerCase();
        const renderTemplate = (template, values) => String(template || "").replace(/\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g, (_match, name) => {
          const value = values[name];
          return value === undefined || value === null ? "" : String(value);
@@ -1408,10 +1481,15 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__record__de
        const evaluateExpression = (expression, values) => {
          const expr = String(expression || "").trim();
          if (!expr) throw new Error("Computed output is missing an expression.");
-         if (!/^[A-Za-z0-9_+\-*/().\s]+$/.test(expr)) {
+         if (!/^[A-Za-z0-9_+\-*/().,\s]+$/.test(expr)) {
            throw new Error(`Unsupported characters in expression: ${expr}`);
          }
          const numericExpr = expr.replace(/\b[A-Za-z_][A-Za-z0-9_]*\b/g, (name) => {
+           if (name === "pow") return "Math.pow";
+           if (name === "sqrt") return "Math.sqrt";
+           if (name === "abs") return "Math.abs";
+           if (name === "min") return "Math.min";
+           if (name === "max") return "Math.max";
            if (!Object.prototype.hasOwnProperty.call(values, name)) {
              throw new Error(`Unknown input in expression: ${name}`);
            }
@@ -1419,7 +1497,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__record__de
            if (!Number.isFinite(n)) throw new Error(`Input ${name} is not numeric.`);
            return `(${String(n)})`;
          });
-         if (!/^[0-9eE+\-*/().\s]+$/.test(numericExpr)) {
+         if (!/^[0-9eE+\-*/().,\sMathpowsqrtabsminax]+$/.test(numericExpr)) {
            throw new Error(`Expression did not reduce to arithmetic: ${expr}`);
          }
          const result = Function(`"use strict"; return (${numericExpr});`)();
@@ -1428,6 +1506,32 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__record__de
          }
          return Number(result);
        };
+       if (toolKind === "text-analysis") {
+         const text = String(runtimeInputs.input_text || runtimeInputs.text || "");
+         const characters = text.length;
+         const charactersNoSpaces = text.replace(/\s/g, "").length;
+         const words = (text.trim().match(/\S+/g) || []).length;
+         const lines = text === "" ? 0 : text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n").length;
+         const readingMinutes = words / 200;
+         const displayText = [
+           `Characters: ${characters}`,
+           `Characters without spaces: ${charactersNoSpaces}`,
+           `Words: ${words}`,
+           `Lines: ${lines}`,
+           `Estimated reading time: ${readingMinutes.toFixed(2)} minutes`
+         ].join("\n");
+         return buildGenericPayload(`Analyzed ${words} word(s), ${characters} character(s), and ${lines} line(s).`, displayText);
+       }
+       if (toolKind === "json-formatter") {
+         const raw = String(runtimeInputs.json_text || runtimeInputs.input_text || "");
+         try {
+           const parsed = JSON.parse(raw);
+           const formatted = JSON.stringify(parsed, null, 2);
+           return buildGenericPayload("JSON is valid and formatted.", `Valid JSON: true\n\n${formatted}`, "text");
+         } catch (error) {
+           return buildGenericPayload("JSON is invalid.", `Valid JSON: false\nError: ${error instanceof Error ? error.message : String(error)}`, "text");
+         }
+       }
        const computedOutputs = Array.isArray(runtimeSpec.computed_outputs)
          ? runtimeSpec.computed_outputs
          : (Array.isArray(runtimeSpec.outputs) ? runtimeSpec.outputs : []);
@@ -4883,7 +4987,10 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app36browser__generate__
          "///   \"summary_template\": \"Calculated output {{output_name}}.\"",
          "/// }",
          "/// MOONAP_RUNTIME_SPEC_END",
-         "Use computed_outputs expressions only for simple arithmetic over numeric fields using +, -, *, /, and parentheses.",
+         "Use computed_outputs expressions only for simple arithmetic over numeric fields using +, -, *, /, pow(...), sqrt(...), abs(...), min(...), max(...), and parentheses.",
+         "For text analyzers, use mode=form with tool_kind=text-analysis and one text field named input_text.",
+         "For JSON formatter/validator apps, use mode=form with tool_kind=json-formatter and one text field named json_text.",
+         "For CSV/TSV analyzers, use mode=file with analysis_type=csv-summary and io_contract.browser_local_only=true.",
          "Choose semantic field names and labels from the user's task instead of generic input_text.",
          "Return only the full contents of cmd/main/main.mbt."
        ].join("\\n");

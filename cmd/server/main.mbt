@@ -1218,9 +1218,7 @@ fn runtime_task_kind_from_context(
     "fastq-analysis"
   } else if mentions_fastq {
     "fastq-generator"
-  } else if haystack.contains("financial") ||
-    haystack.contains("finance") ||
-    haystack.contains("report") {
+  } else if haystack.contains("financial") || haystack.contains("finance") {
     "finance-report-analysis"
   } else if haystack.contains("excel") {
     "excel-generator"
@@ -2906,6 +2904,35 @@ fn llm_sim_auto_codegen_source(body : String) -> String {
       lowered.contains("circumference")
     ) {
     llm_sim_circle_source()
+  } else if lowered.contains("loan") ||
+    (lowered.contains("principal") && lowered.contains("interest")) {
+    llm_sim_loan_payment_source()
+  } else if lowered.contains("tip") &&
+    (
+      lowered.contains("bill") ||
+      lowered.contains("people") ||
+      lowered.contains("person")
+    ) {
+    llm_sim_tip_calculator_source()
+  } else if lowered.contains("json") &&
+    (
+      lowered.contains("format") ||
+      lowered.contains("validator") ||
+      lowered.contains("validate")
+    ) {
+    llm_sim_json_formatter_source()
+  } else if lowered.contains("text analyzer") ||
+    (
+      lowered.contains("count") &&
+      lowered.contains("characters") &&
+      lowered.contains("words")
+    ) {
+    llm_sim_text_analyzer_source()
+  } else if lowered.contains("csv") ||
+    lowered.contains("tsv") ||
+    lowered.contains("column names") ||
+    lowered.contains("missing values") {
+    llm_sim_csv_analyzer_source()
   } else {
     llm_sim_generic_input_source()
   }
@@ -3260,6 +3287,86 @@ fn llm_sim_circle_source() -> String {
   "/// }\n" +
   "/// MOONAP_RUNTIME_SPEC_END\n" +
   llm_sim_source_header("MoonAP circle measurement calculator")
+}
+
+///|
+fn llm_sim_loan_payment_source() -> String {
+  "/// MOONAP_RUNTIME_SPEC_BEGIN\n" +
+  "/// {\n" +
+  "///   \"mode\": \"form\",\n" +
+  "///   \"title\": \"Loan payment calculator\",\n" +
+  "///   \"action_label\": \"Calculate payment\",\n" +
+  "///   \"rerun_action_label\": \"Calculate again\",\n" +
+  "///   \"fields\": [{\"name\":\"principal\",\"label\":\"Principal\",\"type\":\"float\",\"default\":10000,\"step\":100},{\"name\":\"annual_interest_rate\",\"label\":\"Annual interest rate (%)\",\"type\":\"float\",\"default\":5,\"step\":0.01},{\"name\":\"months\",\"label\":\"Months\",\"type\":\"int\",\"default\":36,\"min\":1,\"step\":1}],\n" +
+  "///   \"computed_outputs\": [{\"name\":\"monthly_payment\",\"label\":\"Monthly payment\",\"expression\":\"principal * (annual_interest_rate / 100 / 12) / (1 - pow(1 + annual_interest_rate / 100 / 12, 0 - months))\",\"decimals\":2},{\"name\":\"total_paid\",\"label\":\"Total paid\",\"expression\":\"monthly_payment * months\",\"decimals\":2},{\"name\":\"total_interest\",\"label\":\"Total interest\",\"expression\":\"total_paid - principal\",\"decimals\":2}],\n" +
+  "///   \"result_template\": \"Principal: {{principal}}\\nAnnual interest rate: {{annual_interest_rate}}%\\nMonths: {{months}}\\nMonthly payment: {{monthly_payment}}\\nTotal paid: {{total_paid}}\\nTotal interest: {{total_interest}}\",\n" +
+  "///   \"summary_template\": \"Monthly payment is {{monthly_payment}}.\"\n" +
+  "/// }\n" +
+  "/// MOONAP_RUNTIME_SPEC_END\n" +
+  llm_sim_source_header("MoonAP loan payment calculator")
+}
+
+///|
+fn llm_sim_tip_calculator_source() -> String {
+  "/// MOONAP_RUNTIME_SPEC_BEGIN\n" +
+  "/// {\n" +
+  "///   \"mode\": \"form\",\n" +
+  "///   \"title\": \"Tip calculator\",\n" +
+  "///   \"action_label\": \"Calculate tip\",\n" +
+  "///   \"rerun_action_label\": \"Calculate again\",\n" +
+  "///   \"fields\": [{\"name\":\"bill_amount\",\"label\":\"Bill amount\",\"type\":\"float\",\"default\":50,\"step\":0.01},{\"name\":\"tip_percent\",\"label\":\"Tip percent\",\"type\":\"float\",\"default\":18,\"step\":0.1},{\"name\":\"people\",\"label\":\"Number of people\",\"type\":\"int\",\"default\":2,\"min\":1,\"step\":1}],\n" +
+  "///   \"computed_outputs\": [{\"name\":\"tip_amount\",\"label\":\"Tip amount\",\"expression\":\"bill_amount * tip_percent / 100\",\"decimals\":2},{\"name\":\"total_amount\",\"label\":\"Total amount\",\"expression\":\"bill_amount + tip_amount\",\"decimals\":2},{\"name\":\"per_person\",\"label\":\"Per person\",\"expression\":\"total_amount / people\",\"decimals\":2}],\n" +
+  "///   \"result_template\": \"Bill: {{bill_amount}}\\nTip: {{tip_amount}}\\nTotal: {{total_amount}}\\nPer person: {{per_person}}\",\n" +
+  "///   \"summary_template\": \"Total is {{total_amount}}, or {{per_person}} per person.\"\n" +
+  "/// }\n" +
+  "/// MOONAP_RUNTIME_SPEC_END\n" +
+  llm_sim_source_header("MoonAP tip calculator")
+}
+
+///|
+fn llm_sim_json_formatter_source() -> String {
+  "/// MOONAP_RUNTIME_SPEC_BEGIN\n" +
+  "/// {\n" +
+  "///   \"mode\": \"form\",\n" +
+  "///   \"tool_kind\": \"json-formatter\",\n" +
+  "///   \"title\": \"JSON formatter and validator\",\n" +
+  "///   \"action_label\": \"Format JSON\",\n" +
+  "///   \"rerun_action_label\": \"Format again\",\n" +
+  "///   \"fields\": [{\"name\":\"json_text\",\"label\":\"JSON text\",\"type\":\"text\",\"default\":\"{\\\"hello\\\":\\\"moonap\\\"}\",\"help\":\"Paste JSON text to validate and pretty-print locally.\"}]\n" +
+  "/// }\n" +
+  "/// MOONAP_RUNTIME_SPEC_END\n" +
+  llm_sim_source_header("MoonAP JSON formatter and validator")
+}
+
+///|
+fn llm_sim_text_analyzer_source() -> String {
+  "/// MOONAP_RUNTIME_SPEC_BEGIN\n" +
+  "/// {\n" +
+  "///   \"mode\": \"form\",\n" +
+  "///   \"tool_kind\": \"text-analysis\",\n" +
+  "///   \"title\": \"Text analyzer\",\n" +
+  "///   \"action_label\": \"Analyze text\",\n" +
+  "///   \"rerun_action_label\": \"Analyze again\",\n" +
+  "///   \"fields\": [{\"name\":\"input_text\",\"label\":\"Text\",\"type\":\"text\",\"default\":\"MoonAP runs browser-local WebAssembly tools.\",\"help\":\"Enter text to count characters, words, lines, and estimated reading time.\"}]\n" +
+  "/// }\n" +
+  "/// MOONAP_RUNTIME_SPEC_END\n" +
+  llm_sim_source_header("MoonAP text analyzer")
+}
+
+///|
+fn llm_sim_csv_analyzer_source() -> String {
+  "/// MOONAP_RUNTIME_SPEC_BEGIN\n" +
+  "/// {\n" +
+  "///   \"mode\": \"file\",\n" +
+  "///   \"analysis_type\": \"csv-summary\",\n" +
+  "///   \"title\": \"CSV analyzer\",\n" +
+  "///   \"action_label\": \"Analyze CSV\",\n" +
+  "///   \"rerun_action_label\": \"Analyze CSV again\",\n" +
+  "///   \"io_contract\": {\"browser_local_only\": true, \"llm_receives_file_contents\": false, \"host_capability\": \"csv-summary\", \"input_mode\": \"file\", \"output_mode\": \"report\", \"supported_extensions\": [\"csv\", \"tsv\", \"txt\"]},\n" +
+  "///   \"fields\": []\n" +
+  "/// }\n" +
+  "/// MOONAP_RUNTIME_SPEC_END\n" +
+  llm_sim_source_header("MoonAP CSV analyzer")
 }
 
 ///|

@@ -86,8 +86,19 @@ extern "js" fn browser_render_artifact_card(
   #| (title, summary, metaJson, allowCompile, allowRepair, allowSave) => {
   #|   const root = document.querySelector("#artifactActions");
   #|   if (!root) return;
+  #|   globalThis.__moonapLastArtifactCardArgs = {
+  #|     title: String(title || ""),
+  #|     summary: String(summary || ""),
+  #|     meta_json: String(metaJson || "[]"),
+  #|     allow_compile: Boolean(allowCompile),
+  #|     allow_repair: Boolean(allowRepair),
+  #|     allow_save: Boolean(allowSave)
+  #|   };
   #|   const runtimeRequest = globalThis.__moonapLastRuntimeRequest || {};
   #|   const runtimeResult = globalThis.__moonapLastRuntimeResult || {};
+  #|   const profileRuntime = globalThis.__moonapRuntimeProfileRuntime && typeof globalThis.__moonapRuntimeProfileRuntime === "object"
+  #|     ? globalThis.__moonapRuntimeProfileRuntime
+  #|     : null;
   #|   const showTransient = globalThis.__moonapAllowTransientArtifactCard === true;
   #|   if (globalThis.__moonapMinimalShell !== false && !showTransient) {
   #|     root.innerHTML = "";
@@ -122,11 +133,47 @@ extern "js" fn browser_render_artifact_card(
   #|     const runtimeFields = Array.isArray(runtimeSpec.fields) ? runtimeSpec.fields : [];
   #|     const taskKind = String(runtimeRequest?.task_kind || "");
   #|     const runtimeMode = String(runtimeRequest?.runtime_mode || runtimeSpec?.mode || "");
+  #|     const currentProfileId = profileRuntime && typeof profileRuntime.profileIdForRequest === "function"
+  #|       ? String(profileRuntime.profileIdForRequest(runtimeRequest) || "")
+  #|       : String(runtimeRequest?.runtime_profile_override_id || runtimeRequest?.runtime_profile_id || taskKind || "");
+  #|     const currentProfile = profileRuntime && typeof profileRuntime.lookup === "function"
+  #|       ? profileRuntime.lookup(currentProfileId)
+  #|       : null;
+  #|     const inferredTaskKind = String(runtimeRequest?.inferred_task_kind || taskKind || "");
   #|     const isFastqRuntime = taskKind === "fastq-generator";
   #|     const eyebrow = runtimeDone ? "Runtime result" : "Runtime ready";
   #|     const statusHtml = runtimeDone
   #|       ? '<span>result recorded</span><span>ready to rerun</span><span>ready to save</span>'
   #|       : '<span>wasm prepared</span><span>awaiting local execution</span>';
+  #|     const runtimeProfileHtml = profileRuntime && typeof profileRuntime.list === "function"
+  #|       ? (() => {
+  #|           const options = profileRuntime.list();
+  #|           const optionHtml = options.map((profile) => {
+  #|             const id = String(profile?.id || "");
+  #|             const label = String(profile?.label || id);
+  #|             const selected = id === currentProfileId ? ' selected' : '';
+  #|             return `<option value="${id}"${selected}>${label}</option>`;
+  #|           }).join("");
+  #|           const currentLabel = String(currentProfile?.label || currentProfileId || "Unspecified");
+  #|           const currentDescription = String(currentProfile?.description || "Choose the runtime profile whose parameter schema best matches your APP.");
+  #|           const inferenceNote = inferredTaskKind && inferredTaskKind !== taskKind
+  #|             ? `MoonAP originally inferred ${inferredTaskKind}, then this run was switched to ${taskKind}.`
+  #|             : `MoonAP currently inferred ${taskKind || "generic-task"}.`;
+  #|           return `
+  #|             <div class="action-card-runtime-profile">
+  #|               <div class="action-card-runtime-profile-head">
+  #|                 <strong>Runtime profile</strong>
+  #|                 <small>${currentLabel}</small>
+  #|               </div>
+  #|               <small>${currentDescription}</small>
+  #|               <small>${inferenceNote}</small>
+  #|               <div class="action-card-runtime-profile-controls">
+  #|                 <label><span>Switch runtime profile</span><select id="runtimeProfileSelect">${optionHtml}</select></label>
+  #|                 <button id="applyRuntimeProfile" class="secondary" type="button">Apply profile</button>
+  #|               </div>
+  #|             </div>`;
+  #|         })()
+  #|       : "";
   #|     const paramsHtml = runtimeFields.length
   #|       ? `<div class="action-card-params">${runtimeFields.map((field) => {
   #|           const name = String(field?.name || "");
@@ -167,6 +214,7 @@ extern "js" fn browser_render_artifact_card(
   #|       <strong>${String(title)}</strong>
   #|       <small>${String(summary)}</small>
   #|       <div class="action-card-status">${statusHtml}</div>
+  #|       ${runtimeProfileHtml}
   #|       ${paramsHtml}
   #|       <div class="action-card-primary">${primaryAction}</div>
   #|       ${secondaryActions ? `<div class="action-card-secondary">${secondaryActions}</div>` : ''}`;
@@ -192,6 +240,47 @@ extern "js" fn browser_render_artifact_card(
 
 ///|
 #cfg(target="js")
+extern "js" fn browser_on_runtime_profile_apply(
+  on_done : (String) -> Unit,
+  on_error : (String) -> Unit,
+) -> Unit =
+  #| (onDone, onError) => {
+  #|   if (document.__moonapRuntimeProfileApplyBound) return;
+  #|   document.__moonapRuntimeProfileApplyBound = true;
+  #|   document.addEventListener("click", (event) => {
+  #|     const target = event.target;
+  #|     if (!target || target.id !== "applyRuntimeProfile") return;
+  #|     event.preventDefault();
+  #|     try {
+  #|       const runtimeRequest = globalThis.__moonapLastRuntimeRequest;
+  #|       if (!runtimeRequest || typeof runtimeRequest !== "object") {
+  #|         throw new Error("No runtime request is available yet.");
+  #|       }
+  #|       const runtime = globalThis.__moonapRuntimeProfileRuntime;
+  #|       if (!runtime || typeof runtime.applyProfile !== "function") {
+  #|         throw new Error("MoonAP runtime profile runtime is not ready yet.");
+  #|       }
+  #|       const selectedId = String(document.querySelector("#runtimeProfileSelect")?.value || "").trim();
+  #|       if (!selectedId) throw new Error("Choose a runtime profile first.");
+  #|       const nextRequest = runtime.applyProfile(runtimeRequest, selectedId);
+  #|       globalThis.__moonapLastRuntimeRequest = nextRequest;
+  #|       const selectedProfile = typeof runtime.lookup === "function" ? runtime.lookup(selectedId) : null;
+  #|       onDone(JSON.stringify({
+  #|         ok: true,
+  #|         profile_id: selectedId,
+  #|         label: String(selectedProfile?.label || selectedId),
+  #|         task_kind: String(nextRequest.task_kind || ""),
+  #|         runtime_mode: String(nextRequest.runtime_mode || ""),
+  #|         result_mode: String(nextRequest.result_mode || "")
+  #|       }, null, 2));
+  #|     } catch (error) {
+  #|       onError(error instanceof Error ? error.message : String(error));
+  #|     }
+  #|   });
+  #| }
+
+///|
+#cfg(target="js")
 extern "js" fn browser_show_toast(message : String) -> Unit =
   #| (message) => {
   #|   const text = String(message || "").trim();
@@ -209,6 +298,186 @@ extern "js" fn browser_show_toast(message : String) -> Unit =
   #|   toast.__moonapTimer = setTimeout(() => {
   #|     toast.classList.remove("is-open");
   #|   }, 5200);
+  #| }
+
+///|
+#cfg(target="js")
+extern "js" fn browser_ensure_runtime_profile_runtime() -> Unit =
+  #| () => {
+  #|   if (globalThis.__moonapRuntimeProfileRuntime) return;
+  #|   const clone = (value) => {
+  #|     try { return JSON.parse(JSON.stringify(value ?? null)); } catch { return value ?? null; }
+  #|   };
+  #|   const registry = {
+  #|     "large-file-generation": {
+  #|       id: "large-file-generation",
+  #|       label: "Large-file generation",
+  #|       description: "Browser-local streamed output with save picker, output name, target size, and line template controls.",
+  #|       task_kind: "large-file-generation",
+  #|       runtime_mode: "form",
+  #|       result_mode: "download",
+  #|       runtime_spec: {
+  #|         mode: "form",
+  #|         title: "Generate large browser-local file",
+  #|         primary_action_label: "Generate with streaming writer",
+  #|         rerun_action_label: "Generate with streaming writer again",
+  #|         io_contract: {
+  #|           protocol: "moonap.large-file.v1",
+  #|           browser_local_only: true,
+  #|           llm_receives_file_contents: false,
+  #|           host_capability: "streamed-local-generation",
+  #|           input_mode: "none",
+  #|           output_mode: "browser-local-save-stream",
+  #|           chunk_size_bytes: 4194304,
+  #|           save_picker_required: true
+  #|         },
+  #|         fields: [
+  #|           { name: "output_name", label: "Output name", type: "text", default: "moonap-large-output.txt" },
+  #|           { name: "target_size_mb", label: "Target size in MB", type: "int", default: 128, min: 1, max: 1024, step: 1 },
+  #|           { name: "line_template", label: "Line template", type: "text", default: "moonap-line-{index}" },
+  #|           { name: "line_length", label: "Line length", type: "int", default: 120, min: 8, max: 4096, step: 1 }
+  #|         ]
+  #|       }
+  #|     },
+  #|     "large-file-analysis": {
+  #|       id: "large-file-analysis",
+  #|       label: "Large-file analysis",
+  #|       description: "Browser-local chunked input analysis with search text and preview controls.",
+  #|       task_kind: "large-file-analysis",
+  #|       runtime_mode: "file",
+  #|       result_mode: "report",
+  #|       runtime_spec: {
+  #|         mode: "file",
+  #|         title: "Analyze large browser-local file",
+  #|         action_label: "Run streaming analysis",
+  #|         rerun_action_label: "Run streaming analysis again",
+  #|         io_contract: {
+  #|           protocol: "moonap.large-file.v1",
+  #|           browser_local_only: true,
+  #|           llm_receives_file_contents: false,
+  #|           host_capability: "chunked-local-analysis",
+  #|           input_mode: "streaming-text",
+  #|           output_mode: "report",
+  #|           chunk_size_bytes: 4194304,
+  #|           carry_strategy: "line-boundary",
+  #|           supported_extensions: ["fastq", "fq", "csv", "tsv", "txt", "log", "jsonl"]
+  #|         },
+  #|         fields: [
+  #|           { name: "search_text", label: "Search text (optional)", type: "text", default: "" },
+  #|           { name: "max_preview_lines", label: "Preview lines", type: "int", default: 3, min: 0, max: 20, step: 1 }
+  #|         ]
+  #|       }
+  #|     },
+  #|     "fastq-generator": {
+  #|       id: "fastq-generator",
+  #|       label: "FastQ generator",
+  #|       description: "Parameter-driven FastQ generation with read count, read length, N rate, and seed.",
+  #|       task_kind: "fastq-generator",
+  #|       runtime_mode: "form",
+  #|       result_mode: "download",
+  #|       runtime_spec: {
+  #|         mode: "form",
+  #|         title: "Generate FastQ file",
+  #|         primary_action_label: "Run generator",
+  #|         rerun_action_label: "Run generator again",
+  #|         fields: [
+  #|           { name: "read_count", label: "Read count", type: "int", default: 10000, min: 1, max: 2000000, step: 1 },
+  #|           { name: "read_length", label: "Read length", type: "int", default: 150, min: 20, max: 20000, step: 1 },
+  #|           { name: "n_rate", label: "N rate", type: "float", default: 0.01, min: 0, max: 1, step: 0.001 },
+  #|           { name: "random_seed", label: "Random seed", type: "int", default: 42, min: 0, max: 2147483647, step: 1 }
+  #|         ]
+  #|       }
+  #|     },
+  #|     "fastq-analysis": {
+  #|       id: "fastq-analysis",
+  #|       label: "FastQ analysis",
+  #|       description: "File-input FastQ analysis profile.",
+  #|       task_kind: "fastq-analysis",
+  #|       runtime_mode: "file",
+  #|       result_mode: "report",
+  #|       runtime_spec: {
+  #|         mode: "file",
+  #|         title: "Analyze FastQ file",
+  #|         action_label: "Run analysis",
+  #|         rerun_action_label: "Run analysis again",
+  #|         fields: []
+  #|       }
+  #|     },
+  #|     "generic-form": {
+  #|       id: "generic-form",
+  #|       label: "Generic form app",
+  #|       description: "Fallback profile for browser-local apps that mainly need a simple parameter form.",
+  #|       task_kind: "generic-task",
+  #|       runtime_mode: "form",
+  #|       result_mode: "text",
+  #|       runtime_spec: {
+  #|         mode: "form",
+  #|         title: "Run browser-local app",
+  #|         primary_action_label: "Run app",
+  #|         rerun_action_label: "Run app again",
+  #|         fields: []
+  #|       }
+  #|     },
+  #|     "generic-file": {
+  #|       id: "generic-file",
+  #|       label: "Generic file analysis",
+  #|       description: "Fallback profile for apps that should start from a browser file picker.",
+  #|       task_kind: "generic-task",
+  #|       runtime_mode: "file",
+  #|       result_mode: "report",
+  #|       runtime_spec: {
+  #|         mode: "file",
+  #|         title: "Analyze local file",
+  #|         action_label: "Run file analysis",
+  #|         rerun_action_label: "Run file analysis again",
+  #|         fields: []
+  #|       }
+  #|     }
+  #|   };
+  #|   const orderedIds = ["large-file-generation", "large-file-analysis", "fastq-generator", "fastq-analysis", "generic-form", "generic-file"];
+  #|   const normalizeProfileId = (value) => registry[String(value || "").trim()] ? String(value || "").trim() : "";
+  #|   const runtimeSpecOf = (request) => request?.runtime_spec && typeof request.runtime_spec === "object"
+  #|     ? request.runtime_spec
+  #|     : (request?.runtime_ui && typeof request.runtime_ui === "object" ? request.runtime_ui : {});
+  #|   const profileIdForRequest = (request) => {
+  #|     const explicit = normalizeProfileId(request?.runtime_profile_override_id || request?.runtime_profile_id || request?.task_kind);
+  #|     if (explicit) return explicit;
+  #|     const runtimeSpec = runtimeSpecOf(request);
+  #|     const hostCapability = String(runtimeSpec?.io_contract?.host_capability || "");
+  #|     if (hostCapability === "streamed-local-generation") return "large-file-generation";
+  #|     if (hostCapability === "chunked-local-analysis") return "large-file-analysis";
+  #|     const mode = String(request?.runtime_mode || runtimeSpec?.mode || "");
+  #|     return mode === "file" ? "generic-file" : "generic-form";
+  #|   };
+  #|   const applyProfile = (request, selectedId) => {
+  #|     const id = normalizeProfileId(selectedId);
+  #|     const profile = registry[id];
+  #|     if (!profile) throw new Error(`Unknown runtime profile: ${String(selectedId || "")}`);
+  #|     const base = request && typeof request === "object" ? request : {};
+  #|     const inferredTaskKind = String(base.inferred_task_kind || base.task_kind || "");
+  #|     const runtimeSpec = clone(profile.runtime_spec) || {};
+  #|     runtimeSpec.profile_id = id;
+  #|     runtimeSpec.profile_label = String(profile.label || id);
+  #|     runtimeSpec.selection_source = "user-selected";
+  #|     if (inferredTaskKind) runtimeSpec.inferred_task_kind = inferredTaskKind;
+  #|     return Object.assign({}, base, {
+  #|       inferred_task_kind: inferredTaskKind,
+  #|       task_kind: String(profile.task_kind || base.task_kind || "generic-task"),
+  #|       runtime_mode: String(profile.runtime_mode || runtimeSpec.mode || base.runtime_mode || "form"),
+  #|       result_mode: String(profile.result_mode || base.result_mode || "text"),
+  #|       runtime_profile_id: id,
+  #|       runtime_profile_override_id: id,
+  #|       runtime_profile_label: String(profile.label || id),
+  #|       runtime_spec: runtimeSpec,
+  #|       runtime_ui: clone(runtimeSpec) || runtimeSpec
+  #|     });
+  #|   };
+  #|   globalThis.__moonapRuntimeProfileRuntime = {
+  #|     list: () => orderedIds.map((id) => clone(registry[id])),
+  #|     lookup: (id) => clone(registry[normalizeProfileId(id)] || null),
+  #|     profileIdForRequest,
+  #|     applyProfile
+  #|   };
   #| }
 
 ///|
@@ -1722,6 +1991,9 @@ extern "js" fn browser_request_skill_save(
   #|       throw new Error("Choose a save location before exporting this SKILL.");
   #|     }
   #|     const taskKind = String(runtimeRequest.task_kind || "generic");
+  #|     const inferredTaskKind = String(runtimeRequest.inferred_task_kind || "");
+  #|     const runtimeProfileId = String(runtimeRequest.runtime_profile_override_id || runtimeRequest.runtime_profile_id || "");
+  #|     const runtimeProfileLabel = String(runtimeRequest.runtime_profile_label || runtimeProfileId || "");
   #|     const runtimeMode = String(runtimeRequest.runtime_mode || "form");
   #|     const resultMode = String(runtimeRequest.result_mode || "text");
   #|     const runtimeSpec = runtimeRequest?.runtime_spec && typeof runtimeRequest.runtime_spec === "object"
@@ -1848,10 +2120,13 @@ extern "js" fn browser_request_skill_save(
   #|           : String(runtimeResult.summary || "A browser-visible runtime result.");
   #|     const keyAttributes = [
   #|       `- task kind: ${taskKind}`,
+  #|       runtimeProfileId ? `- runtime profile: ${runtimeProfileId}` : "",
+  #|       runtimeProfileLabel && runtimeProfileLabel !== runtimeProfileId ? `- runtime profile label: ${runtimeProfileLabel}` : "",
+  #|       inferredTaskKind && inferredTaskKind !== taskKind ? `- inferred task kind: ${inferredTaskKind}` : "",
   #|       `- runtime mode: ${runtimeMode}`,
   #|       `- result mode: ${resultMode}`,
   #|       "- wasm path: program/main.wasm"
-  #|     ];
+  #|     ].filter(Boolean);
   #|     if (sourceText.trim()) keyAttributes.push("- moonbit source path: program/main.mbt");
   #|     const skillMd = [
   #|       "---",
@@ -1904,6 +2179,8 @@ extern "js" fn browser_request_skill_save(
   #|       name: enteredName,
   #|       description,
   #|       task_kind: taskKind,
+  #|       inferred_task_kind: inferredTaskKind,
+  #|       runtime_profile_id: runtimeProfileId,
   #|       runtime_mode: runtimeMode,
   #|       result_mode: resultMode,
   #|       folder_name: folderName,
@@ -6513,6 +6790,7 @@ fn main {
   browser_enable_minimal_shell()
   browser_prepare_message_input("Generate a FastQ file generator.")
   browser_on_submit(fn() { submit_message() })
+  browser_ensure_runtime_profile_runtime()
   browser_on_click("#experimentButton", fn() { show_experiment_entry() })
   browser_on_click("#detailsToggle", fn() { browser_toggle_details() })
   browser_on_click("#llmButton", fn() { show_llm_entry() })
@@ -6609,6 +6887,7 @@ fn main {
   browser_ensure_virtual_path_runtime()
   browser_ensure_skill_folder_runtime()
   browser_ensure_skill_zip_runtime()
+  browser_ensure_runtime_profile_runtime()
   browser_on_skill_export_confirm(fn() {
     browser_request_skill_save(
       fn(result) {
@@ -6623,6 +6902,23 @@ fn main {
       fn(error) { show_error("save-to-skill failed", error) },
     )
   })
+  browser_on_runtime_profile_apply(
+    fn(raw) {
+      browser_update_process(
+        "Runtime profile", "runtime-profile-override", "applied", "MoonAP switched the current runtime profile and re-rendered the runtime form.",
+        raw,
+      )
+      browser_show_toast(
+        "Runtime profile switched for this run. If you save this APP as a SKILL, MoonAP will reuse this profile.",
+      )
+      browser_render_artifact_card(
+        "Runtime execution is ready", "MoonAP has a compiled wasm artifact and is now waiting for browser-local execution or a simulated runtime result.",
+        "[\"runtime ready\",\"browser display pending\",\"download allowed\"]", false,
+        false, false,
+      )
+    },
+    fn(error) { browser_show_toast("Runtime profile switch failed: " + error) },
+  )
   browser_on_skill_export_cancel(fn() { browser_close_skill_export_dialog() })
   browser_watch_runtime_protocol(
     fn(raw) { on_runtime_request_ready(raw) },

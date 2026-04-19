@@ -2830,7 +2830,212 @@ async fn handle_llm_sim_proxy(url : String, body : String) -> (Int, String) {
   if stage == "api-test" {
     return (200, openai_chat_completion_payload(model_name, "OK", request_id))
   }
+  let auto_response = llm_sim_auto_response_for_body(body, stage)
+  if auto_response != "" {
+    @fs.write_file(response_path, auto_response, create=0o644)
+    append_text_file(
+      runtime_log_directory(),
+      runtime_log_path(),
+      "{\"ts\":" +
+      json_string(request_id) +
+      ",\"kind\":\"llm-sim\",\"label\":\"auto-response-written\",\"text\":" +
+      json_string(stage + " -> " + response_path) +
+      "}\n",
+    )
+  }
   wait_for_llm_sim_response(request_id, model_name, response_path, error_path)
+}
+
+///|
+fn llm_sim_auto_response_for_body(body : String, stage : String) -> String {
+  if stage == "codegen" {
+    llm_sim_auto_codegen_source(body)
+  } else if stage == "repair" {
+    llm_sim_repair_fallback_source(body)
+  } else {
+    ""
+  }
+}
+
+///|
+fn llm_sim_auto_codegen_source(body : String) -> String {
+  let lowered = body.to_lower()
+  if lowered.contains("fastq") &&
+    (
+      lowered.contains("analy") ||
+      lowered.contains("count") ||
+      lowered.contains("malformed") ||
+      lowered.contains("read")
+    ) &&
+    !lowered.contains("generat") {
+    llm_sim_fastq_analyzer_source()
+  } else if lowered.contains("fastq") &&
+    (
+      lowered.contains("generat") ||
+      lowered.contains("create") ||
+      lowered.contains("write")
+    ) {
+    llm_sim_fastq_generator_source()
+  } else if lowered.contains("celsius") && lowered.contains("fahrenheit") {
+    llm_sim_celsius_source()
+  } else if (
+      lowered.contains("meter") ||
+      lowered.contains("metre") ||
+      lowered.contains(" meters ") ||
+      lowered.contains(" metres ")
+    ) &&
+    (lowered.contains("feet") || lowered.contains("foot")) {
+    llm_sim_meters_to_feet_source()
+  } else if (
+      lowered.contains("two number") ||
+      lowered.contains("two numbers") ||
+      lowered.contains("2 number") ||
+      lowered.contains("2 numbers")
+    ) &&
+    (lowered.contains("sum") || lowered.contains("add")) {
+    llm_sim_two_number_sum_source()
+  } else if lowered.contains("bmi") ||
+    (lowered.contains("weight") && lowered.contains("height")) {
+    llm_sim_bmi_source()
+  } else if lowered.contains("circle") &&
+    (
+      lowered.contains("radius") ||
+      lowered.contains("area") ||
+      lowered.contains("circumference")
+    ) {
+    llm_sim_circle_source()
+  } else {
+    llm_sim_generic_input_source()
+  }
+}
+
+///|
+fn llm_sim_repair_fallback_source(body : String) -> String {
+  if body.to_lower().contains("fastq") {
+    llm_sim_fastq_generator_source()
+  } else {
+    llm_sim_generic_input_source()
+  }
+}
+
+///|
+fn llm_sim_source_header(title : String) -> String {
+  "///|\n" + "fn main {\n" + "  println(" + json_string(title) + ")\n" + "}\n"
+}
+
+///|
+fn llm_sim_celsius_source() -> String {
+  "/// MOONAP_RUNTIME_SPEC_BEGIN\n" +
+  "/// {\n" +
+  "///   \"mode\": \"form\",\n" +
+  "///   \"title\": \"Convert Celsius to Fahrenheit\",\n" +
+  "///   \"action_label\": \"Convert temperature\",\n" +
+  "///   \"rerun_action_label\": \"Convert again\",\n" +
+  "///   \"fields\": [{\"name\":\"celsius\",\"label\":\"Celsius temperature\",\"type\":\"float\",\"default\":25,\"step\":0.1,\"help\":\"Enter the Celsius value to convert.\"}],\n" +
+  "///   \"computed_outputs\": [{\"name\":\"fahrenheit\",\"label\":\"Fahrenheit temperature\",\"expression\":\"celsius * 9 / 5 + 32\",\"decimals\":2}],\n" +
+  "///   \"result_template\": \"Celsius: {{celsius}}\\nFahrenheit: {{fahrenheit}}\",\n" +
+  "///   \"summary_template\": \"Converted {{celsius}} Celsius to {{fahrenheit}} Fahrenheit.\"\n" +
+  "/// }\n" +
+  "/// MOONAP_RUNTIME_SPEC_END\n" +
+  llm_sim_source_header("MoonAP Celsius to Fahrenheit converter")
+}
+
+///|
+fn llm_sim_meters_to_feet_source() -> String {
+  "/// MOONAP_RUNTIME_SPEC_BEGIN\n" +
+  "/// {\n" +
+  "///   \"mode\": \"form\",\n" +
+  "///   \"title\": \"Convert meters to feet\",\n" +
+  "///   \"action_label\": \"Convert length\",\n" +
+  "///   \"rerun_action_label\": \"Convert again\",\n" +
+  "///   \"fields\": [{\"name\":\"meters\",\"label\":\"Length in meters\",\"type\":\"float\",\"default\":1,\"step\":0.01,\"help\":\"Enter the length in meters.\"}],\n" +
+  "///   \"computed_outputs\": [{\"name\":\"feet\",\"label\":\"Length in feet\",\"expression\":\"meters * 3.28084\",\"decimals\":4}],\n" +
+  "///   \"result_template\": \"Meters: {{meters}}\\nFeet: {{feet}}\",\n" +
+  "///   \"summary_template\": \"Converted {{meters}} meters to {{feet}} feet.\"\n" +
+  "/// }\n" +
+  "/// MOONAP_RUNTIME_SPEC_END\n" +
+  llm_sim_source_header("MoonAP meters to feet converter")
+}
+
+///|
+fn llm_sim_two_number_sum_source() -> String {
+  "/// MOONAP_RUNTIME_SPEC_BEGIN\n" +
+  "/// {\n" +
+  "///   \"mode\": \"form\",\n" +
+  "///   \"title\": \"Add two numbers\",\n" +
+  "///   \"action_label\": \"Calculate sum\",\n" +
+  "///   \"rerun_action_label\": \"Calculate again\",\n" +
+  "///   \"fields\": [{\"name\":\"number_a\",\"label\":\"First number\",\"type\":\"float\",\"default\":1,\"step\":1},{\"name\":\"number_b\",\"label\":\"Second number\",\"type\":\"float\",\"default\":2,\"step\":1}],\n" +
+  "///   \"computed_outputs\": [{\"name\":\"sum\",\"label\":\"Sum\",\"expression\":\"number_a + number_b\",\"decimals\":4}],\n" +
+  "///   \"result_template\": \"First number: {{number_a}}\\nSecond number: {{number_b}}\\nSum: {{sum}}\",\n" +
+  "///   \"summary_template\": \"Calculated sum {{sum}}.\"\n" +
+  "/// }\n" +
+  "/// MOONAP_RUNTIME_SPEC_END\n" +
+  llm_sim_source_header("MoonAP two number sum calculator")
+}
+
+///|
+fn llm_sim_bmi_source() -> String {
+  "/// MOONAP_RUNTIME_SPEC_BEGIN\n" +
+  "/// {\n" +
+  "///   \"mode\": \"form\",\n" +
+  "///   \"title\": \"Calculate BMI\",\n" +
+  "///   \"action_label\": \"Calculate BMI\",\n" +
+  "///   \"rerun_action_label\": \"Calculate again\",\n" +
+  "///   \"fields\": [{\"name\":\"weight_kg\",\"label\":\"Weight in kg\",\"type\":\"float\",\"default\":70,\"step\":0.1},{\"name\":\"height_m\",\"label\":\"Height in meters\",\"type\":\"float\",\"default\":1.75,\"step\":0.01}],\n" +
+  "///   \"computed_outputs\": [{\"name\":\"bmi\",\"label\":\"BMI\",\"expression\":\"weight_kg / (height_m * height_m)\",\"decimals\":2}],\n" +
+  "///   \"result_template\": \"Weight: {{weight_kg}} kg\\nHeight: {{height_m}} m\\nBMI: {{bmi}}\",\n" +
+  "///   \"summary_template\": \"Calculated BMI {{bmi}}.\"\n" +
+  "/// }\n" +
+  "/// MOONAP_RUNTIME_SPEC_END\n" +
+  llm_sim_source_header("MoonAP BMI calculator")
+}
+
+///|
+fn llm_sim_circle_source() -> String {
+  "/// MOONAP_RUNTIME_SPEC_BEGIN\n" +
+  "/// {\n" +
+  "///   \"mode\": \"form\",\n" +
+  "///   \"title\": \"Circle measurements\",\n" +
+  "///   \"action_label\": \"Calculate circle\",\n" +
+  "///   \"rerun_action_label\": \"Calculate again\",\n" +
+  "///   \"fields\": [{\"name\":\"radius\",\"label\":\"Radius\",\"type\":\"float\",\"default\":1,\"step\":0.01}],\n" +
+  "///   \"computed_outputs\": [{\"name\":\"area\",\"label\":\"Area\",\"expression\":\"radius * radius * 3.141592653589793\",\"decimals\":4},{\"name\":\"circumference\",\"label\":\"Circumference\",\"expression\":\"2 * 3.141592653589793 * radius\",\"decimals\":4}],\n" +
+  "///   \"result_template\": \"Radius: {{radius}}\\nArea: {{area}}\\nCircumference: {{circumference}}\",\n" +
+  "///   \"summary_template\": \"Calculated circle area {{area}} and circumference {{circumference}}.\"\n" +
+  "/// }\n" +
+  "/// MOONAP_RUNTIME_SPEC_END\n" +
+  llm_sim_source_header("MoonAP circle measurement calculator")
+}
+
+///|
+fn llm_sim_generic_input_source() -> String {
+  "/// MOONAP_RUNTIME_SPEC_BEGIN\n" +
+  "/// {\n" +
+  "///   \"mode\": \"form\",\n" +
+  "///   \"title\": \"Run browser-local app\",\n" +
+  "///   \"action_label\": \"Run app\",\n" +
+  "///   \"rerun_action_label\": \"Run again\",\n" +
+  "///   \"fields\": [{\"name\":\"input_text\",\"label\":\"Input\",\"type\":\"text\",\"default\":\"\",\"help\":\"Enter the input for this APP.\"}],\n" +
+  "///   \"result_template\": \"Input: {{input_text}}\",\n" +
+  "///   \"summary_template\": \"Recorded input for browser-local runtime.\"\n" +
+  "/// }\n" +
+  "/// MOONAP_RUNTIME_SPEC_END\n" +
+  llm_sim_source_header("MoonAP generic browser-local app")
+}
+
+///|
+fn llm_sim_fastq_generator_source() -> String {
+  llm_sim_source_header(
+    "MoonAP large FastQ generator. Runtime profile streams browser-local FASTQ output.",
+  )
+}
+
+///|
+fn llm_sim_fastq_analyzer_source() -> String {
+  llm_sim_source_header(
+    "MoonAP large FastQ analyzer. Runtime profile reads browser-local FASTQ chunks.",
+  )
 }
 
 ///|

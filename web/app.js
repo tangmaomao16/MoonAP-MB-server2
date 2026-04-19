@@ -1,4 +1,4 @@
-﻿class $PanicError extends Error {}
+class $PanicError extends Error {}
 function $panic() {
   throw new $PanicError();
 }
@@ -121,6 +121,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__render__ar
    const card = document.createElement("section");
    card.className = "action-card is-open";
    const metaHtml = meta.map((item) => `<span>${String(item)}</span>`).join("");
+   let runtimeResultMode = "";
    const escapeHtml = (value) => String(value ?? "")
      .replace(/&/g, "&amp;")
      .replace(/</g, "&lt;")
@@ -146,6 +147,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__render__ar
      const taskKind = String(runtimeRequest?.task_kind || "");
      const runtimeMode = String(runtimeSpec?.mode || runtimeRequest?.runtime_mode || "");
      const resultMode = String(runtimeSpec?.result_mode || runtimeRequest?.result_mode || runtimeResult?.result_mode || "");
+     runtimeResultMode = resultMode;
      const currentProfileId = profileRuntime && typeof profileRuntime.profileIdForRequest === "function"
        ? String(profileRuntime.profileIdForRequest(runtimeRequest) || "")
        : String(runtimeRequest?.runtime_profile_override_id || runtimeRequest?.runtime_profile_id || taskKind || "");
@@ -291,7 +293,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app31browser__render__ar
        </div>`;
    }
    root.append(card);
-   if (runtimeDone && resultMode === "report") {
+   if (runtimeDone && runtimeResultMode === "report") {
      try {
        card.scrollIntoView({ behavior: "smooth", block: "start" });
      } catch {}
@@ -1326,6 +1328,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__record__de
          request_id: requestId,
          status: "runtime-succeeded",
          result_kind: "large-fastq-report",
+         result_mode: "report",
          runtime_inputs: runtimeInputs,
          summary: `Analyzed ${file.name} locally: ${readCount} FastQ reads, ${totalBases} bases.`,
          display_text: reportText,
@@ -1454,6 +1457,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__record__de
          request_id: requestId,
          status: "runtime-succeeded",
          result_kind: "streamed-file",
+         result_mode: "download",
          runtime_inputs: runtimeInputs,
          summary: `Generated ${outputName} locally with browser streaming output (${readIndex} FastQ reads).`,
          display_text: displayText,
@@ -1512,6 +1516,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__record__de
          request_id: requestId,
          status: "runtime-succeeded",
          result_kind: "fastq-file",
+         result_mode: "download",
          runtime_inputs: runtimeInputs,
          summary: `Generated moonap-demo.fastq with ${readCount} reads of length ${readLength}.`,
          display_text: `FastQ file generated and downloaded in the browser.\nread_count=${readCount}\nread_length=${readLength}\nn_rate=${nRate}\nrandom_seed=${originalSeed}\nexpected_n_count=${nCount}\ntotal_bases=${totalBases}`,
@@ -1527,6 +1532,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app38browser__record__de
          request_id: requestId,
          status: "runtime-succeeded",
          result_kind: resultKind,
+         result_mode: resultMode,
          runtime_inputs: runtimeInputs,
          summary,
          display_text: displayText,
@@ -3936,6 +3942,7 @@ const _M0FP412tangmaomao1618moonap__mb__server3cmd8web__app36browser__run__dialo
        request_id: requestId,
        status: "runtime-succeeded",
        result_kind: resultKind,
+       result_mode: resultMode,
        runtime_inputs: runtimeInputs,
        summary,
        display_text: displayText,

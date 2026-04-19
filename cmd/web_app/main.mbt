@@ -117,6 +117,7 @@ extern "js" fn browser_render_artifact_card(
   #|   const card = document.createElement("section");
   #|   card.className = "action-card is-open";
   #|   const metaHtml = meta.map((item) => `<span>${String(item)}</span>`).join("");
+  #|   let runtimeResultMode = "";
   #|   const escapeHtml = (value) => String(value ?? "")
   #|     .replace(/&/g, "&amp;")
   #|     .replace(/</g, "&lt;")
@@ -142,6 +143,7 @@ extern "js" fn browser_render_artifact_card(
   #|     const taskKind = String(runtimeRequest?.task_kind || "");
   #|     const runtimeMode = String(runtimeSpec?.mode || runtimeRequest?.runtime_mode || "");
   #|     const resultMode = String(runtimeSpec?.result_mode || runtimeRequest?.result_mode || runtimeResult?.result_mode || "");
+  #|     runtimeResultMode = resultMode;
   #|     const currentProfileId = profileRuntime && typeof profileRuntime.profileIdForRequest === "function"
   #|       ? String(profileRuntime.profileIdForRequest(runtimeRequest) || "")
   #|       : String(runtimeRequest?.runtime_profile_override_id || runtimeRequest?.runtime_profile_id || taskKind || "");
@@ -287,7 +289,7 @@ extern "js" fn browser_render_artifact_card(
   #|       </div>`;
   #|   }
   #|   root.append(card);
-  #|   if (runtimeDone && resultMode === "report") {
+  #|   if (runtimeDone && runtimeResultMode === "report") {
   #|     try {
   #|       card.scrollIntoView({ behavior: "smooth", block: "start" });
   #|     } catch {}
@@ -1388,6 +1390,7 @@ extern "js" fn browser_record_demo_runtime_result(
   #|         request_id: requestId,
   #|         status: "runtime-succeeded",
   #|         result_kind: "large-fastq-report",
+  #|         result_mode: "report",
   #|         runtime_inputs: runtimeInputs,
   #|         summary: `Analyzed ${file.name} locally: ${readCount} FastQ reads, ${totalBases} bases.`,
   #|         display_text: reportText,
@@ -1516,6 +1519,7 @@ extern "js" fn browser_record_demo_runtime_result(
   #|         request_id: requestId,
   #|         status: "runtime-succeeded",
   #|         result_kind: "streamed-file",
+  #|         result_mode: "download",
   #|         runtime_inputs: runtimeInputs,
   #|         summary: `Generated ${outputName} locally with browser streaming output (${readIndex} FastQ reads).`,
   #|         display_text: displayText,
@@ -1574,6 +1578,7 @@ extern "js" fn browser_record_demo_runtime_result(
   #|         request_id: requestId,
   #|         status: "runtime-succeeded",
   #|         result_kind: "fastq-file",
+  #|         result_mode: "download",
   #|         runtime_inputs: runtimeInputs,
   #|         summary: `Generated moonap-demo.fastq with ${readCount} reads of length ${readLength}.`,
   #|         display_text: `FastQ file generated and downloaded in the browser.\nread_count=${readCount}\nread_length=${readLength}\nn_rate=${nRate}\nrandom_seed=${originalSeed}\nexpected_n_count=${nCount}\ntotal_bases=${totalBases}`,
@@ -1589,6 +1594,7 @@ extern "js" fn browser_record_demo_runtime_result(
   #|         request_id: requestId,
   #|         status: "runtime-succeeded",
   #|         result_kind: resultKind,
+  #|         result_mode: resultMode,
   #|         runtime_inputs: runtimeInputs,
   #|         summary,
   #|         display_text: displayText,
@@ -4253,6 +4259,7 @@ extern "js" fn browser_run_dialog_generic_skill(
   #|       request_id: requestId,
   #|       status: "runtime-succeeded",
   #|       result_kind: resultKind,
+  #|       result_mode: resultMode,
   #|       runtime_inputs: runtimeInputs,
   #|       summary,
   #|       display_text: displayText,

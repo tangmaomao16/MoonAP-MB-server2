@@ -4750,7 +4750,41 @@ extern "js" fn browser_run_dialog_large_fastq_analysis(
   #|       }, null, 2),
   #|       summary: `Analyzed ${file.name} locally: ${readCount} FastQ reads, ${totalBases} bases.`
   #|     };
+  #|     const runtimeRequest = {
+  #|       request_id: result.request_id,
+  #|       status: "ready-for-runtime",
+  #|       task_kind: "large-fastq-analysis",
+  #|       runtime_mode: "file",
+  #|       result_mode: "report",
+  #|       runtime_spec: {
+  #|         mode: "file",
+  #|         title: "Analyze large FastQ file",
+  #|         action_label: "Run FastQ analysis",
+  #|         rerun_action_label: "Run FastQ analysis again",
+  #|         result_mode: "report",
+  #|         domain_profile: "fastq",
+  #|         io_contract: {
+  #|           protocol: "moonap.large-file.v1",
+  #|           browser_local_only: true,
+  #|           llm_receives_file_contents: false,
+  #|           host_capability: "chunked-local-analysis",
+  #|           input_mode: "streaming-text",
+  #|           output_mode: "report",
+  #|           chunk_size_bytes: chunkSize,
+  #|           carry_strategy: "fastq-record-boundary"
+  #|         },
+  #|         fields: [
+  #|           { name: "max_preview_reads", label: "Preview reads", type: "int", default: maxPreviewReads },
+  #|           { name: "validate_fastq_structure", label: "Validate FastQ structure", type: "bool", default: validateStructure },
+  #|           { name: "count_bases", label: "Count A/C/G/T/N bases", type: "bool", default: countBases }
+  #|         ]
+  #|       }
+  #|     };
+  #|     runtimeRequest.runtime_ui = runtimeRequest.runtime_spec;
+  #|     globalThis.__moonapLastRuntimeRequest = runtimeRequest;
+  #|     globalThis.__moonapLastRuntimeRequestText = JSON.stringify(runtimeRequest, null, 2);
   #|     globalThis.__moonapLastRuntimeResult = result;
+  #|     globalThis.__moonapLastRuntimeResultText = JSON.stringify(result, null, 2);
   #|     globalThis.__moonapLastRuntimeReportPayload = result;
   #|     emitState("runtime-succeeded");
   #|     onDone(JSON.stringify(result, null, 2));

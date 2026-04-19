@@ -3029,7 +3029,7 @@ fn web_index_html() -> String {
     "<button id=\"localSkillHubChoosePath\" class=\"dialog-button secondary personal-skill-toolbar-button\" type=\"button\">Choose or change local SKILL Hub directory</button>",
     "</div>", "<div id=\"localSkillHubCards\" class=\"personal-skill-cards\"></div>",
     "</div>", "<div class=\"skill-section hub-section\">", "<div class=\"section-title\"><span>1.3</span><strong>Cloud-SKILL-Hub</strong></div>",
-    "<div class=\"personal-skill-toolbar cloud-skill-toolbar\">", "<div class=\"personal-skill-toolbar-meta\"><strong>Official source</strong><small id=\"cloudSkillHubSourceLabel\"><a href=\"https://github.com/tangmaomao16/MoonAP-SKILL-Hub\" target=\"_blank\" rel=\"noreferrer\">https://github.com/tangmaomao16/MoonAP-SKILL-Hub</a></small></div>",
+    "<div class=\"personal-skill-toolbar cloud-skill-toolbar\">", "<div class=\"personal-skill-toolbar-meta\"><strong>Official source</strong><small id=\"cloudSkillHubSourceLabel\"><a href=\"https://github.com/tangmaomao16/MoonAP-SKILL-Hub\" target=\"_blank\" rel=\"noreferrer\" title=\"https://github.com/tangmaomao16/MoonAP-SKILL-Hub\" aria-label=\"Official MoonAP SKILL Hub repository\">Official MoonAP SKILL Hub</a></small></div>",
     "<button id=\"cloudSkillHubRefresh\" class=\"dialog-button secondary personal-skill-toolbar-button\" type=\"button\">Refresh cloud catalog</button>",
     "</div>", "<div id=\"cloudSkillHubCards\" class=\"personal-skill-cards\">", "<div class=\"personal-skill-empty\">Cloud catalog is empty for now. We will load real SKILL metadata from the official MoonAP-SKILL-Hub repository next.</div>",
     "</div>", "</div>", "</div>", "<section id=\"resultPanel\" class=\"result-panel\" aria-live=\"polite\">",

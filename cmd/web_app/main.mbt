@@ -3202,9 +3202,11 @@ extern "js" fn browser_open_skill_dialog(skill_id : String) -> Unit =
   #|     const metaLine = [versionText ? `version ${versionText}` : "", pathText ? `path ${pathText}` : ""].filter(Boolean).join(" | ");
   #|     set(scope, scopeLabel);
   #|     set(title, String(loadedHubSkill.name || "SKILL"));
-  #|     set(summary, metaLine
-  #|       ? `${String(loadedHubSkill.description || "MoonAP SKILL entry.")}\n${metaLine}`
-  #|       : String(loadedHubSkill.description || "MoonAP SKILL entry."));
+  #|     const baseSummary = String(loadedHubSkill.description || "MoonAP SKILL entry.");
+  #|     const installSummary = sourceKind === "cloud"
+  #|       ? `${baseSummary}\n\nCloud SKILLs must be installed to Local-SKILL-Hub before they can be run. Click Install to Local SKILL Hub first, then open the installed Local SKILL to configure parameters and run it.`
+  #|       : baseSummary;
+  #|     set(summary, metaLine ? `${installSummary}\n${metaLine}` : installSummary);
   #|     dialog.dataset.taskKind = String(loadedHubSkill.task_kind || "");
   #|     dialog.dataset.skillSource = sourceKind;
   #|     const externalUrl = String(loadedHubSkill.external_url || loadedHubSkill.folder_url || loadedHubSkill.repository_url || "");
@@ -3212,19 +3214,21 @@ extern "js" fn browser_open_skill_dialog(skill_id : String) -> Unit =
   #|     if (openSourceButton && externalUrl) openSourceButton.style.display = "";
   #|     dialog.dataset.downloadUrl = String(loadedHubSkill.download_url || "");
   #|     dialog.dataset.folderPath = pathText;
-  #|     for (const field of runtimeFields) {
-  #|       const name = String(field?.name || "input");
-  #|       const labelText = String(field?.label || name);
-  #|       const defaultValue = field?.default == null ? "" : String(field.default);
-  #|       const kind = String(field?.kind || field?.type || "text").toLowerCase();
-  #|       const inputMode = kind === "float" || kind === "decimal"
-  #|         ? "decimal"
-  #|         : kind === "text"
-  #|           ? "text"
-  #|           : "numeric";
-  #|       addField(name, labelText, defaultValue, inputMode, name);
+  #|     if (sourceKind !== "cloud") {
+  #|       for (const field of runtimeFields) {
+  #|         const name = String(field?.name || "input");
+  #|         const labelText = String(field?.label || name);
+  #|         const defaultValue = field?.default == null ? "" : String(field.default);
+  #|         const kind = String(field?.kind || field?.type || "text").toLowerCase();
+  #|         const inputMode = kind === "float" || kind === "decimal"
+  #|           ? "decimal"
+  #|           : kind === "text"
+  #|             ? "text"
+  #|             : "numeric";
+  #|         addField(name, labelText, defaultValue, inputMode, name);
+  #|       }
   #|     }
-  #|     if (String(loadedHubSkill.task_kind || "") === "large-file-generation" && outputTarget) {
+  #|     if (sourceKind !== "cloud" && String(loadedHubSkill.task_kind || "") === "large-file-generation" && outputTarget) {
   #|       outputTarget.style.display = "";
   #|     }
   #|     if (runButton) {
@@ -5717,10 +5721,11 @@ extern "js" fn browser_render_cloud_skill_hub(force_refresh : Bool) -> Int =
   #|   const indexUrl = "https://raw.githubusercontent.com/tangmaomao16/MoonAP-SKILL-Hub/main/index.json";
   #|   const sourceLabel = document.querySelector("#cloudSkillHubSourceLabel");
   #|   if (sourceLabel) {
-  #|     sourceLabel.innerHTML = `<a href="${repositoryUrl}" target="_blank" rel="noreferrer">${repositoryUrl}</a>`;
+  #|     sourceLabel.innerHTML = `<a href="${repositoryUrl}" target="_blank" rel="noreferrer" title="${repositoryUrl}" aria-label="Official MoonAP SKILL Hub repository">Official MoonAP SKILL Hub</a>`;
   #|   }
   #|   const normalizeSkill = (entry, hub) => {
   #|     const folderPath = pathRuntime.normalize(entry?.folder_path || "");
+  #|     const canonicalName = folderPath ? pathRuntime.lastSegment(folderPath) : String(entry?.name || "Cloud SKILL");
   #|     const repository = String(entry?.repository_url || hub?.repository_url || repositoryUrl);
   #|     const rawBase = repository
   #|       .replace("https://github.com/", "https://raw.githubusercontent.com/")
@@ -5730,7 +5735,8 @@ extern "js" fn browser_render_cloud_skill_hub(force_refresh : Bool) -> Int =
   #|     const zipUrl = String(entry?.zip_url || (zipPath ? `${rawBase}/${zipPath}` : ""));
   #|     return {
   #|       id: `cloud.${String(entry?.id || folderPath || entry?.name || "skill")}`,
-  #|       name: String(entry?.name || "Cloud SKILL"),
+  #|       name: canonicalName,
+  #|       catalog_name: String(entry?.name || canonicalName),
   #|       description: String(entry?.description || ""),
   #|       task_kind: String(entry?.task_kind || "generic"),
   #|       runtime_mode: String(entry?.runtime_mode || "form"),

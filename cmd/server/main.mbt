@@ -2876,6 +2876,8 @@ fn llm_sim_auto_codegen_source(body : String) -> String {
       lowered.contains("write")
     ) {
     llm_sim_fastq_generator_source()
+  } else if llm_sim_unit_conversion_source(lowered) != "" {
+    llm_sim_unit_conversion_source(lowered)
   } else if lowered.contains("celsius") && lowered.contains("fahrenheit") {
     llm_sim_celsius_source()
   } else if (
@@ -2907,6 +2909,258 @@ fn llm_sim_auto_codegen_source(body : String) -> String {
   } else {
     llm_sim_generic_input_source()
   }
+}
+
+///|
+fn llm_sim_unit_conversion_source(lowered : String) -> String {
+  let both_directions = lowered.contains("vice versa") ||
+    lowered.contains("both direction") ||
+    lowered.contains("both ways") ||
+    lowered.contains("back and forth")
+  if (
+      lowered.contains("minute") ||
+      lowered.contains("minutes") ||
+      lowered.contains(" min ")
+    ) &&
+    (
+      lowered.contains("second") ||
+      lowered.contains("seconds") ||
+      lowered.contains(" sec ")
+    ) {
+    if both_directions {
+      llm_sim_bidirectional_linear_unit_conversion_source(
+        "minutes", "Minutes", "seconds", "Seconds", "60", "60", "time", 4,
+      )
+    } else {
+      llm_sim_linear_unit_conversion_source(
+        "minutes", "Minutes", "seconds", "Seconds", "60", "time", 4,
+      )
+    }
+  } else if (lowered.contains("hour") || lowered.contains("hours")) &&
+    (lowered.contains("minute") || lowered.contains("minutes")) {
+    if both_directions {
+      llm_sim_bidirectional_linear_unit_conversion_source(
+        "hours", "Hours", "minutes", "Minutes", "60", "60", "time", 4,
+      )
+    } else {
+      llm_sim_linear_unit_conversion_source(
+        "hours", "Hours", "minutes", "Minutes", "60", "time", 4,
+      )
+    }
+  } else if (
+      lowered.contains("meter") ||
+      lowered.contains("metre") ||
+      lowered.contains(" meters ") ||
+      lowered.contains(" metres ")
+    ) &&
+    (lowered.contains("feet") || lowered.contains("foot")) {
+    if both_directions {
+      llm_sim_bidirectional_linear_unit_conversion_source(
+        "meters", "Meters", "feet", "Feet", "3.28084", "3.28084", "length", 4,
+      )
+    } else {
+      llm_sim_linear_unit_conversion_source(
+        "meters", "Meters", "feet", "Feet", "3.28084", "length", 4,
+      )
+    }
+  } else if (
+      lowered.contains("kilometer") ||
+      lowered.contains("kilometre") ||
+      lowered.contains("km")
+    ) &&
+    (lowered.contains("mile") || lowered.contains("miles")) {
+    if both_directions {
+      llm_sim_bidirectional_linear_unit_conversion_source(
+        "kilometers", "Kilometers", "miles", "Miles", "0.621371", "0.621371", "length",
+        4,
+      )
+    } else {
+      llm_sim_linear_unit_conversion_source(
+        "kilometers", "Kilometers", "miles", "Miles", "0.621371", "length", 4,
+      )
+    }
+  } else if (lowered.contains("kilogram") || lowered.contains("kg")) &&
+    (lowered.contains("pound") || lowered.contains("lb")) {
+    if both_directions {
+      llm_sim_bidirectional_linear_unit_conversion_source(
+        "kilograms", "Kilograms", "pounds", "Pounds", "2.20462", "2.20462", "weight",
+        4,
+      )
+    } else {
+      llm_sim_linear_unit_conversion_source(
+        "kilograms", "Kilograms", "pounds", "Pounds", "2.20462", "weight", 4,
+      )
+    }
+  } else {
+    ""
+  }
+}
+
+///|
+fn llm_sim_linear_unit_conversion_source(
+  from_name : String,
+  from_label : String,
+  to_name : String,
+  to_label : String,
+  factor : String,
+  noun : String,
+  decimals : Int,
+) -> String {
+  "/// MOONAP_RUNTIME_SPEC_BEGIN\n" +
+  "/// {\n" +
+  "///   \"mode\": \"form\",\n" +
+  "///   \"title\": \"Convert " +
+  from_name +
+  " to " +
+  to_name +
+  "\",\n" +
+  "///   \"action_label\": \"Convert " +
+  noun +
+  "\",\n" +
+  "///   \"rerun_action_label\": \"Convert again\",\n" +
+  "///   \"fields\": [{\"name\":\"" +
+  from_name +
+  "\",\"label\":\"" +
+  from_label +
+  "\",\"type\":\"float\",\"default\":1,\"step\":0.01,\"help\":\"Enter " +
+  from_name +
+  ".\"}],\n" +
+  "///   \"computed_outputs\": [{\"name\":\"" +
+  to_name +
+  "\",\"label\":\"" +
+  to_label +
+  "\",\"expression\":\"" +
+  from_name +
+  " * " +
+  factor +
+  "\",\"decimals\":" +
+  decimals.to_string() +
+  "}],\n" +
+  "///   \"result_template\": \"" +
+  from_label +
+  ": {{" +
+  from_name +
+  "}}\\n" +
+  to_label +
+  ": {{" +
+  to_name +
+  "}}\",\n" +
+  "///   \"summary_template\": \"Converted {{" +
+  from_name +
+  "}} " +
+  from_name +
+  " to {{" +
+  to_name +
+  "}} " +
+  to_name +
+  ".\"\n" +
+  "/// }\n" +
+  "/// MOONAP_RUNTIME_SPEC_END\n" +
+  llm_sim_source_header("MoonAP " + from_name + " to " + to_name + " converter")
+}
+
+///|
+fn llm_sim_bidirectional_linear_unit_conversion_source(
+  left_name : String,
+  left_label : String,
+  right_name : String,
+  right_label : String,
+  factor : String,
+  right_default : String,
+  noun : String,
+  decimals : Int,
+) -> String {
+  "/// MOONAP_RUNTIME_SPEC_BEGIN\n" +
+  "/// {\n" +
+  "///   \"mode\": \"form\",\n" +
+  "///   \"title\": \"Convert " +
+  left_name +
+  " and " +
+  right_name +
+  "\",\n" +
+  "///   \"action_label\": \"Convert " +
+  noun +
+  "\",\n" +
+  "///   \"rerun_action_label\": \"Convert again\",\n" +
+  "///   \"fields\": [{\"name\":\"" +
+  left_name +
+  "\",\"label\":\"" +
+  left_label +
+  "\",\"type\":\"float\",\"default\":1,\"step\":0.01,\"help\":\"Enter " +
+  left_name +
+  " to convert to " +
+  right_name +
+  ".\"},{\"name\":\"" +
+  right_name +
+  "\",\"label\":\"" +
+  right_label +
+  "\",\"type\":\"float\",\"default\":" +
+  right_default +
+  ",\"step\":0.01,\"help\":\"Enter " +
+  right_name +
+  " to convert to " +
+  left_name +
+  ".\"}],\n" +
+  "///   \"computed_outputs\": [{\"name\":\"" +
+  left_name +
+  "_to_" +
+  right_name +
+  "\",\"label\":\"" +
+  left_label +
+  " to " +
+  right_label +
+  "\",\"expression\":\"" +
+  left_name +
+  " * " +
+  factor +
+  "\",\"decimals\":" +
+  decimals.to_string() +
+  "},{\"name\":\"" +
+  right_name +
+  "_to_" +
+  left_name +
+  "\",\"label\":\"" +
+  right_label +
+  " to " +
+  left_label +
+  "\",\"expression\":\"" +
+  right_name +
+  " / (" +
+  factor +
+  ")\",\"decimals\":" +
+  decimals.to_string() +
+  "}],\n" +
+  "///   \"result_template\": \"" +
+  left_label +
+  ": {{" +
+  left_name +
+  "}} -> {{" +
+  left_name +
+  "_to_" +
+  right_name +
+  "}} " +
+  right_name +
+  "\\n" +
+  right_label +
+  ": {{" +
+  right_name +
+  "}} -> {{" +
+  right_name +
+  "_to_" +
+  left_name +
+  "}} " +
+  left_name +
+  "\",\n" +
+  "///   \"summary_template\": \"Converted " +
+  left_name +
+  " and " +
+  right_name +
+  ".\"\n" +
+  "/// }\n" +
+  "/// MOONAP_RUNTIME_SPEC_END\n" +
+  llm_sim_source_header(
+    "MoonAP " + left_name + " and " + right_name + " converter",
+  )
 }
 
 ///|

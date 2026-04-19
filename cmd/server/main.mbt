@@ -1511,59 +1511,126 @@ fn runtime_spec_json_for_context(
     runtime_spec_json_for_task_kind(task_kind)
   } else {
     let declared_spec = extract_moonap_runtime_spec_json(source_text)
+    let haystack = (original_prompt + "\n" + source_text).to_lower()
+    let prompt_spec = runtime_spec_json_for_generic_prompt(haystack)
+    if prompt_spec != "" &&
+      (declared_spec == "" || runtime_spec_is_generic_fallback(declared_spec)) {
+      return prompt_spec
+    }
     if declared_spec != "" {
       return declared_spec
     }
-    let haystack = (original_prompt + "\n" + source_text).to_lower()
-    if haystack.contains("celsius") && haystack.contains("fahrenheit") {
-      "{\n" +
-      "    \"mode\": \"form\",\n" +
-      "    \"title\": \"Convert Celsius to Fahrenheit\",\n" +
-      "    \"action_label\": \"Convert temperature\",\n" +
-      "    \"rerun_action_label\": \"Convert again\",\n" +
-      "    \"fields\": [\n" +
-      "      {\n" +
-      "        \"name\": \"celsius\",\n" +
-      "        \"label\": \"Celsius temperature\",\n" +
-      "        \"type\": \"float\",\n" +
-      "        \"default\": 25,\n" +
-      "        \"step\": 0.1,\n" +
-      "        \"help\": \"Enter the Celsius value to convert.\"\n" +
-      "      }\n" +
-      "    ]\n" +
-      "  }"
-    } else if (
-        haystack.contains("two number") ||
-        haystack.contains("two numbers") ||
-        haystack.contains("2 number") ||
-        haystack.contains("2 numbers")
-      ) &&
-      (haystack.contains("sum") || haystack.contains("add")) {
-      "{\n" +
-      "    \"mode\": \"form\",\n" +
-      "    \"title\": \"Add two numbers\",\n" +
-      "    \"action_label\": \"Calculate sum\",\n" +
-      "    \"rerun_action_label\": \"Calculate again\",\n" +
-      "    \"fields\": [\n" +
-      "      {\n" +
-      "        \"name\": \"number_a\",\n" +
-      "        \"label\": \"First number\",\n" +
-      "        \"type\": \"float\",\n" +
-      "        \"default\": 1,\n" +
-      "        \"step\": 1\n" +
-      "      },\n" +
-      "      {\n" +
-      "        \"name\": \"number_b\",\n" +
-      "        \"label\": \"Second number\",\n" +
-      "        \"type\": \"float\",\n" +
-      "        \"default\": 2,\n" +
-      "        \"step\": 1\n" +
-      "      }\n" +
-      "    ]\n" +
-      "  }"
+    if prompt_spec != "" {
+      prompt_spec
     } else {
       runtime_spec_json_for_task_kind(task_kind)
     }
+  }
+}
+
+///|
+fn runtime_spec_is_generic_fallback(spec : String) -> Bool {
+  let lowered = spec.to_lower()
+  lowered.contains("\"run browser-local app\"") ||
+  lowered.contains("\"generic input") ||
+  (
+    lowered.contains("\"input_text\"") &&
+    !lowered.contains("\"tool_kind\"") &&
+    !lowered.contains("\"computed_outputs\"")
+  )
+}
+
+///|
+fn runtime_spec_json_for_generic_prompt(haystack : String) -> String {
+  if haystack.contains("json") &&
+    (
+      haystack.contains("format") ||
+      haystack.contains("validator") ||
+      haystack.contains("validate")
+    ) {
+    "{\n" +
+    "    \"mode\": \"form\",\n" +
+    "    \"tool_kind\": \"json-formatter\",\n" +
+    "    \"title\": \"JSON formatter and validator\",\n" +
+    "    \"action_label\": \"Format JSON\",\n" +
+    "    \"rerun_action_label\": \"Format again\",\n" +
+    "    \"fields\": [{\"name\":\"json_text\",\"label\":\"JSON text\",\"type\":\"text\",\"default\":\"{\\\"hello\\\":\\\"moonap\\\"}\",\"help\":\"Paste JSON text to validate and pretty-print locally.\"}]\n" +
+    "  }"
+  } else if haystack.contains("text analyzer") ||
+    (
+      haystack.contains("characters") &&
+      haystack.contains("words") &&
+      haystack.contains("lines")
+    ) {
+    "{\n" +
+    "    \"mode\": \"form\",\n" +
+    "    \"tool_kind\": \"text-analysis\",\n" +
+    "    \"title\": \"Text analyzer\",\n" +
+    "    \"action_label\": \"Analyze text\",\n" +
+    "    \"rerun_action_label\": \"Analyze again\",\n" +
+    "    \"fields\": [{\"name\":\"input_text\",\"label\":\"Text\",\"type\":\"text\",\"default\":\"MoonAP runs browser-local WebAssembly tools.\",\"help\":\"Enter text to count characters, words, lines, and estimated reading time.\"}]\n" +
+    "  }"
+  } else if haystack.contains("csv") ||
+    haystack.contains("tsv") ||
+    haystack.contains("column names") ||
+    haystack.contains("missing values") {
+    "{\n" +
+    "    \"mode\": \"file\",\n" +
+    "    \"analysis_type\": \"csv-summary\",\n" +
+    "    \"title\": \"CSV analyzer\",\n" +
+    "    \"action_label\": \"Analyze CSV\",\n" +
+    "    \"rerun_action_label\": \"Analyze CSV again\",\n" +
+    "    \"io_contract\": {\"browser_local_only\": true, \"llm_receives_file_contents\": false, \"host_capability\": \"csv-summary\", \"input_mode\": \"file\", \"output_mode\": \"report\", \"supported_extensions\": [\"csv\", \"tsv\", \"txt\"]},\n" +
+    "    \"fields\": []\n" +
+    "  }"
+  } else if haystack.contains("celsius") && haystack.contains("fahrenheit") {
+    "{\n" +
+    "    \"mode\": \"form\",\n" +
+    "    \"title\": \"Convert Celsius to Fahrenheit\",\n" +
+    "    \"action_label\": \"Convert temperature\",\n" +
+    "    \"rerun_action_label\": \"Convert again\",\n" +
+    "    \"fields\": [\n" +
+    "      {\n" +
+    "        \"name\": \"celsius\",\n" +
+    "        \"label\": \"Celsius temperature\",\n" +
+    "        \"type\": \"float\",\n" +
+    "        \"default\": 25,\n" +
+    "        \"step\": 0.1,\n" +
+    "        \"help\": \"Enter the Celsius value to convert.\"\n" +
+    "      }\n" +
+    "    ]\n" +
+    "  }"
+  } else if (
+      haystack.contains("two number") ||
+      haystack.contains("two numbers") ||
+      haystack.contains("2 number") ||
+      haystack.contains("2 numbers")
+    ) &&
+    (haystack.contains("sum") || haystack.contains("add")) {
+    "{\n" +
+    "    \"mode\": \"form\",\n" +
+    "    \"title\": \"Add two numbers\",\n" +
+    "    \"action_label\": \"Calculate sum\",\n" +
+    "    \"rerun_action_label\": \"Calculate again\",\n" +
+    "    \"fields\": [\n" +
+    "      {\n" +
+    "        \"name\": \"number_a\",\n" +
+    "        \"label\": \"First number\",\n" +
+    "        \"type\": \"float\",\n" +
+    "        \"default\": 1,\n" +
+    "        \"step\": 1\n" +
+    "      },\n" +
+    "      {\n" +
+    "        \"name\": \"number_b\",\n" +
+    "        \"label\": \"Second number\",\n" +
+    "        \"type\": \"float\",\n" +
+    "        \"default\": 2,\n" +
+    "        \"step\": 1\n" +
+    "      }\n" +
+    "    ]\n" +
+    "  }"
+  } else {
+    ""
   }
 }
 

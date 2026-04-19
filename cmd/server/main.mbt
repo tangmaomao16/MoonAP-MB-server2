@@ -2857,7 +2857,7 @@ fn llm_sim_auto_response_for_body(body : String, stage : String) -> String {
 
 ///|
 fn llm_sim_auto_codegen_source(body : String) -> String {
-  let lowered = body.to_lower()
+  let lowered = llm_sim_user_prompt_haystack(body)
   if lowered.contains("fastq") &&
     (
       lowered.contains("analy") ||
@@ -2936,6 +2936,62 @@ fn llm_sim_auto_codegen_source(body : String) -> String {
   } else {
     llm_sim_generic_input_source()
   }
+}
+
+///|
+fn llm_sim_user_prompt_haystack(body : String) -> String {
+  let role_marker = "\"role\":\"user\""
+  let spaced_role_marker = "\"role\": \"user\""
+  let content = if body.find(role_marker) is Some(start) {
+    let before_role = extract_last_json_string_field_before(
+      body, "content", start,
+    )
+    if before_role != "" {
+      before_role
+    } else {
+      let after_role = body[start + role_marker.length():].to_string()
+      extract_json_string_field(after_role, "content")
+    }
+  } else if body.find(spaced_role_marker) is Some(start) {
+    let before_role = extract_last_json_string_field_before(
+      body, "content", start,
+    )
+    if before_role != "" {
+      before_role
+    } else {
+      let after_role = body[start + spaced_role_marker.length():].to_string()
+      extract_json_string_field(after_role, "content")
+    }
+  } else {
+    ""
+  }
+  if content == "" {
+    body.to_lower()
+  } else {
+    content.to_lower()
+  }
+}
+
+///|
+fn extract_last_json_string_field_before(
+  body : String,
+  key : String,
+  limit : Int,
+) -> String {
+  let marker = "\"" + key + "\""
+  let mut search_start = 0
+  let mut latest = ""
+  while search_start < limit {
+    let segment = body[search_start:limit].to_string()
+    guard segment.find(marker) is Some(pos) else { break }
+    let absolute = search_start + pos
+    let candidate = extract_json_string_field(body[absolute:].to_string(), key)
+    if candidate != "" {
+      latest = candidate
+    }
+    search_start = absolute + marker.length()
+  }
+  latest
 }
 
 ///|

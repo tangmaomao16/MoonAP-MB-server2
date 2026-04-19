@@ -20,10 +20,17 @@ $cases = @(
 )
 
 foreach ($case in $cases) {
+  $systemPrompt = @"
+You are an AI coder.
+For text analyzers, use mode=form with tool_kind=text-analysis and one text field named input_text.
+For JSON formatter/validator apps, use mode=form with tool_kind=json-formatter and one text field named json_text.
+For CSV/TSV analyzers, use mode=file with analysis_type=csv-summary and io_contract.browser_local_only=true.
+Return only MoonBit code.
+"@
   $requestJson = @{
     model = "gpt-5.4"
     messages = @(
-      @{ role = "system"; content = "You only write MoonBit code." },
+      @{ role = "system"; content = $systemPrompt },
       @{ role = "user"; content = $case.Prompt }
     )
   } | ConvertTo-Json -Depth 8 -Compress

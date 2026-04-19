@@ -59,3 +59,58 @@ Return only MoonBit code.
     stage = $compile.stage
   } | ConvertTo-Json -Compress
 }
+
+$genericSource = @'
+/// MOONAP_RUNTIME_SPEC_BEGIN
+/// {
+///   "mode": "form",
+///   "title": "Run browser-local app",
+///   "action_label": "Run app",
+///   "fields": [{"name":"input_text","label":"Input","type":"text","default":""}]
+/// }
+/// MOONAP_RUNTIME_SPEC_END
+///|
+fn main {
+  println("MoonAP generic browser-local app")
+}
+'@
+
+$compileReport = '{"ok":true,"wasm_path":"C:\\temp\\moonap-demo.wasm","stage":"moonbit-wasm-compile","summary_kind":"none"}'
+$sequence = @(
+  @{ Prompt = "Build a JSON formatter and validator."; Expect = "json_text"; Reject = "tool_kind`": `"text-analysis" },
+  @{ Prompt = "Build a text analyzer that counts characters, words, lines, and estimated reading time."; Expect = "text-analysis"; Reject = "json_text" }
+)
+
+foreach ($item in $sequence) {
+  $envelope = @(
+    "TASK_TITLE`tMoonBit Task",
+    "ORIGINAL_PROMPT`t$($item.Prompt)",
+    "LLM_PROVIDER`topenai",
+    "LLM_MODEL`tgpt-5.4",
+    "REQUEST_STAGE`ttest-registration",
+    "COMPILE_OK`ttrue",
+    "WASM_PATH`tC:\temp\moonap-demo.wasm",
+    "SOURCE_BEGIN",
+    $genericSource.TrimEnd(),
+    "SOURCE_END",
+    "COMPILE_REPORT_BEGIN",
+    $compileReport,
+    "COMPILE_REPORT_END",
+    "RAW_RESPONSE_BEGIN",
+    "",
+    "RAW_RESPONSE_END"
+  ) -join "`n"
+  $registered = Invoke-RestMethod -Method Post -Uri "$BaseUrl/api/runtime-exec/register-ready" -Body $envelope -ContentType "text/plain"
+  $specText = $registered.runtime_spec | ConvertTo-Json -Depth 20 -Compress
+  if (!$specText.Contains([string]$item.Expect)) {
+    throw "Sequential registration expected '$($item.Expect)' for prompt: $($item.Prompt)"
+  }
+  if ($specText.Contains([string]$item.Reject)) {
+    throw "Sequential registration leaked '$($item.Reject)' for prompt: $($item.Prompt)"
+  }
+  [pscustomobject]@{
+    ok = $true
+    prompt = $item.Prompt
+    sequential_registration_expect = $item.Expect
+  } | ConvertTo-Json -Compress
+}

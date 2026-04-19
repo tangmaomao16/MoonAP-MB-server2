@@ -674,11 +674,17 @@ extern "js" fn browser_start_new_app() -> Unit =
   #|   if (requestId) {
   #|     localStorage.setItem("moonap.ignoreRuntimeRequestId", requestId);
   #|   }
+  #|   globalThis.__moonapLastArtifact = null;
+  #|   globalThis.__moonapLastCompileReport = null;
   #|   globalThis.__moonapLastRuntimeRequest = {};
   #|   globalThis.__moonapLastRuntimeResult = {};
   #|   globalThis.__moonapLastRuntimeReportPayload = null;
   #|   globalThis.__moonapLastRuntimeRequestText = "";
   #|   globalThis.__moonapLastRuntimeResultText = "";
+  #|   globalThis.__moonapLastArtifactCardArgs = null;
+  #|   globalThis.__moonapBenchmarkAssessment = "";
+  #|   globalThis.__moonapLastSkillSaveDecision = {};
+  #|   globalThis.__moonapLastSkillSaveDecisionText = "";
   #|   globalThis.__moonapAllowTransientArtifactCard = false;
   #|   const actions = document.querySelector("#artifactActions");
   #|   if (actions) {
@@ -2709,26 +2715,28 @@ extern "js" fn browser_watch_runtime_protocol(
   #|     try {
   #|       const requestText = await fetch("/api/runtime-exec/latest-request").then((response) => response.text());
   #|       if (requestText && requestText !== globalThis.__moonapLastRuntimeRequestText) {
-  #|         globalThis.__moonapLastRuntimeRequestText = requestText;
   #|         let requestJson = {};
-  #|         try { requestJson = JSON.parse(requestText); globalThis.__moonapLastRuntimeRequest = requestJson; } catch {}
+  #|         try { requestJson = JSON.parse(requestText); } catch {}
   #|         const ignoredId = String(localStorage.getItem("moonap.ignoreRuntimeRequestId") || "");
   #|         const requestId = String(requestJson?.request_id || "");
   #|         if (ignoredId && requestId === ignoredId) return;
   #|         if (ignoredId && requestId && requestId !== ignoredId) localStorage.removeItem("moonap.ignoreRuntimeRequestId");
+  #|         globalThis.__moonapLastRuntimeRequestText = requestText;
+  #|         globalThis.__moonapLastRuntimeRequest = requestJson;
   #|         onRequest(String(requestText));
   #|       }
   #|     } catch {}
   #|     try {
   #|       const resultText = await fetch("/api/runtime-exec/latest-result").then((response) => response.text());
   #|       if (resultText && resultText !== globalThis.__moonapLastRuntimeResultText) {
-  #|         globalThis.__moonapLastRuntimeResultText = resultText;
   #|         let resultJson = {};
-  #|         try { resultJson = JSON.parse(resultText); globalThis.__moonapLastRuntimeResult = resultJson; } catch {}
+  #|         try { resultJson = JSON.parse(resultText); } catch {}
   #|         const ignoredId = String(localStorage.getItem("moonap.ignoreRuntimeRequestId") || "");
   #|         const requestId = String(resultJson?.request_id || "");
   #|         if (ignoredId && requestId === ignoredId) return;
   #|         if (ignoredId && requestId && requestId !== ignoredId) localStorage.removeItem("moonap.ignoreRuntimeRequestId");
+  #|         globalThis.__moonapLastRuntimeResultText = resultText;
+  #|         globalThis.__moonapLastRuntimeResult = resultJson;
   #|         onResult(String(resultText));
   #|       }
   #|     } catch {}

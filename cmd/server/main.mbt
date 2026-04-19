@@ -1208,7 +1208,9 @@ fn runtime_task_kind_from_context(
     haystack.contains(".fq") ||
     haystack.contains(" fq ") ||
     haystack.contains("sequencing")
-  if mentions_large_file && mentions_fastq && mentions_analysis {
+  if generic_prompt_has_specialized_runtime(haystack) {
+    "generic-task"
+  } else if mentions_large_file && mentions_fastq && mentions_analysis {
     "large-fastq-analysis"
   } else if mentions_large_file && mentions_generation {
     "large-file-generation"
@@ -1227,6 +1229,28 @@ fn runtime_task_kind_from_context(
   } else {
     "generic-task"
   }
+}
+
+///|
+fn generic_prompt_has_specialized_runtime(haystack : String) -> Bool {
+  (
+    haystack.contains("json") &&
+    (
+      haystack.contains("format") ||
+      haystack.contains("validator") ||
+      haystack.contains("validate")
+    )
+  ) ||
+  haystack.contains("text analyzer") ||
+  (
+    haystack.contains("characters") &&
+    haystack.contains("words") &&
+    haystack.contains("lines")
+  ) ||
+  haystack.contains("csv") ||
+  haystack.contains("tsv") ||
+  haystack.contains("column names") ||
+  haystack.contains("missing values")
 }
 
 ///|

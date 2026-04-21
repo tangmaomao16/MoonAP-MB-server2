@@ -32,12 +32,13 @@
 \newcommand{\moonap}{MoonAP}
 \newcommand{\skill}{SKILL}
 \newcommand{\wasm}{WebAssembly}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
 
 \begin{document}
 \maketitle
 
 \begin{abstract}
-Large language models (LLMs) can synthesize useful programs from natural-language descriptions, but the path from generated code to a runnable, inspectable, and reusable application remains fragmented. This paper presents \moonap{} v0.1, a MoonBit-oriented agent playground that turns a natural-language application request into MoonBit source code, compiles it to \wasm{}, executes it locally in the browser, and optionally saves the successful artifact as a reusable \moonap{}-\skill{}. The system combines an LLM routing layer, a MoonBit compilation service, browser-local runtime contracts, and a three-layer \skill{} architecture for personal reuse, local installation, and cloud discovery. The v0.1 prototype demonstrates twelve task categories, including form-based calculators, JSON and text utilities, CSV file analysis, and browser-local large FastQ generation and analysis. We describe the system design, implementation, runtime contract abstraction, and lessons learned from building an end-to-end software synthesis workflow around a young programming language and browser-local execution. The central finding is not that current lightweight LLMs can already synthesize MoonBit reliably; rather, it is that a practical synthesis environment needs explicit runtime contracts, deterministic simulation paths, artifact reuse, and local execution boundaries to make generated applications usable.
+Large language models (LLMs) can synthesize useful programs from natural-language descriptions, but the path from generated code to a runnable, inspectable, and reusable application remains fragmented. This paper presents \moonap{} v0.1, a MoonBit-oriented agent playground that turns a natural-language application request into MoonBit source code, compiles it to \wasm{}, executes it locally in the browser, and optionally saves the successful artifact as a reusable \moonap{}-\skill{}. The system combines an LLM routing layer, a MoonBit compilation service, browser-local runtime contracts, and a three-layer \skill{} architecture for personal reuse, local installation, and cloud discovery. The v0.1 prototype demonstrates twelve task categories, including form-based calculators, JSON and text utilities, CSV file analysis, and browser-local large FastQ generation and analysis. By moving file handling and computation into the browser, \moonap{} keeps raw user data on the client, exploits edge-side compute resources, and reduces repeated cloud LLM token consumption after a useful artifact has been created. We describe the system design, implementation, runtime contract abstraction, and lessons learned from building an end-to-end software synthesis workflow around a young programming language and browser-local execution. The central finding is not that current lightweight LLMs can already synthesize MoonBit reliably; rather, it is that a practical synthesis environment needs explicit runtime contracts, deterministic simulation paths, artifact reuse, and local execution boundaries to make generated applications usable.
 \end{abstract}
 
 \section{Introduction}
@@ -54,7 +55,7 @@ This paper reports on \moonap{} v0.1 as a system prototype. The contribution is 
   \item an end-to-end pipeline from natural-language task to MoonBit source, \wasm{} compilation, browser-local execution, and reusable \skill{};
   \item a runtime contract abstraction for generated applications, covering form, text, report, file, and large-file workflows;
   \item a three-layer \skill{} model that distinguishes personal reuse, locally installed public \skill{}s, and cloud discovery;
-  \item browser-local large-file workflows for FastQ generation and analysis, where file contents stay in the browser;
+  \item browser-local large-file workflows for FastQ generation and analysis, including streamed and chunked processing paths designed for GB-scale files whose raw contents remain on the client;
   \item an implementation and qualitative evaluation over twelve v0.1 demonstration categories.
 \end{itemize}
 
@@ -166,13 +167,13 @@ The contract also makes \skill{} reuse possible. When a \skill{} is run again, \
 
 \section{Browser-Local Large-File Workflows}
 
-\moonap{} v0.1 includes two large-file FastQ workflows: generation and analysis. These workflows are intentionally treated as high-value demonstrations of browser-local computation rather than as the only purpose of the platform.
+\moonap{} v0.1 includes two large-file FastQ workflows: generation and analysis. These workflows are intentionally treated as high-value demonstrations of browser-local computation rather than as the only purpose of the platform. They also illustrate an important design point for LLM-generated applications: the LLM should help create the tool, but it should not need to ingest the user's raw data file.
 
 \paragraph{Large FastQ generation.}
-The generator uses a browser file-save picker and a streamed writer. The user chooses an output file, enters parameters such as target size, read length, random seed, and N-base rate, and the browser writes records locally. The LLM does not receive the generated file contents.
+The generator uses a browser file-save picker and a streamed writer. The user chooses an output file, enters parameters such as target size, read length, random seed, and N-base rate, and the browser writes records locally. This design can produce large synthetic files without constructing the whole file in server memory, and the LLM does not receive the generated file contents.
 
 \paragraph{Large FastQ analysis.}
-The analyzer uses a browser file-open picker and reads the selected file in chunks. It counts reads, lines, bases, base composition, malformed records, read lengths, and elapsed time. Again, file contents stay in the browser; the server receives only summary metrics and result metadata.
+The analyzer uses a browser file-open picker and reads the selected file in chunks. It counts reads, lines, bases, base composition, malformed records, read lengths, and elapsed time. Because the raw bytes are processed through browser-local chunking, the workflow is suitable for large local files, including GB-scale demonstrations on commodity machines. File contents stay in the browser; the server receives only summary metrics and result metadata.
 
 Figure~\ref{fig:fastq-report} shows the browser-local FastQ report generated by the analyzer. The report is opened from a browser blob URL and presents summary metrics and base-composition results without uploading the original file contents.
 
@@ -237,7 +238,7 @@ The v0.1 evaluation is qualitative and prototype-oriented. It asks whether the s
 \begin{table}[t]
 \centering
 \small
-\begin{tabular}{p{0.28\linewidth}p{0.42\linewidth}p{0.20\linewidth}}
+\begin{tabular}{L{0.28\linewidth}L{0.42\linewidth}L{0.20\linewidth}}
 \toprule
 \textbf{Capability family} & \textbf{Examples} & \textbf{Runtime path}\\
 \midrule
@@ -267,10 +268,13 @@ Without a runtime contract, the browser does not know which inputs to show or ho
 When the target language is young, real models may fail for reasons unrelated to the runtime system. The simulated route allowed v0.1 to test compilation, UI, file handling, and \skill{} reuse deterministically.
 
 \paragraph{Reuse is as important as generation.}
-Users should not need to pay the latency and uncertainty cost of an LLM call every time they run a useful generated app. The \skill{} format turns synthesis into a reusable software artifact.
+Users should not need to pay the latency and uncertainty cost of an LLM call every time they run a useful generated app. The \skill{} format turns synthesis into a reusable software artifact. This also reduces cloud token consumption: the expensive generative step is used for creation or repair, while repeated execution happens locally from the saved contract and compiled artifact.
 
 \paragraph{Browser-local file boundaries must be explicit.}
 For large files, privacy and performance depend on a clear boundary: file contents stay in the browser, while summaries and metadata can be recorded by the local server.
+
+\paragraph{Client hardware is part of the execution platform.}
+Browser-local \wasm{} execution lets \moonap{} use computation and storage resources already available on the user's device. This edge-side execution model is especially valuable for file utilities, where moving raw data to a cloud model would be slower, more expensive, and less private than processing it near the data.
 
 \section{Limitations}
 
@@ -292,7 +296,7 @@ Future versions of \moonap{} can extend the platform in several directions:
 
 \section{Conclusion}
 
-\moonap{} v0.1 demonstrates an end-to-end MoonBit software synthesis workflow: natural-language task descriptions become MoonBit source, compiled \wasm{} artifacts, browser-local applications, and reusable \skill{} packages. The system highlights a practical lesson for LLM-based software synthesis: generation is only the first step. A usable platform also needs runtime contracts, local execution boundaries, artifact packaging, deterministic testing paths, and reuse mechanisms. Although current lightweight LLMs do not yet generate MoonBit reliably, \moonap{} shows how a MoonBit-centered agent playground can make generated applications inspectable, runnable, and reusable in the browser.
+\moonap{} v0.1 demonstrates an end-to-end MoonBit software synthesis workflow: natural-language task descriptions become MoonBit source, compiled \wasm{} artifacts, browser-local applications, and reusable \skill{} packages. The system highlights a practical lesson for LLM-based software synthesis: generation is only the first step. A usable platform also needs runtime contracts, local execution boundaries, artifact packaging, deterministic testing paths, and reuse mechanisms. By keeping raw data on the client, using browser-side computation for file workflows, and reusing saved \skill{}s without repeated generation, \moonap{} points toward a lower-token and more privacy-preserving style of practical software synthesis. Although current lightweight LLMs do not yet generate MoonBit reliably, \moonap{} shows how a MoonBit-centered agent playground can make generated applications inspectable, runnable, and reusable in the browser.
 
 \bibliographystyle{plain}
 \bibliography{references}

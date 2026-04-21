@@ -7,6 +7,7 @@ This directory contains an English arXiv-style draft for MoonAP v0.1.
 - `moonap-v0.1.tex`: main LaTeX source.
 - `references.bib`: BibTeX references.
 - `figures/`: screenshots copied from the project `imgs/` directory.
+- `moonap-v0.1.pdf`: compiled PDF draft when generated locally.
 
 ## Build
 

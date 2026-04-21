@@ -123,14 +123,14 @@ Figure~\ref{fig:pipeline} shows the \moonap{} pipeline. A browser UI accepts a n
 \begin{figure}[t]
 \centering
 \begin{tikzpicture}[
-  layer/.style={draw, rounded corners, minimum width=12cm, minimum height=1cm, align=center},
+  layer/.style={draw, rounded corners, text width=10.4cm, minimum height=1cm, align=center},
   arrow/.style={-{Latex[length=2.5mm]}, thick}
 ]
 \node[layer, fill=green!6] (personal) {\textbf{Personal-SKILL-Set}\\User-created local \skill{}s saved from successful generated applications; runnable locally.};
 \node[layer, fill=blue!5, below=0.35cm of personal] (local) {\textbf{Local-SKILL-Hub}\\Installed public \skill{}s; this is where public \skill{}s actually run.};
 \node[layer, fill=orange!8, below=0.35cm of local] (cloud) {\textbf{Cloud-SKILL-Hub}\\Public discovery catalog and ZIP distribution; install-only, not directly executed.};
-\draw[arrow] (cloud.east) -- ++(0.7,0) |- node[pos=0.25,right]{install} (local.east);
-\draw[arrow] (personal.west) -- ++(-0.7,0) |- node[pos=0.25,left]{save} (local.west);
+\draw[arrow] (cloud.east) -- ++(0.35,0) |- node[pos=0.25,right]{install} (local.east);
+\draw[arrow] (personal.west) -- ++(-0.35,0) |- node[pos=0.25,left]{save} (local.west);
 \end{tikzpicture}
 \caption{Three-layer \moonap{}-\skill{} model. Cloud entries are used for discovery and installation; execution happens in Personal or Local stores.}
 \label{fig:skill}

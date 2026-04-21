@@ -26,12 +26,6 @@ If `latexmk` is available:
 latexmk -pdf moonap-v0.1.tex
 ```
 
-## Optional Extra Screenshots
+## Screenshot Notes
 
-The chat thread includes an additional screenshot showing Local/Cloud SKILL reuse. It is not yet a local file in this repository. To include it later, save it as:
-
-```text
-paper/figures/screenshot-local-cloud-skill.png
-```
-
-Then add corresponding `figure` blocks to `moonap-v0.1.tex`.
+The current draft uses the main MoonAP UI screenshot, the Local/Cloud SKILL Hub screenshot, and a FastQ report screenshot with summary metrics and base-composition results. Older cropped FastQ report screenshots are not referenced by the paper.

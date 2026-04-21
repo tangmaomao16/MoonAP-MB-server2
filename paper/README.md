@@ -2,6 +2,13 @@
 
 This directory contains an English arXiv-style draft for MoonAP v0.1.
 
+## Archived Version
+
+The MoonAP v0.1 paper is archived on Zenodo:
+
+- **DOI:** [10.5281/zenodo.19682015](https://doi.org/10.5281/zenodo.19682015)
+- **Zenodo record:** [https://zenodo.org/records/19682015](https://zenodo.org/records/19682015)
+
 ## Files
 
 - `moonap-v0.1.tex`: main LaTeX source.

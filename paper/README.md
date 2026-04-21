@@ -28,11 +28,10 @@ latexmk -pdf moonap-v0.1.tex
 
 ## Optional Extra Screenshots
 
-The chat thread includes two additional screenshots showing Local/Cloud SKILL reuse and a FastQ report page. They are not yet local files in this repository. To include them later, save them as:
+The chat thread includes an additional screenshot showing Local/Cloud SKILL reuse. It is not yet a local file in this repository. To include it later, save it as:
 
 ```text
 paper/figures/screenshot-local-cloud-skill.png
-paper/figures/screenshot-fastq-report.png
 ```
 
 Then add corresponding `figure` blocks to `moonap-v0.1.tex`.
